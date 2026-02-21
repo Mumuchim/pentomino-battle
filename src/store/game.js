@@ -4,7 +4,8 @@ import { PENTOMINOES } from "../lib/pentominoes";
 import { transformCells } from "../lib/geom";
 
 function makeEmptyBoard(w, h) {
-  return Array.from({ length: h }, () => Array.from({ length: w }, () => 0));
+  // null = empty, otherwise { player: 1|2, pieceKey: "T" }
+  return Array.from({ length: h }, () => Array.from({ length: w }, () => null));
 }
 
 function inBounds(x, y, w, h) {
@@ -13,7 +14,6 @@ function inBounds(x, y, w, h) {
 
 export const useGameStore = defineStore("game", {
   state: () => ({
-    // ✅ board is 10×6 now
     boardW: 10,
     boardH: 6,
     board: makeEmptyBoard(10, 6),
@@ -21,18 +21,15 @@ export const useGameStore = defineStore("game", {
     phase: "draft", // "draft" | "place" | "gameover"
     currentPlayer: 1,
 
-    // Draft
     pool: Object.keys(PENTOMINOES),
     picks: { 1: [], 2: [] },
     draftTurn: 1,
 
-    // Placement
     remaining: { 1: [], 2: [] },
     placedCount: 0,
 
-    // Selection + transform
     selectedPieceKey: null,
-    rotation: 0,     // 0..3
+    rotation: 0,
     flipped: false,
     allowFlip: true,
 
@@ -70,7 +67,7 @@ export const useGameStore = defineStore("game", {
       this.lastMove = null;
     },
 
-    // ---------- DRAFT ----------
+    // ----- DRAFT -----
     draftPick(pieceKey) {
       if (this.phase !== "draft") return;
       if (!this.pool.includes(pieceKey)) return;
@@ -88,7 +85,7 @@ export const useGameStore = defineStore("game", {
       }
     },
 
-    // ---------- SELECT / TRANSFORM ----------
+    // ----- SELECT / TRANSFORM -----
     selectPiece(pieceKey) {
       if (this.phase !== "place") return;
       if (!this.remaining[this.currentPlayer].includes(pieceKey)) return;
@@ -109,7 +106,7 @@ export const useGameStore = defineStore("game", {
       this.flipped = !this.flipped;
     },
 
-    // ---------- LEGALITY ----------
+    // ----- LEGALITY -----
     canPlaceAt(anchorX, anchorY) {
       if (this.phase !== "place") return false;
       if (!this.selectedPieceKey) return false;
@@ -122,7 +119,7 @@ export const useGameStore = defineStore("game", {
       // bounds + overlap
       for (const [x, y] of abs) {
         if (!inBounds(x, y, this.boardW, this.boardH)) return false;
-        if (this.board[y][x] !== 0) return false;
+        if (this.board[y][x] !== null) return false;
       }
 
       // first move anywhere
@@ -133,7 +130,7 @@ export const useGameStore = defineStore("game", {
       for (const [x, y] of abs) {
         for (const [ox, oy] of dirs) {
           const nx = x + ox, ny = y + oy;
-          if (inBounds(nx, ny, this.boardW, this.boardH) && this.board[ny][nx] !== 0) {
+          if (inBounds(nx, ny, this.boardW, this.boardH) && this.board[ny][nx] !== null) {
             return true;
           }
         }
@@ -147,7 +144,7 @@ export const useGameStore = defineStore("game", {
       const abs = this.selectedCells.map(([dx, dy]) => [anchorX + dx, anchorY + dy]);
 
       for (const [x, y] of abs) {
-        this.board[y][x] = this.currentPlayer;
+        this.board[y][x] = { player: this.currentPlayer, pieceKey: this.selectedPieceKey };
       }
 
       const key = this.selectedPieceKey;
@@ -185,7 +182,6 @@ export const useGameStore = defineStore("game", {
       };
 
       this.currentPlayer = player;
-
       const flipOptions = this.allowFlip ? [false, true] : [false];
 
       for (const pk of pieces) {
