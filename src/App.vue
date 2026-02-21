@@ -23,10 +23,7 @@
 
     <header class="topbar">
       <div class="brand" @click="goAuth" title="Back to Main Menu">
-        <div class="logoMark">
-          <img v-if="logoDataUrl" :src="logoDataUrl" alt="Logo" class="logoImg" />
-          <span v-else>⬛</span>
-        </div>
+        <div class="logoMark"><img :src="logoUrl" alt="Logo" class="logoImg" /></div>
         <div class="brandText">
           <div class="title">PentoBattle</div>
           <div class="sub">Rotate • Flip • Dominate</div>
@@ -87,9 +84,6 @@
 
           <div class="finePrint">
             Tip: You can still play Couch + Practice without login.
-            <span class="sep">·</span>
-            <button class="linkBtn" @click="logoFileInput?.click()">Upload Logo</button>
-            <input ref="logoFileInput" type="file" accept="image/png" style="display:none" @change="onPickLogoFile" />
           </div>
         </div>
       </section>
@@ -482,8 +476,17 @@
 
         <div class="modalActions">
           <button class="btn primary" @click="closeModal">OK</button>
+
           <button v-if="modal.cta === 'reset'" class="btn" @click="resetFromModal">
             Play Again
+          </button>
+
+          <button v-if="modal.cta === 'rematch'" class="btn" @click="requestRematch">
+            Play Again
+          </button>
+
+          <button v-if="modal.cta === 'rematch'" class="btn ghost" @click="leaveOnlineAndGo('auth')">
+            Leave Match
           </button>
         </div>
       </div>
@@ -506,24 +509,7 @@ const screen = ref("auth");
 const loggedIn = ref(false);
 const allowFlip = ref(true);
 
-const logoDataUrl = ref(localStorage.getItem("pb_logo_dataurl") || "");
-const logoFileInput = ref(null);
-
-function onPickLogoFile(e) {
-  const file = e?.target?.files?.[0];
-  if (!file) return;
-  if (!file.type?.includes("png")) {
-    showModal({ title: "Logo", message: "Please upload a PNG file.", tone: "bad" });
-    return;
-  }
-  const reader = new FileReader();
-  reader.onload = () => {
-    const v = String(reader.result || "");
-    logoDataUrl.value = v;
-    try { localStorage.setItem("pb_logo_dataurl", v); } catch {}
-  };
-  reader.readAsDataURL(file);
-}
+const logoUrl = new URL("./assets/logo.svg", import.meta.url).href;
 
 const quick = reactive({
   lobbyName: "",
@@ -569,29 +555,61 @@ const turnTimerText = computed(() => {
   if (!isInGame.value) return "";
   if (game.phase === "gameover") return "";
   if (!game.turnStartedAt) return "";
+  if (isOnline.value && !online.hasOpponent) return "";
   const limit = game.phase === "draft" ? (game.turnLimitDraftSec || 30) : (game.turnLimitPlaceSec || 60);
-  const left = Math.max(0, limit - (Date.now() - game.turnStartedAt) / 1000);
+  const left = Math.max(0, limit - (nowTick.value - game.turnStartedAt) / 1000);
   const s = Math.ceil(left);
   return `Time: ${s}s`;
 });
 
+const turnTimerBar = computed(() => {
+  if (!isInGame.value) return { visible: false };
+  if (game.phase === "gameover") return { visible: false };
+  if (!game.turnStartedAt) return { visible: false };
+  // online: don't show while waiting for opponent
+  if (isOnline.value && !online.hasOpponent) return { visible: false };
+
+  const limit = game.phase === "draft" ? (game.turnLimitDraftSec || 30) : (game.turnLimitPlaceSec || 60);
+  const left = Math.max(0, limit - (nowTick.value - game.turnStartedAt) / 1000);
+  const pct = limit > 0 ? Math.max(0, Math.min(1, left / limit)) : 0;
+
+  const s = Math.ceil(left);
+  const label = game.phase === "draft" ? `Draft timer: ${s}s` : `Turn timer: ${s}s`;
+  return { visible: true, pct, text: label };
+});
+
+async function copyLobbyCode() {
+  if (!online.code) return;
+  try {
+    await navigator.clipboard.writeText(String(online.code));
+    showModal({ title: "Copied", tone: "good", message: `Lobby code copied:\n${online.code}` });
+  } catch {
+    showModal({ title: "Copy Failed", tone: "bad", message: "Your browser blocked clipboard access." });
+  }
+}
+
+
 // Top-right button: Reset (offline) / Surrender (online)
 const primaryMatchActionLabel = computed(() => {
   if (!isInGame.value) return "";
-  return isOnline.value ? "Surrender" : "Reset Match";
+  if (isOnline.value) return game.phase === "gameover" ? "Play Again" : "Surrender";
+  return "Reset Match";
 });
 
 function onPrimaryMatchAction() {
   if (!isInGame.value) return;
   if (isOnline.value) {
-    if (myPlayer.value) {
-      game.surrender(myPlayer.value);
-      online.localDirty = true;
-      pushMyState("surrender");
+    if (!myPlayer.value) return;
+    if (game.phase === "gameover") {
+      requestRematch();
+      return;
     }
-  } else {
-    onResetClick();
+    game.surrender(myPlayer.value);
+    online.localDirty = true;
+    pushMyState("surrender");
+    return;
   }
+  onResetClick();
 }
 
 function winnerMessage(w) {
@@ -702,6 +720,8 @@ function resetFromModal() {
 ========================= */
 let originalAlert = null;
 let tickTimer = null;
+let uiTickTimer = null;
+const nowTick = ref(Date.now());
 
 onMounted(() => {
   originalAlert = window.alert;
@@ -714,8 +734,15 @@ onMounted(() => {
   };
 
   // Timer watchdog (draft 30s / place 60s)
+  // UI tick (keeps countdown visible)
+  uiTickTimer = window.setInterval(() => {
+    nowTick.value = Date.now();
+  }, 250);
+
+  // Timer watchdog (draft 30s / place 60s)
   tickTimer = window.setInterval(() => {
     if (!isOnline.value) return;
+    if (!online.hasOpponent) return; // don't run timers while lobby isn't full
     // Only one side needs to finalize; allow either client to declare.
     const changed = game.checkAndApplyTimeout(Date.now());
     if (changed) {
@@ -723,6 +750,14 @@ onMounted(() => {
       pushMyState("timeout");
     }
   }, 250);
+
+
+  // Gameover announcer (winner / timeout / dodge)
+  // Uses store.lastMove so it matches both players in online.
+  // (For online, lastMove is synced via buildSyncedState.)
+  // watch is declared below (outside onMounted) for clarity.
+  // Best-effort cleanup if the tab is closed
+  window.addEventListener("beforeunload", onBeforeUnload);
 
   // Start BGM on first user gesture
   const startBgmOnce = () => {
@@ -767,6 +802,9 @@ watch(
 const online = reactive({
   lobbyId: null,
   code: null,
+  hasOpponent: false,
+  prevGuestId: null,
+  prevHasOpponent: false,
   role: null, // "host" | "guest"
   polling: false,
   pollTimer: null,
@@ -775,6 +813,7 @@ const online = reactive({
   applyingRemote: false,
   pingMs: null,
   localDirty: false,
+  rematchPromptKey: null,
 });
 
 const publicLobbies = ref([]);
@@ -811,6 +850,22 @@ function sbRestUrl(pathAndQuery) {
   return `${base}/rest/v1/${pathAndQuery}`;
 }
 
+
+function onBeforeUnload() {
+  // Fire-and-forget. Browsers may ignore async, but this helps sometimes.
+  try {
+    if (!online.lobbyId || !isOnline.value) return;
+    const lobbyId = online.lobbyId;
+    const role = online.role;
+    const url = sbRestUrl(`pb_lobbies?id=eq.${encodeURIComponent(lobbyId)}`);
+    if (role === "host") {
+      navigator.sendBeacon?.(url, "");
+      // sendBeacon can't set method headers; so this may not delete. Still keep.
+    } else {
+      // guest: we at least stop timers locally.
+    }
+  } catch {}
+}
 async function ensureSupabaseReadyOrExplain() {
   const { url, anon } = sbConfig();
   if (!url || !anon) {
@@ -836,7 +891,10 @@ async function sbSelectLobbyById(id) {
   const res = await fetch(sbRestUrl(`pb_lobbies?id=eq.${encodeURIComponent(id)}&select=*`), {
     headers: sbHeaders(),
   });
-  if (!res.ok) throw new Error(`Select lobby failed (${res.status})`);
+  if (!res.ok) {
+    if (res.status === 404) return null;
+    throw new Error(`Select lobby failed (${res.status})`);
+  }
   const rows = await res.json();
   return rows?.[0] || null;
 }
@@ -986,8 +1044,9 @@ function buildSyncedState(meta = {}) {
       turnLimitDraftSec: game.turnLimitDraftSec,
       turnLimitPlaceSec: game.turnLimitPlaceSec,
 
-      // win
+      // win + last move (for announcements)
       winner: game.winner,
+      lastMove: game.lastMove,
 
       // NOTE: exclude selection/rotation/flipped to avoid fighting
     },
@@ -1028,6 +1087,7 @@ function applySyncedState(state) {
       turnLimitPlaceSec: g.turnLimitPlaceSec,
 
       winner: g.winner,
+      lastMove: g.lastMove || null,
     });
   } finally {
     // release in next tick so watchers don't instantly re-push
@@ -1069,6 +1129,73 @@ async function sbForcePatchState(lobbyId, patchObj) {
   }
   const rows = await res.json().catch(() => []);
   return rows?.[0] || null;
+}
+
+
+async function sbDeleteLobby(lobbyId) {
+  const url = sbRestUrl(`pb_lobbies?id=eq.${encodeURIComponent(lobbyId)}`);
+  const res = await fetch(url, { method: "DELETE", headers: sbHeaders() });
+  // DELETE returns 204 or 200; ignore failures (user might have lost connection)
+  if (!res.ok && res.status !== 404) {
+    const txt = await res.text().catch(() => "");
+    throw new Error(`Delete lobby failed (${res.status})\n${txt}`);
+  }
+  return true;
+}
+
+async function sbHostResetToWaiting(lobby) {
+  if (!lobby?.id) return;
+  const nextVersion = Number(lobby.version || 0) + 1;
+  await sbForcePatchState(lobby.id, {
+    guest_id: null,
+    host_ready: false,
+    guest_ready: false,
+    status: "waiting",
+    state: {},
+    version: nextVersion,
+    updated_at: new Date().toISOString(),
+  });
+}
+
+async function sbGuestLeaveToWaiting(lobby) {
+  if (!lobby?.id) return;
+  const nextVersion = Number(lobby.version || 0) + 1;
+  await sbForcePatchState(lobby.id, {
+    guest_id: null,
+    host_ready: false,
+    guest_ready: false,
+    status: "waiting",
+    state: {},
+    version: nextVersion,
+    updated_at: new Date().toISOString(),
+  });
+}
+
+async function leaveOnlineAndGo(toScreen = "mode") {
+  if (!isOnline.value || !online.lobbyId) {
+    screen.value = toScreen;
+    return;
+  }
+  try {
+    const lobby = await sbSelectLobbyById(online.lobbyId);
+    if (online.role === "host") {
+      // creator leaving => delete lobby
+      await sbDeleteLobby(online.lobbyId);
+    } else {
+      // guest leaving => keep lobby for host
+      if (lobby) await sbGuestLeaveToWaiting(lobby);
+    }
+  } catch {
+    // ignore
+  } finally {
+    stopPolling();
+    myPlayer.value = null;
+    online.lobbyId = null;
+    online.code = null;
+    online.role = null;
+    online.hasOpponent = false;
+    screen.value = toScreen;
+  }
 }
 
 async function pushMyState(reason = "") {
@@ -1172,6 +1299,7 @@ async function ensureOnlineInitialized(lobby) {
 
   const initState = buildSyncedState({
     players,
+    rematch: { 1: false, 2: false },
     started_at: new Date().toISOString(),
     created_by: myId,
   });
@@ -1202,6 +1330,12 @@ function startPollingLobby(lobbyId, role) {
   game.boardH = 6;
   game.allowFlip = allowFlip.value;
   game.resetGame();
+  // don't start the turn timer until the lobby is actually full
+  game.turnStartedAt = null;
+  online.code = null;
+  online.hasOpponent = false;
+  online.prevGuestId = null;
+  online.prevHasOpponent = false;
 
   online.pollTimer = setInterval(async () => {
     try {
@@ -1211,9 +1345,45 @@ function startPollingLobby(lobbyId, role) {
       online.pingMs = performance.now() - t0;
       if (!lobby) {
         stopPolling();
-        showModal({ title: "Lobby Closed", message: "The lobby no longer exists.", tone: "bad" });
+        showModal({
+          title: "Lobby Terminated",
+          tone: "bad",
+          message: online.role === "guest"
+            ? "The lobby creator left. Terminating the game and returning you to the main menu."
+            : "The lobby no longer exists.",
+        });
+        screen.value = "auth";
         return;
       }
+
+      online.code = lobby.code || online.code;
+
+      const hasOpponentNow = !!(lobby.host_id && lobby.guest_id);
+      online.hasOpponent = hasOpponentNow;
+
+      // Host: detect a new challenger join
+      if (online.role === "host") {
+        const guestNow = lobby.guest_id || null;
+        const guestPrev = online.prevGuestId;
+        if (!guestPrev && guestNow) {
+          // close the "Lobby Ready" modal if it's still open
+          if (modal.open && String(modal.title || "").toLowerCase().includes("lobby ready")) {
+            closeModal();
+          }
+          showModal({ title: "Challenger Joined!", tone: "good", message: "A player joined your lobby. Let’s go!" });
+        }
+        online.prevGuestId = guestNow;
+
+        // If challenger left, keep the lobby open and wait.
+        if (guestPrev && !guestNow) {
+          // reset local game view to waiting mode
+          myPlayer.value = null;
+          game.resetGame();
+          game.turnStartedAt = null;
+          showModal({ title: "Player Left", tone: "info", message: "Your challenger left. Lobby stays open — waiting for a new one." });
+        }
+      }
+
 
       // if we just joined and host is missing etc.
       if (lobby.host_id && lobby.guest_id) {
@@ -1229,6 +1399,26 @@ function startPollingLobby(lobbyId, role) {
         online.lastAppliedVersion = v;
         online.lastSeenUpdatedAt = lobby.updated_at || null;
         applySyncedState(st);
+
+        // If opponent requested a rematch, prompt you once.
+        try {
+          const rm = st?.meta?.rematch;
+          if (rm && myPlayer.value && game.phase === "gameover") {
+            const other = myPlayer.value === 1 ? 2 : 1;
+            const wants = !!rm[other];
+            const mine = !!rm[myPlayer.value];
+            const k = `${v}|${wants ? 1 : 0}|${mine ? 1 : 0}`;
+            if (wants && !mine && online.rematchPromptKey !== k) {
+              online.rematchPromptKey = k;
+              showModal({
+                title: "Rematch?",
+                tone: "info",
+                message: "Your opponent wants to play again. Hit Play Again to accept.",
+                cta: "rematch",
+              });
+            }
+          }
+        } catch {}
       }
     } catch {
       // keep polling quietly
@@ -1260,6 +1450,7 @@ watch(
     String(game.matchInvalid),
     String(game.matchInvalidReason),
     String(game.winner),
+    JSON.stringify(game.lastMove),
   ],
   async () => {
     if (!isOnline.value) return;
@@ -1275,6 +1466,54 @@ watch(
 );
 
 let pushDebounceTimer = null;
+
+
+const _lastGameoverKey = ref("");
+watch(
+  () => [game.phase, JSON.stringify(game.lastMove || null), String(game.winner), String(game.matchInvalid), String(game.matchInvalidReason)],
+  () => {
+    if (!isInGame.value) return;
+    if (game.phase !== "gameover") return;
+
+    const key = `${game.phase}|${game.winner}|${game.matchInvalid}|${game.matchInvalidReason}|${JSON.stringify(game.lastMove || null)}`;
+    if (_lastGameoverKey.value === key) return;
+    _lastGameoverKey.value = key;
+
+    const lm = game.lastMove || {};
+    let title = "GAME OVER";
+    let tone = "info";
+    let message = "";
+
+    if (lm.type === "dodged") {
+      const p = lm.player || game.currentPlayer;
+      title = "DODGE!";
+      tone = "bad";
+      message = `Player ${p} did not pick in time — automatically dodges the game.`;
+    } else if (lm.type === "timeout") {
+      const p = lm.player || game.currentPlayer;
+      title = "TIMEOUT!";
+      tone = "bad";
+      message = `Player ${p} ran out of time — forfeits the match.`;
+    } else if (lm.type === "surrender") {
+      const p = lm.player || "?";
+      title = "SURRENDER";
+      tone = "bad";
+      message = `Player ${p} surrendered.`;
+    } else {
+      message = winnerMessage(game.winner);
+      tone = game.winner ? "good" : "info";
+    }
+
+    // Add winner line if available
+    if (game.winner) {
+      message += `\n\nWinner: Player ${game.winner}`;
+    }
+
+    // Modal CTA: offline => reset, online => rematch
+    const cta = isOnline.value ? "rematch" : "reset";
+    showModal({ title, message, tone, cta });
+  }
+);
 
 /* =========================
    ONLINE RESET
@@ -1468,14 +1707,10 @@ function goBack() {
   }
 }
 function goAuth() {
-  stopPolling();
-  myPlayer.value = null;
-  screen.value = "auth";
+  leaveOnlineAndGo("auth");
 }
 function goMode() {
-  stopPolling();
-  myPlayer.value = null;
-  screen.value = "mode";
+  leaveOnlineAndGo("mode");
 }
 function playAsGuest() {
   loggedIn.value = false;
@@ -1515,7 +1750,14 @@ function applySettings() {
   screen.value = "mode";
 }
 
-onBeforeUnmount(() => stopPolling());
+onBeforeUnmount(() => {
+  stopPolling();
+  if (tickTimer) clearInterval(tickTimer);
+  tickTimer = null;
+  window.removeEventListener("beforeunload", onBeforeUnload);
+  if (uiTickTimer) clearInterval(uiTickTimer);
+  uiTickTimer = null;
+});
 </script>
 
 <style scoped>
@@ -1920,6 +2162,111 @@ onBeforeUnmount(() => stopPolling());
 
 .statusTag, .keysTag { font-size: 13px; opacity: 0.92; }
 
+
+.statusTag {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+.dotSep {
+  opacity: 0.5;
+  margin: 0 2px;
+}
+.chipBtn{
+  border: 1px solid rgba(255,255,255,0.16);
+  background: rgba(0,0,0,0.22);
+  color: rgba(255,255,255,0.9);
+  padding: 6px 10px;
+  border-radius: 999px;
+  font-weight: 900;
+  letter-spacing: 0.02em;
+  cursor: pointer;
+  transition: transform 120ms ease, filter 120ms ease, box-shadow 120ms ease;
+}
+.chipBtn:hover{
+  transform: translateY(-1px);
+  filter: brightness(1.08);
+  box-shadow: 0 10px 22px rgba(0,0,0,0.35), 0 0 18px rgba(0,255,255,0.12);
+}
+
+.timerBar{
+  position: relative;
+  height: 14px;
+  border-radius: 999px;
+  border: 1px solid rgba(255,255,255,0.14);
+  background: rgba(0,0,0,0.28);
+  overflow: hidden;
+  box-shadow: inset 0 1px 0 rgba(255,255,255,0.10), 0 12px 26px rgba(0,0,0,0.30);
+  margin-top: 8px;
+}
+.timerBarFill{
+  position: absolute;
+  left: 0;
+  top: 0;
+  bottom: 0;
+  background: linear-gradient(90deg, rgba(0,255,255,0.70), rgba(255,0,255,0.65), rgba(255,255,0,0.55));
+  filter: saturate(1.15);
+  box-shadow: 0 0 18px rgba(0,255,255,0.18), 0 0 18px rgba(255,0,255,0.14);
+}
+.timerBar.danger .timerBarFill{
+  background: linear-gradient(90deg, rgba(255,80,120,0.82), rgba(255,200,80,0.64));
+  box-shadow: 0 0 18px rgba(255,80,120,0.20);
+}
+.timerBarText{
+  position: relative;
+  z-index: 2;
+  font-size: 11px;
+  line-height: 14px;
+  font-weight: 1000;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  text-align: center;
+  opacity: 0.92;
+  text-shadow: 0 2px 10px rgba(0,0,0,0.65);
+}
+
+.logoMark{
+  width: auto !important;
+  height: auto !important;
+  background: transparent !important;
+  border: none !important;
+  box-shadow: none !important;
+  padding: 0 !important;
+}
+.logoImg{
+  width: 38px;
+  height: 38px;
+  object-fit: contain;
+  filter: drop-shadow(0 10px 22px rgba(0,0,0,0.55)) drop-shadow(0 0 14px rgba(0,255,255,0.16));
+  animation: floatLogo 3.4s ease-in-out infinite;
+}
+@keyframes floatLogo{
+  0%,100%{ transform: translateY(0) rotate(-1deg); }
+  50%{ transform: translateY(-2px) rotate(1deg); }
+}
+
+/* Modal: make it feel more "game over" */
+.modalCard{
+  border-radius: 18px !important;
+  background:
+    radial-gradient(900px 360px at 50% 20%, rgba(0,255,255,0.10), rgba(0,0,0,0) 55%),
+    radial-gradient(900px 420px at 40% 85%, rgba(255,0,255,0.10), rgba(0,0,0,0) 58%),
+    linear-gradient(180deg, rgba(12,14,24,0.96), rgba(6,7,12,0.98)) !important;
+  border: 1px solid rgba(255,255,255,0.14) !important;
+  box-shadow:
+    0 26px 70px rgba(0,0,0,0.72),
+    0 0 42px rgba(0,255,255,0.14),
+    0 0 42px rgba(255,0,255,0.12);
+}
+.modalTitle{
+  font-weight: 1100 !important;
+  letter-spacing: 0.04em;
+}
+.modalMsg{
+  font-size: 14px !important;
+  line-height: 1.35 !important;
+}
 .panel {
   background: rgba(10, 10, 16, 0.58);
   border: 1px solid rgba(255, 255, 255, 0.10);
