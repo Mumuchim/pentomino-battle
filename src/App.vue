@@ -455,7 +455,7 @@
         </section>
 
         <section class="rightPanel">
-          <Board />
+          <Board :isOnline="isOnline" :myPlayer="myPlayer" :canAct="canAct" />
           <div class="hintSmall">
             Drag a piece to the board and hover to preview. Click or drop to place.
           </div>
@@ -856,6 +856,28 @@ async function sbJoinLobby(lobbyId) {
   return rows?.[0] || null;
 }
 
+
+async function sbDeleteLobby(id) {
+  // best-effort delete. If RLS blocks DELETE, fallback to closing.
+  const res = await fetch(sbRestUrl(`pb_lobbies?id=eq.${encodeURIComponent(id)}`), {
+    method: "DELETE",
+    headers: sbHeaders(),
+  });
+  if (res.ok) return true;
+  return false;
+}
+
+async function sbCloseAndNukeLobby(id, metaPatch = {}) {
+  // Fallback when DELETE is not allowed.
+  const nowIso = new Date().toISOString();
+  const lobby = await sbSelectLobbyById(id);
+  const st = lobby?.state || {};
+  const meta = st.meta || {};
+  const nextState = { ...st, meta: { ...meta, ...metaPatch, closed_at: nowIso } };
+  const nextVersion = Number(lobby?.version || 0) + 1;
+  await sbForcePatchState(id, { status: "closed", state: nextState, version: nextVersion, updated_at: nowIso });
+}
+
 /* =========================
    ✅ ONLINE STATE SERIALIZATION
 ========================= */
@@ -1002,7 +1024,12 @@ async function pushMyState(reason = "") {
   if (!online.lobbyId) return;
   if (online.applyingRemote) return;
 
-  if (!canAct.value && !online.localDirty) return;
+  // ✅ Only push gameplay state when you are allowed to act.
+  // Allow a few non-turn actions (rematch responses / surrender).
+  const nonTurnAllowed = reason === "surrender" || String(reason || "").startsWith("rematch_") || reason === "rematch_request";
+  if (online.waitingForOpponent && !nonTurnAllowed) return;
+  if (reason === "watch" && !canAct.value) return;
+  if (!canAct.value && !nonTurnAllowed) return;
 
   onlineSyncing.value = true;
   try {
@@ -1105,6 +1132,16 @@ function startPollingLobby(lobbyId, role) {
   online.role = role;
   online.lastAppliedVersion = 0;
   online.lastSeenUpdatedAt = null;
+
+
+  // ✅ Reset per-lobby trackers (prevents false 'opponent left' on fresh lobbies)
+  online.lastHostId = null;
+  online.lastGuestId = null;
+  online.waitingForOpponent = true;
+  online.code = null;
+  online.pingMs = null;
+  online.localDirty = false;
+  myPlayer.value = null;
 
   screen.value = "online";
   game.boardW = 10;
@@ -1339,14 +1376,39 @@ watch(
       const other = me === 1 ? 2 : 1;
 
       if (game.lastMove?.type === "dodged") {
+        // ✅ Auto dodge ends the session for BOTH players and removes the lobby.
+        const msg =
+          game.matchInvalidReason ||
+          `Player ${game.lastMove?.player || "?"} did not pick — automatically dodges the game.`;
+
         showModal({
-          title: "Auto Dodge",
-          tone: "bad",
-          message:
-            game.matchInvalidReason ||
-            `Player ${game.lastMove?.player || "?"} did not pick — automatically dodges the game.`,
-          actions: [{ label: "OK", tone: "primary" }],
-        });
+  title: "Auto Dodge",
+  tone: "bad",
+  message: msg + "\n\nReturning to main menu…",
+  actions: [{ label: "OK", tone: "primary" }],
+});
+
+        // terminate + cleanup in the background (best-effort)
+        (async () => {
+          try {
+            if (online.lobbyId) {
+              const ok = await sbDeleteLobby(online.lobbyId);
+              if (!ok) {
+                await sbCloseAndNukeLobby(online.lobbyId, {
+                  terminateReason: "auto_dodge",
+                  matchInvalidReason: msg,
+                });
+              }
+            }
+          } catch {
+            // ignore
+          } finally {
+            stopPolling();
+            myPlayer.value = null;
+            screen.value = "mode";
+          }
+        })();
+
         return;
       }
 
@@ -1491,12 +1553,19 @@ async function joinByCode() {
 async function quickMake() {
   if (!(await ensureSupabaseReadyOrExplain())) return;
 
+  // ✅ Require a lobby name (prevents null/empty name DB errors)
+  const nm = String(quick.lobbyName || "").trim();
+  if (!nm) {
+    showModal({ title: "Lobby Name Required", tone: "bad", message: "Please enter a lobby name before creating one." });
+    return;
+  }
+
   try {
     showModal({ title: "Creating Lobby...", tone: "info", message: "Setting up your room..." });
 
     const created = await sbCreateLobby({
       isPrivate: quick.isPrivate,
-      lobbyName: quick.lobbyName || (quick.isPrivate ? "Private Lobby" : "Public Lobby"),
+      lobbyName: nm,
     });
 
     closeModal();
