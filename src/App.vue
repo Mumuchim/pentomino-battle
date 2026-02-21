@@ -464,14 +464,14 @@
     </main>
 
     <!-- ✅ Modal -->
-    <div v-if="modal.open" class="modalOverlay" @click.self="closeModal">
+    <div v-if="modal.open" class="modalOverlay" @click.self="!modal.locked && closeModal()">
       <div class="modalCard" role="dialog" aria-modal="true">
         <div class="modalTop">
           <div class="modalTitle">
             <span class="modalDot" :class="modalDotClass"></span>
             {{ modal.title }}
           </div>
-          <button class="modalX" @click="closeModal" aria-label="Close">✕</button>
+          <button v-if="!modal.locked" class="modalX" @click="closeModal" aria-label="Close">✕</button>
         </div>
 
         <div class="modalBody">
@@ -602,22 +602,28 @@ const modal = reactive({
   message: "",
   tone: "info", // "info" | "bad" | "good"
   actions: [],
+  locked: false,
 });
 
 const modalLines = computed(() => String(modal.message || "").split("\n").filter(Boolean));
 const modalDotClass = computed(() => (modal.tone === "bad" ? "bad" : modal.tone === "good" ? "good" : "info"));
 
-function showModal({ title = "Notice", message = "", tone = "info", actions = null } = {}) {
+function showModal({ title = "Notice", message = "", tone = "info", actions = null, locked = false } = {}) {
   modal.title = title;
   modal.message = message;
   modal.tone = tone;
-  modal.actions = Array.isArray(actions) && actions.length ? actions : [{ label: "OK", tone: "primary" }];
+  // If actions is explicitly provided as an array (even empty), respect it.
+  // If actions is null/undefined, default to a single OK button.
+  if (Array.isArray(actions)) modal.actions = actions;
+  else modal.actions = [{ label: "OK", tone: "primary" }];
+  modal.locked = !!locked;
   modal.open = true;
 }
 
 function closeModal() {
   modal.open = false;
   modal.actions = [];
+  modal.locked = false;
 }
 
 function onModalAction(a) {
@@ -651,6 +657,7 @@ const online = reactive({
   lastHostId: null,
   lastGuestId: null,
   waitingForOpponent: true,
+  hostWaitStartedAt: null,
 });
 
 const publicLobbies = ref([]);
@@ -1162,6 +1169,7 @@ function startPollingLobby(lobbyId, role) {
   online.code = null;
   online.pingMs = null;
   online.localDirty = false;
+  online.hostWaitStartedAt = role === "host" ? Date.now() : null;
   myPlayer.value = null;
 
   screen.value = "online";
@@ -1186,6 +1194,15 @@ function startPollingLobby(lobbyId, role) {
 
       online.code = lobby.code || online.code;
 
+      // Keep / show the waiting modal (host only) — but don't interrupt other modals.
+      if (online.role === "host" && online.waitingForOpponent && online.code) {
+        if (!modal.open) {
+          showWaitingForOpponentModal(online.code);
+        } else if (modal.title === "Waiting for Opponent") {
+          modal.message = `Waiting for opponent…\nCode: ${online.code || "—"}`;
+        }
+      }
+
       const prevGuest = online.lastGuestId;
       online.lastGuestId = lobby.guest_id || null;
       online.lastHostId = lobby.host_id || null;
@@ -1205,6 +1222,7 @@ function startPollingLobby(lobbyId, role) {
 
       if (online.role === "host" && !prevGuest && lobby.guest_id) {
         if (modal.open && String(modal.title || "").toLowerCase().includes("lobby ready")) closeModal();
+        if (modal.open && modal.title === "Waiting for Opponent") closeModal();
         showModal({
           title: "Player Joined!",
           tone: "good",
@@ -1212,19 +1230,58 @@ function startPollingLobby(lobbyId, role) {
         });
       }
 
+      // ✅ Host waiting timer: 60s to get a challenger.
+      if (online.role === "host" && !lobby.guest_id && lobby.host_id) {
+        if (!online.hostWaitStartedAt) online.hostWaitStartedAt = Date.now();
+        const waitedMs = Date.now() - online.hostWaitStartedAt;
+        if (waitedMs >= 60_000) {
+          // Expire room creation.
+          try {
+            if (online.lobbyId) {
+              const ok = await sbDeleteLobby(online.lobbyId);
+              if (!ok) await sbCloseAndNukeLobby(online.lobbyId, { terminateReason: "expired" });
+            }
+          } catch {
+            // ignore
+          } finally {
+            stopPolling();
+            myPlayer.value = null;
+            screen.value = "mode";
+            closeModal();
+            showModal({ title: "Room Creation Expired", tone: "bad", message: "No one joined within 60 seconds." });
+          }
+          return;
+        }
+      }
+
       if (online.role === "host" && prevGuest && !lobby.guest_id && lobby.host_id) {
         myPlayer.value = null;
         game.turnStartedAt = null;
         game.battleClockLastTickAt = null;
         online.waitingForOpponent = true;
+        online.hostWaitStartedAt = Date.now();
         showModal({
           title: "Opponent Left",
           tone: "bad",
           message: "Your opponent left.\nThis lobby will stay open and wait for a new challenger.",
+          actions: [
+            {
+              label: "OK",
+              tone: "primary",
+              onClick: () => {
+                showWaitingForOpponentModal(lobby.code || online.code);
+              },
+            },
+          ],
         });
       }
 
       online.waitingForOpponent = !(lobby.host_id && lobby.guest_id && lobby?.state?.meta?.players);
+
+      // If the match is ready, ensure the waiting modal is gone.
+      if (!online.waitingForOpponent && modal.open && modal.title === "Waiting for Opponent") {
+        closeModal();
+      }
 
       if (lobby.host_id && lobby.guest_id) {
         await ensureOnlineInitialized(lobby);
@@ -1337,6 +1394,16 @@ function stopAndExitToMenu(note = "") {
   });
 }
 
+function showWaitingForOpponentModal(code) {
+  showModal({
+    title: "Waiting for Opponent",
+    tone: "info",
+    message: `Waiting for opponent…\nCode: ${code || "—"}`,
+    actions: [],
+    locked: true,
+  });
+}
+
 function requestPlayAgain() {
   if (!isOnline.value) {
     onResetClick();
@@ -1344,12 +1411,37 @@ function requestPlayAgain() {
   }
   if (!myPlayer.value) return;
 
+  const me = myPlayer.value;
+  const other = me === 1 ? 2 : 1;
+
   if (game.rematchDeclinedBy) {
     stopAndExitToMenu("Rematch declined.");
     return;
   }
 
-  game.requestRematch(myPlayer.value);
+  // If opponent already requested, your click acts as ACCEPT.
+  if (game.rematch?.[other] && !game.rematch?.[me]) {
+    game.requestRematch(me);
+    online.localDirty = true;
+    pushMyState("rematch_yes");
+    return;
+  }
+
+  // Already requested.
+  if (game.rematch?.[me]) {
+    showModal({
+      title: "Rematch Requested",
+      tone: "info",
+      message: "Waiting for the other player to answer…",
+      actions: [
+        { label: "OK", tone: "primary" },
+        { label: "Cancel & Exit", tone: "soft", onClick: () => stopAndExitToMenu("Exited match.") },
+      ],
+    });
+    return;
+  }
+
+  game.requestRematch(me);
   online.localDirty = true;
   pushMyState("rematch_request");
 
@@ -1387,6 +1479,50 @@ function onPrimaryMatchAction() {
 /* =========================
    GAMEOVER + REMATCH UX
 ========================= */
+
+function ensureRematchPrompt() {
+  if (!isOnline.value) return;
+  if (game.phase !== "gameover") return;
+  if (!myPlayer.value) return;
+
+  const me = myPlayer.value;
+  const other = me === 1 ? 2 : 1;
+
+  if (game.rematchDeclinedBy) return;
+
+  // If opponent requested and you haven't responded, force the Accept/Decline prompt.
+  if (game.rematch?.[other] && !game.rematch?.[me]) {
+    // Avoid spamming the same modal every poll.
+    if (modal.open && modal.title === "Play Again?") return;
+
+    showModal({
+      title: "Play Again?",
+      tone: "good",
+      message: "Opponent wants a rematch.\nDo you accept?",
+      actions: [
+        {
+          label: "ACCEPT",
+          tone: "primary",
+          onClick: () => {
+            game.requestRematch(me);
+            online.localDirty = true;
+            pushMyState("rematch_yes");
+          },
+        },
+        {
+          label: "DECLINE",
+          tone: "soft",
+          onClick: () => {
+            game.declineRematch(me);
+            online.localDirty = true;
+            pushMyState("rematch_no");
+          },
+        },
+      ],
+    });
+  }
+}
+
 watch(
   () => game.phase,
   (p, prev) => {
@@ -1434,31 +1570,7 @@ watch(
       }
 
       if (game.rematch?.[other] && !game.rematch?.[me] && !game.rematchDeclinedBy) {
-        showModal({
-          title: "Play Again?",
-          tone: "good",
-          message: "Opponent wants a rematch.\nDo you accept?",
-          actions: [
-            {
-              label: "YES",
-              tone: "primary",
-              onClick: () => {
-                game.requestRematch(me);
-                online.localDirty = true;
-                pushMyState("rematch_yes");
-              },
-            },
-            {
-              label: "NO",
-              tone: "soft",
-              onClick: () => {
-                game.declineRematch(me);
-                online.localDirty = true;
-                pushMyState("rematch_no");
-              },
-            },
-          ],
-        });
+        ensureRematchPrompt();
         return;
       }
     }
@@ -1484,6 +1596,10 @@ watch(
   () => {
     if (!isOnline.value) return;
     if (game.phase !== "gameover") return;
+
+    // If opponent requests after your gameover modal is already open,
+    // update it live to the Accept/Decline prompt.
+    ensureRematchPrompt();
 
     if (game.rematchDeclinedBy) {
       stopAndExitToMenu("Rematch declined. Game terminated.");
