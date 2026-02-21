@@ -1,83 +1,396 @@
 <template>
-  <div class="app">
+  <div class="app" :class="{ inGame: isInGame }">
+    <!-- 🔥 Animated RGB background -->
+    <div class="bg">
+      <div class="bgGradient"></div>
+      <div class="bgNoise"></div>
+      <div class="bgGlow g1"></div>
+      <div class="bgGlow g2"></div>
+      <div class="bgGlow g3"></div>
+    </div>
+
+    <!-- ✅ Turn border (only during game) -->
+    <div
+      v-if="isInGame"
+      class="turnFrame"
+      :class="{
+        p1: game.phase !== 'gameover' && game.currentPlayer === 1,
+        p2: game.phase !== 'gameover' && game.currentPlayer === 2,
+        end: game.phase === 'gameover',
+      }"
+      aria-hidden="true"
+    ></div>
+
     <header class="topbar">
-      <div class="brand">
-        <div class="title">PentoBattle</div>
-        <div class="sub">Pentomino Battle (Web)</div>
+      <div class="brand" @click="goAuth" title="Back to Main Menu">
+        <div class="logoMark">⬛</div>
+        <div class="brandText">
+          <div class="title">PentoBattle</div>
+          <div class="sub">Rotate • Flip • Dominate</div>
+        </div>
       </div>
 
       <div class="right">
-        <button class="btn ghost" v-if="screen !== 'menu'" @click="goMenu">
-          ← Main Menu
-        </button>
-        <button class="btn" v-if="screen !== 'menu'" @click="game.resetGame()">
-          Reset Match
-        </button>
+        <button class="btn ghost" v-if="canGoBack" @click="goBack">← Back</button>
+        <button class="btn ghost" v-if="screen !== 'auth'" @click="goAuth">Main Menu</button>
+        <button class="btn" v-if="isInGame" @click="game.resetGame()">Reset Match</button>
       </div>
     </header>
 
     <main class="main">
-      <!-- MAIN MENU -->
-      <section v-if="screen === 'menu'" class="card">
-        <h1 class="h1">Main Menu</h1>
-        <p class="muted">Choose a mode.</p>
-
-        <div class="menuGrid">
-          <button class="btn big primary" @click="startPvp">Player vs Player</button>
-          <button class="btn big" @click="startAi">Player vs AI</button>
-          <button class="btn big" @click="screen = 'settings'">Settings</button>
-          <button class="btn big" @click="screen = 'credits'">Credits</button>
+      <!-- =========================
+           AUTH MENU
+      ========================== -->
+      <section v-if="screen === 'auth'" class="menuShell">
+        <div class="hero">
+          <div class="heroBadge">WEB EDITION</div>
+          <h1 class="heroTitle">
+            <span class="rgbText">PentoBattle</span>
+          </h1>
+          <p class="heroDesc">
+            Draft pieces, outplay your opponent, and claim the board.
+          </p>
         </div>
 
-        <div class="hint">Now with real shapes + drag preview ✅</div>
+        <div class="menuCard">
+          <div class="menuTitleRow">
+            <div class="menuTitle">Start</div>
+            <div class="menuHint">Login unlocks Ranked later</div>
+          </div>
+
+          <div class="menuStack">
+            <button class="menuBtn disabled" disabled title="Login not implemented yet">
+              <div class="menuBtnLeft">
+                <div class="menuBtnIcon">🔒</div>
+                <div class="menuBtnText">
+                  <div class="menuBtnTop">Login</div>
+                  <div class="menuBtnSub">Not working yet</div>
+                </div>
+              </div>
+              <div class="menuBtnRight">SOON</div>
+            </button>
+
+            <button class="menuBtn primary" @click="playAsGuest">
+              <div class="menuBtnLeft">
+                <div class="menuBtnIcon">👤</div>
+                <div class="menuBtnText">
+                  <div class="menuBtnTop">Play as Guest</div>
+                  <div class="menuBtnSub">Works now</div>
+                </div>
+              </div>
+              <div class="menuBtnRight">▶</div>
+            </button>
+          </div>
+
+          <div class="finePrint">
+            Tip: You can still play Couch + Practice without login.
+          </div>
+        </div>
       </section>
 
-      <!-- SETTINGS -->
-      <section v-else-if="screen === 'settings'" class="card">
-        <h1 class="h1">Settings</h1>
-
-        <div class="form">
-          <label class="field">
-            <span>Allow Flip (Mirror)</span>
-            <input type="checkbox" v-model="allowFlip" />
-          </label>
+      <!-- =========================
+           MODE MENU (STACKED)
+      ========================== -->
+      <section v-else-if="screen === 'mode'" class="menuShell">
+        <div class="hero compact">
+          <div class="heroBadge" :class="{ green: loggedIn }">
+            {{ loggedIn ? "LOGGED IN" : "GUEST" }}
+          </div>
+          <h1 class="heroTitle small">
+            Choose a <span class="rgbText">Mode</span>
+          </h1>
+          <p class="heroDesc small">
+            Ranked requires login. Others work offline.
+          </p>
         </div>
 
-        <div class="row">
-          <button class="btn" @click="screen = 'menu'">Back</button>
-          <button class="btn primary" @click="applySettings">Apply</button>
-        </div>
+        <div class="menuCard">
+          <div class="menuTitleRow">
+            <div class="menuTitle">Game Modes</div>
+            <div class="menuHint">Keyboard: Q rotate • E flip</div>
+          </div>
 
-        <p class="muted small" style="margin-top:10px">
-          Board is fixed to <b>10×6</b> as requested.
-        </p>
+          <div class="menuStack">
+            <button
+              class="menuBtn"
+              :disabled="!loggedIn"
+              :class="{ disabled: !loggedIn }"
+              :title="!loggedIn ? 'Ranked requires login' : ''"
+              @click="goRanked"
+            >
+              <div class="menuBtnLeft">
+                <div class="menuBtnIcon">🏆</div>
+                <div class="menuBtnText">
+                  <div class="menuBtnTop">Ranked</div>
+                  <div class="menuBtnSub">Auto finds lobby with same tier</div>
+                </div>
+              </div>
+              <div class="menuBtnRight">{{ loggedIn ? "▶" : "LOCKED" }}</div>
+            </button>
+
+            <button class="menuBtn" @click="goQuick">
+              <div class="menuBtnLeft">
+                <div class="menuBtnIcon">⚡</div>
+                <div class="menuBtnText">
+                  <div class="menuBtnTop">Quick Match</div>
+                  <div class="menuBtnSub">Find lobby or make lobby</div>
+                </div>
+              </div>
+              <div class="menuBtnRight">▶</div>
+            </button>
+
+            <button class="menuBtn primary" @click="startCouchPlay">
+              <div class="menuBtnLeft">
+                <div class="menuBtnIcon">🛋️</div>
+                <div class="menuBtnText">
+                  <div class="menuBtnTop">Couch Play</div>
+                  <div class="menuBtnSub">Local 2-player (your current mode)</div>
+                </div>
+              </div>
+              <div class="menuBtnRight">PLAY</div>
+            </button>
+
+            <button class="menuBtn" @click="startPracticeAi">
+              <div class="menuBtnLeft">
+                <div class="menuBtnIcon">🤖</div>
+                <div class="menuBtnText">
+                  <div class="menuBtnTop">Practice vs. AI</div>
+                  <div class="menuBtnSub">Uses local flow for now</div>
+                </div>
+              </div>
+              <div class="menuBtnRight">▶</div>
+            </button>
+
+            <div class="menuSplitRow">
+              <button class="btn soft" @click="screen = 'settings'">⚙ Settings</button>
+              <button class="btn soft" @click="screen = 'credits'">✨ Credits</button>
+            </div>
+          </div>
+
+          <div class="finePrint">
+            Built for Web vibes — we’ll wire multiplayer later if you want.
+          </div>
+        </div>
       </section>
 
-      <!-- CREDITS -->
-      <section v-else-if="screen === 'credits'" class="card">
-        <h1 class="h1">Credits</h1>
-        <div class="credits">
-          <p><b>PentoBattle</b> — by <b>Mumuchxm</b></p>
-          <p class="muted">Built with Vite + Vue.</p>
+      <!-- =========================
+           QUICK MATCH MENU
+      ========================== -->
+      <section v-else-if="screen === 'quick'" class="menuShell">
+        <div class="hero compact">
+          <div class="heroBadge">ONLINE</div>
+          <h1 class="heroTitle small">
+            <span class="rgbText">Quick Match</span>
+          </h1>
+          <p class="heroDesc small">UI is ready — backend coming later.</p>
         </div>
 
-        <div class="row">
-          <button class="btn" @click="screen = 'menu'">Back</button>
+        <div class="menuCard">
+          <div class="menuStack">
+            <button class="menuBtn primary" @click="screen = 'quick_find'">
+              <div class="menuBtnLeft">
+                <div class="menuBtnIcon">🔎</div>
+                <div class="menuBtnText">
+                  <div class="menuBtnTop">Find Lobby</div>
+                  <div class="menuBtnSub">Browse / matchmake</div>
+                </div>
+              </div>
+              <div class="menuBtnRight">▶</div>
+            </button>
+
+            <button class="menuBtn" @click="screen = 'quick_make'">
+              <div class="menuBtnLeft">
+                <div class="menuBtnIcon">➕</div>
+                <div class="menuBtnText">
+                  <div class="menuBtnTop">Make Lobby</div>
+                  <div class="menuBtnSub">Host a room</div>
+                </div>
+              </div>
+              <div class="menuBtnRight">▶</div>
+            </button>
+
+            <button class="btn soft" @click="screen = 'mode'">← Back to Modes</button>
+          </div>
+
+          <div class="finePrint">
+            When you’re ready: Supabase/Firebase realtime lobbies.
+          </div>
         </div>
       </section>
 
-      <!-- GAME SCREEN -->
+      <!-- QUICK MATCH: FIND -->
+      <section v-else-if="screen === 'quick_find'" class="menuShell">
+        <div class="hero compact">
+          <div class="heroBadge">SEARCH</div>
+          <h1 class="heroTitle small">Find Lobby</h1>
+          <p class="heroDesc small">Placeholder UI — no backend yet.</p>
+        </div>
+
+        <div class="menuCard">
+          <div class="form">
+            <label class="field">
+              <span>Region</span>
+              <select v-model="quick.region" class="select">
+                <option value="auto">Auto</option>
+                <option value="asia">Asia</option>
+                <option value="na">NA</option>
+                <option value="eu">EU</option>
+              </select>
+            </label>
+
+            <label class="field">
+              <span>Ruleset</span>
+              <select v-model="quick.ruleset" class="select">
+                <option value="default">Default</option>
+                <option value="tournament">Tournament</option>
+                <option value="casual">Casual</option>
+              </select>
+            </label>
+          </div>
+
+          <div class="row">
+            <button class="btn soft" @click="screen = 'quick'">← Back</button>
+            <button class="btn primary" disabled title="Not implemented yet">Search (soon)</button>
+          </div>
+        </div>
+      </section>
+
+      <!-- QUICK MATCH: MAKE -->
+      <section v-else-if="screen === 'quick_make'" class="menuShell">
+        <div class="hero compact">
+          <div class="heroBadge">HOST</div>
+          <h1 class="heroTitle small">Make Lobby</h1>
+          <p class="heroDesc small">Placeholder UI — no backend yet.</p>
+        </div>
+
+        <div class="menuCard">
+          <div class="form">
+            <label class="field">
+              <span>Lobby Name</span>
+              <input v-model="quick.lobbyName" class="input" placeholder="e.g., Mumuchxm room" />
+            </label>
+
+            <label class="field">
+              <span>Private</span>
+              <input type="checkbox" v-model="quick.isPrivate" />
+            </label>
+          </div>
+
+          <div class="row">
+            <button class="btn soft" @click="screen = 'quick'">← Back</button>
+            <button class="btn primary" disabled title="Not implemented yet">Create (soon)</button>
+          </div>
+        </div>
+      </section>
+
+      <!-- =========================
+           RANKED
+      ========================== -->
+      <section v-else-if="screen === 'ranked'" class="menuShell">
+        <div class="hero compact">
+          <div class="heroBadge">RANKED</div>
+          <h1 class="heroTitle small">Matchmaking</h1>
+          <p class="heroDesc small">Placeholder screen for now.</p>
+        </div>
+
+        <div class="menuCard">
+          <div class="form">
+            <div class="field">
+              <span>Your Tier</span>
+              <b>{{ rankedTier }}</b>
+            </div>
+            <div class="field">
+              <span>Queue</span>
+              <b>Auto find same tier</b>
+            </div>
+          </div>
+
+          <div class="row">
+            <button class="btn soft" @click="screen = 'mode'">← Back</button>
+            <button class="btn primary" disabled title="Not implemented yet">Find Match (soon)</button>
+          </div>
+        </div>
+      </section>
+
+      <!-- =========================
+           SETTINGS
+      ========================== -->
+      <section v-else-if="screen === 'settings'" class="menuShell">
+        <div class="hero compact">
+          <div class="heroBadge">SETTINGS</div>
+          <h1 class="heroTitle small">Preferences</h1>
+          <p class="heroDesc small">Applies to local modes.</p>
+        </div>
+
+        <div class="menuCard">
+          <div class="form">
+            <label class="field">
+              <span>Allow Flip (Mirror)</span>
+              <input type="checkbox" v-model="allowFlip" />
+            </label>
+          </div>
+
+          <div class="row">
+            <button class="btn soft" @click="goMode">← Back</button>
+            <button class="btn primary" @click="applySettings">Apply</button>
+          </div>
+
+          <div class="finePrint">Board is fixed to <b>10×6</b>.</div>
+        </div>
+      </section>
+
+      <!-- =========================
+           CREDITS
+      ========================== -->
+      <section v-else-if="screen === 'credits'" class="menuShell">
+        <div class="hero compact">
+          <div class="heroBadge">CREDITS</div>
+          <h1 class="heroTitle small">PentoBattle</h1>
+          <p class="heroDesc small">by Mumuchxm</p>
+        </div>
+
+        <div class="menuCard">
+          <div class="credits">
+            <p><b>PentoBattle</b> — by <b>Mumuchxm</b></p>
+            <p class="muted">Built with Vite + Vue.</p>
+          </div>
+
+          <div class="row">
+            <button class="btn soft" @click="goMode">← Back</button>
+          </div>
+        </div>
+      </section>
+
+      <!-- =========================
+           GAME (COUCH / AI)
+      ========================== -->
       <section v-else class="gameLayout">
         <section class="leftPanel">
           <div class="panelHead">
-            <div class="modeTag">
-              Mode: <b>{{ modeLabel }}</b>
+            <div class="modeRow">
+              <div class="modeTag">Mode: <b>{{ modeLabel }}</b></div>
+
+              <!-- ✅ Turn badge (highlighted) -->
+              <div
+                class="turnBadge"
+                :class="{
+                  p1: game.phase !== 'gameover' && game.currentPlayer === 1,
+                  p2: game.phase !== 'gameover' && game.currentPlayer === 2,
+                  end: game.phase === 'gameover',
+                }"
+              >
+                <span v-if="game.phase === 'draft'">DRAFT</span>
+                <span v-else-if="game.phase === 'place'">P{{ game.currentPlayer }} TURN</span>
+                <span v-else>GAME OVER</span>
+              </div>
             </div>
+
             <div class="statusTag">
               Phase: <b>{{ game.phase }}</b>
               <span v-if="game.phase === 'draft'"> · Draft pick: <b>P{{ game.draftTurn }}</b></span>
               <span v-else-if="game.phase === 'place'"> · Turn: <b>P{{ game.currentPlayer }}</b></span>
             </div>
+
             <div class="keysTag" v-if="game.phase === 'place'">
               Keys: <b>Q</b> Rotate · <b>E</b> Flip
             </div>
@@ -91,12 +404,6 @@
 
             <div class="divider"></div>
             <Controls />
-
-            <div v-if="game.phase === 'gameover'" class="gameover">
-              <div class="gameoverTitle">GAME OVER</div>
-              <div class="gameoverText">Winner: Player {{ game.winner }}</div>
-              <button class="btn primary" @click="game.resetGame()">Play Again</button>
-            </div>
           </section>
         </section>
 
@@ -108,11 +415,37 @@
         </section>
       </section>
     </main>
+
+    <!-- ✅ Modal (illegal placement / winner / general notices) -->
+    <div v-if="modal.open" class="modalOverlay" @click.self="closeModal">
+      <div class="modalCard" role="dialog" aria-modal="true">
+        <div class="modalTop">
+          <div class="modalTitle">
+            <span class="modalDot" :class="modalDotClass"></span>
+            {{ modal.title }}
+          </div>
+          <button class="modalX" @click="closeModal" aria-label="Close">✕</button>
+        </div>
+
+        <div class="modalBody">
+          <p class="modalMsg" v-for="(line, i) in modalLines" :key="i">
+            {{ line }}
+          </p>
+        </div>
+
+        <div class="modalActions">
+          <button class="btn primary" @click="closeModal">OK</button>
+          <button v-if="modal.cta === 'reset'" class="btn" @click="resetFromModal">
+            Play Again
+          </button>
+        </div>
+      </div>
+    </div>
   </div>
 </template>
 
 <script setup>
-import { computed, ref } from "vue";
+import { computed, onBeforeUnmount, onMounted, reactive, ref, watch } from "vue";
 import { useGameStore } from "./store/game";
 
 import Board from "./components/Board.vue";
@@ -122,104 +455,506 @@ import Controls from "./components/Controls.vue";
 
 const game = useGameStore();
 
-const screen = ref("menu"); // menu | settings | credits | pvp | ai
+const screen = ref("auth");
+const loggedIn = ref(false);
 const allowFlip = ref(true);
 
-const modeLabel = computed(() => (screen.value === "ai" ? "Player vs AI" : "Player vs Player"));
+const quick = reactive({
+  region: "auto",
+  ruleset: "default",
+  lobbyName: "",
+  isPrivate: false,
+});
 
-function goMenu() {
-  screen.value = "menu";
+const rankedTier = computed(() => (loggedIn.value ? "Wood" : "—"));
+
+const isInGame = computed(() => screen.value === "couch" || screen.value === "ai");
+const modeLabel = computed(() => (screen.value === "ai" ? "Practice vs AI" : screen.value === "couch" ? "Couch Play" : "—"));
+
+const canGoBack = computed(() =>
+  ["mode", "quick", "quick_find", "quick_make", "settings", "credits", "ranked"].includes(screen.value)
+);
+
+/* =========================
+   ✅ MODAL SYSTEM
+========================= */
+const modal = reactive({
+  open: false,
+  title: "Notice",
+  message: "",
+  tone: "info", // "info" | "bad" | "good"
+  cta: null,    // null | "reset"
+});
+
+const modalLines = computed(() => String(modal.message || "").split("\n").filter(Boolean));
+
+const modalDotClass = computed(() => {
+  if (modal.tone === "bad") return "bad";
+  if (modal.tone === "good") return "good";
+  return "info";
+});
+
+function showModal({ title = "Notice", message = "", tone = "info", cta = null } = {}) {
+  modal.title = title;
+  modal.message = message;
+  modal.tone = tone;
+  modal.cta = cta;
+  modal.open = true;
 }
 
-function startPvp() {
-  screen.value = "pvp";
+function closeModal() {
+  modal.open = false;
+}
+
+function resetFromModal() {
+  closeModal();
+  game.resetGame();
+}
+
+/* =========================
+   ✅ Hijack alert() so Board's illegal placement alert becomes a nice modal
+   (Board.vue currently does: alert("Illegal placement...")
+========================= */
+let originalAlert = null;
+
+onMounted(() => {
+  originalAlert = window.alert;
+  window.alert = (msg) => {
+    showModal({
+      title: "Illegal Placement",
+      message: String(msg || "That placement is not allowed."),
+      tone: "bad",
+    });
+  };
+});
+
+onBeforeUnmount(() => {
+  if (originalAlert) window.alert = originalAlert;
+});
+
+/* =========================
+   ✅ Winner modal when phase becomes gameover
+========================= */
+watch(
+  () => game.phase,
+  (p, prev) => {
+    if (p === "gameover" && prev !== "gameover") {
+      const w = game.winner ?? "?";
+      showModal({
+        title: "Victory!",
+        message: `Player ${w} wins.\nGG!`,
+        tone: "good",
+        cta: "reset",
+      });
+    }
+  }
+);
+
+/* =========================
+   NAV
+========================= */
+function goBack() {
+  if (screen.value === "quick_find" || screen.value === "quick_make") {
+    screen.value = "quick";
+    return;
+  }
+  if (["quick", "settings", "credits", "ranked"].includes(screen.value)) {
+    screen.value = "mode";
+    return;
+  }
+  if (screen.value === "mode") {
+    screen.value = "auth";
+    return;
+  }
+}
+function goAuth() {
+  screen.value = "auth";
+}
+function goMode() {
+  screen.value = "mode";
+}
+function playAsGuest() {
+  loggedIn.value = false;
+  screen.value = "mode";
+}
+function goQuick() {
+  screen.value = "quick";
+}
+function goRanked() {
+  if (!loggedIn.value) return;
+  screen.value = "ranked";
+}
+function startCouchPlay() {
+  screen.value = "couch";
   game.boardW = 10;
   game.boardH = 6;
   game.allowFlip = allowFlip.value;
   game.resetGame();
 }
-
-function startAi() {
+function startPracticeAi() {
   screen.value = "ai";
   game.boardW = 10;
   game.boardH = 6;
   game.allowFlip = allowFlip.value;
   game.resetGame();
 }
-
 function applySettings() {
-  alert(`Applied settings:\nAllow Flip: ${allowFlip.value}`);
-  screen.value = "menu";
+  showModal({
+    title: "Settings Applied",
+    message: `Allow Flip: ${allowFlip.value ? "ON" : "OFF"}`,
+    tone: "info",
+  });
+  screen.value = "mode";
 }
 </script>
 
 <style scoped>
+/* =========================
+   RGB GAME VIBES
+========================= */
 .app {
   min-height: 100vh;
-  background: #0f0f10;
   color: #eaeaea;
   display: flex;
   flex-direction: column;
+  position: relative;
+  overflow: hidden;
+  background: #06060a;
+  font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Arial;
+}
+
+/* ✅ Big screen border glow per turn */
+.turnFrame {
+  position: fixed;
+  inset: 10px;
+  border-radius: 18px;
+  pointer-events: none;
+  z-index: 30;
+
+  border: 2px solid rgba(255, 255, 255, 0.10);
+  box-shadow:
+    0 0 0 1px rgba(255, 255, 255, 0.06) inset,
+    0 12px 60px rgba(0, 0, 0, 0.55);
+  opacity: 0.95;
+}
+
+.turnFrame.p1 {
+  border-color: rgba(0, 229, 255, 0.35);
+  box-shadow:
+    0 0 0 1px rgba(0, 229, 255, 0.10) inset,
+    0 0 26px rgba(0, 229, 255, 0.18),
+    0 0 60px rgba(0, 229, 255, 0.12),
+    0 20px 70px rgba(0, 0, 0, 0.55);
+}
+
+.turnFrame.p2 {
+  border-color: rgba(255, 64, 96, 0.38);
+  box-shadow:
+    0 0 0 1px rgba(255, 64, 96, 0.10) inset,
+    0 0 26px rgba(255, 64, 96, 0.18),
+    0 0 60px rgba(255, 64, 96, 0.12),
+    0 20px 70px rgba(0, 0, 0, 0.55);
+}
+
+.turnFrame.end {
+  border-color: rgba(255, 255, 255, 0.22);
+  box-shadow:
+    0 0 0 1px rgba(255, 255, 255, 0.08) inset,
+    0 0 26px rgba(255, 255, 255, 0.12),
+    0 0 60px rgba(0, 229, 255, 0.08),
+    0 0 60px rgba(255, 43, 214, 0.06),
+    0 20px 70px rgba(0, 0, 0, 0.55);
+}
+
+.bg {
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  pointer-events: none;
+}
+
+.bgGradient {
+  position: absolute;
+  inset: -40%;
+  background: conic-gradient(
+    from 180deg,
+    rgba(255, 0, 128, 0.28),
+    rgba(0, 255, 255, 0.24),
+    rgba(140, 0, 255, 0.26),
+    rgba(0, 255, 128, 0.22),
+    rgba(255, 0, 128, 0.28)
+  );
+  filter: blur(60px);
+  animation: spin 14s linear infinite;
+  opacity: 0.9;
+}
+
+.bgGlow {
+  position: absolute;
+  width: 520px;
+  height: 520px;
+  border-radius: 999px;
+  filter: blur(70px);
+  opacity: 0.35;
+  animation: floaty 9s ease-in-out infinite;
+}
+.bgGlow.g1 { left: -120px; top: 15%; background: rgba(255, 0, 180, 0.55); }
+.bgGlow.g2 { right: -140px; top: 5%; background: rgba(0, 255, 255, 0.5); animation-delay: 1.4s; }
+.bgGlow.g3 { left: 35%; bottom: -180px; background: rgba(130, 0, 255, 0.5); animation-delay: 2.2s; }
+
+.bgNoise {
+  position: absolute;
+  inset: 0;
+  opacity: 0.07;
+  background-image:
+    radial-gradient(circle at 20% 30%, rgba(255,255,255,0.35) 0 1px, transparent 1px),
+    radial-gradient(circle at 70% 60%, rgba(255,255,255,0.25) 0 1px, transparent 1px),
+    radial-gradient(circle at 40% 80%, rgba(255,255,255,0.2) 0 1px, transparent 1px);
+  background-size: 180px 180px, 220px 220px, 260px 260px;
+}
+
+@keyframes spin { to { transform: rotate(360deg); } }
+@keyframes floaty {
+  0%, 100% { transform: translateY(0px) translateX(0px) scale(1); }
+  50% { transform: translateY(-18px) translateX(10px) scale(1.05); }
 }
 
 .topbar {
+  position: relative;
+  z-index: 2;
   display: flex;
   justify-content: space-between;
   align-items: center;
-  padding: 18px 20px;
-  border-bottom: 1px solid rgba(255,255,255,0.08);
-  background: rgba(255,255,255,0.02);
+  padding: 16px 18px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.10);
+  background: rgba(10, 10, 16, 0.55);
+  backdrop-filter: blur(10px);
 }
 
-.title { font-weight: 900; letter-spacing: 0.8px; font-size: 20px; }
-.sub { opacity: 0.75; font-size: 12px; margin-top: 3px; }
+.brand {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+  cursor: pointer;
+  user-select: none;
+}
+.logoMark {
+  width: 34px;
+  height: 34px;
+  border-radius: 10px;
+  display: grid;
+  place-items: center;
+  background: rgba(255, 255, 255, 0.06);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  box-shadow:
+    0 0 0 1px rgba(255, 255, 255, 0.08) inset,
+    0 0 18px rgba(0, 255, 255, 0.10),
+    0 0 18px rgba(255, 0, 180, 0.08);
+}
+.brandText .title {
+  font-weight: 1000;
+  letter-spacing: 0.8px;
+  font-size: 18px;
+}
+.brandText .sub {
+  opacity: 0.75;
+  font-size: 12px;
+  margin-top: 2px;
+}
 
 .right { display: flex; gap: 10px; flex-wrap: wrap; }
 
-.main { flex: 1; padding: 22px; display: grid; place-items: center; }
-
-.card {
-  width: min(640px, 92vw);
-  background: rgba(255,255,255,0.04);
-  border: 1px solid rgba(255,255,255,0.08);
-  border-radius: 16px;
-  padding: 18px;
+.main {
+  position: relative;
+  z-index: 1;
+  flex: 1;
+  padding: 28px 18px 36px;
+  display: grid;
+  place-items: center;
 }
 
-.h1 { margin: 0 0 8px 0; font-size: 22px; font-weight: 900; }
-.muted { opacity: 0.78; }
-.small { font-size: 12px; }
+.rgbText {
+  background: linear-gradient(90deg, #ff2bd6, #00e5ff, #7c4dff, #00ff9a);
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+  text-shadow: 0 0 18px rgba(0, 229, 255, 0.18);
+}
 
-.menuGrid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-top: 14px; }
-@media (max-width: 520px) { .menuGrid { grid-template-columns: 1fr; } }
+/* =========================
+   MENU SHELL
+========================= */
+.menuShell { width: min(720px, 94vw); display: grid; gap: 14px; }
 
-.btn {
-  border: 1px solid rgba(255,255,255,0.14);
-  background: rgba(255,255,255,0.06);
+.hero { padding: 18px 18px 6px; }
+.hero.compact { padding-bottom: 0; }
+.heroBadge {
+  display: inline-flex;
+  font-size: 12px;
+  font-weight: 900;
+  letter-spacing: 1px;
+  padding: 6px 10px;
+  border-radius: 999px;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  background: rgba(0, 0, 0, 0.25);
+  box-shadow: 0 0 22px rgba(255, 0, 180, 0.08);
+}
+.heroBadge.green { box-shadow: 0 0 22px rgba(0, 255, 154, 0.10); }
+.heroTitle { margin: 10px 0 6px; font-size: 46px; font-weight: 1000; letter-spacing: 0.5px; }
+.heroTitle.small { font-size: 30px; }
+.heroDesc { margin: 0; opacity: 0.82; line-height: 1.45; }
+.heroDesc.small { font-size: 13px; opacity: 0.8; }
+
+.menuCard {
+  border-radius: 18px;
+  padding: 16px;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  background: rgba(8, 8, 14, 0.62);
+  backdrop-filter: blur(12px);
+  box-shadow:
+    0 0 0 1px rgba(255, 255, 255, 0.06) inset,
+    0 12px 40px rgba(0, 0, 0, 0.45);
+}
+
+.menuTitleRow {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 12px;
+  margin-bottom: 12px;
+}
+.menuTitle {
+  font-size: 14px;
+  font-weight: 1000;
+  letter-spacing: 0.8px;
+  text-transform: uppercase;
+  opacity: 0.95;
+}
+.menuHint { font-size: 12px; opacity: 0.7; }
+
+.menuStack { display: grid; gap: 10px; }
+
+.menuBtn {
+  width: 100%;
+  border-radius: 16px;
+  padding: 14px 14px;
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  background: rgba(255, 255, 255, 0.06);
   color: #eaeaea;
-  padding: 10px 12px;
+  cursor: pointer;
+  text-align: left;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 14px;
+  transition: transform 0.12s ease, background 0.12s ease, border-color 0.12s ease;
+  box-shadow:
+    0 0 0 1px rgba(255, 255, 255, 0.05) inset,
+    0 0 22px rgba(0, 229, 255, 0.06);
+}
+.menuBtn:hover {
+  transform: translateY(-1px);
+  border-color: rgba(255, 255, 255, 0.22);
+  background: rgba(255, 255, 255, 0.09);
+}
+.menuBtn.primary {
+  border-color: rgba(0, 229, 255, 0.30);
+  background: linear-gradient(180deg, rgba(0, 229, 255, 0.16), rgba(255, 43, 214, 0.10));
+  box-shadow:
+    0 0 0 1px rgba(0, 229, 255, 0.08) inset,
+    0 0 26px rgba(0, 229, 255, 0.10),
+    0 0 26px rgba(255, 43, 214, 0.08);
+}
+.menuBtn.disabled,
+.menuBtn:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+  transform: none !important;
+}
+
+.menuBtnLeft { display: flex; align-items: center; gap: 12px; min-width: 0; }
+.menuBtnIcon {
+  width: 42px;
+  height: 42px;
+  border-radius: 14px;
+  display: grid;
+  place-items: center;
+  background: rgba(0, 0, 0, 0.25);
+  border: 1px solid rgba(255, 255, 255, 0.10);
+  flex: 0 0 auto;
+  box-shadow: 0 0 18px rgba(124, 77, 255, 0.08);
+}
+.menuBtnText { min-width: 0; }
+.menuBtnTop { font-weight: 1000; letter-spacing: 0.2px; }
+.menuBtnSub {
+  margin-top: 4px;
+  font-size: 12px;
+  opacity: 0.75;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 520px;
+}
+.menuBtnRight { font-weight: 1000; opacity: 0.88; letter-spacing: 0.6px; flex: 0 0 auto; }
+
+.menuSplitRow { display: flex; gap: 10px; margin-top: 4px; }
+@media (max-width: 520px) { .menuSplitRow { flex-direction: column; } }
+
+.finePrint {
+  margin-top: 12px;
+  font-size: 12px;
+  opacity: 0.72;
+  border-top: 1px solid rgba(255, 255, 255, 0.10);
+  padding-top: 10px;
+}
+
+/* =========================
+   Shared buttons / forms
+========================= */
+.btn {
+  border: 1px solid rgba(255, 255, 255, 0.16);
+  background: rgba(255, 255, 255, 0.06);
+  color: #eaeaea;
+  padding: 9px 12px;
   border-radius: 12px;
   cursor: pointer;
-  font-weight: 700;
+  font-weight: 900;
+  letter-spacing: 0.2px;
 }
-.btn:hover { background: rgba(255,255,255,0.10); }
-.btn.big { padding: 14px 14px; font-size: 14px; }
-.btn.primary { border-color: rgba(255,255,255,0.28); background: rgba(255,255,255,0.12); }
+.btn:hover { background: rgba(255, 255, 255, 0.10); }
+.btn.primary { border-color: rgba(0, 229, 255, 0.28); background: rgba(0, 229, 255, 0.12); }
 .btn.ghost { background: transparent; }
+.btn.soft { width: 100%; text-align: left; background: rgba(0, 0, 0, 0.18); }
+.btn:disabled { opacity: 0.5; cursor: not-allowed; }
 
-.hint { margin-top: 14px; font-size: 13px; opacity: 0.78; padding-top: 10px; border-top: 1px solid rgba(255,255,255,0.08); }
-
-.form { margin-top: 12px; display: grid; gap: 10px; }
+.form { margin-top: 6px; display: grid; gap: 10px; }
 .field {
-  display: flex; justify-content: space-between; align-items: center; gap: 14px;
-  padding: 10px 12px; border-radius: 12px;
-  border: 1px solid rgba(255,255,255,0.08);
-  background: rgba(255,255,255,0.03);
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 14px;
+  padding: 12px 12px;
+  border-radius: 14px;
+  border: 1px solid rgba(255, 255, 255, 0.10);
+  background: rgba(0, 0, 0, 0.22);
 }
-
+.input,
+.select {
+  width: 240px;
+  max-width: 58vw;
+  padding: 9px 10px;
+  border-radius: 12px;
+  border: 1px solid rgba(255, 255, 255, 0.16);
+  background: rgba(0, 0, 0, 0.28);
+  color: #eaeaea;
+}
 .row { display: flex; gap: 10px; margin-top: 14px; flex-wrap: wrap; }
 
-/* GAME LAYOUT */
+.muted { opacity: 0.78; }
+
+/* =========================
+   GAME LAYOUT
+========================= */
 .gameLayout {
   width: min(1200px, 96vw);
   display: grid;
@@ -234,35 +969,132 @@ function applySettings() {
 .panelHead {
   display: flex;
   flex-direction: column;
-  gap: 6px;
+  gap: 8px;
   padding: 12px 14px;
   border-radius: 14px;
-  border: 1px solid rgba(255,255,255,0.08);
-  background: rgba(255,255,255,0.03);
+  border: 1px solid rgba(255, 255, 255, 0.10);
+  background: rgba(10, 10, 16, 0.58);
+  backdrop-filter: blur(10px);
 }
 
-.modeTag, .statusTag, .keysTag { font-size: 13px; opacity: 0.9; }
+.modeRow {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 10px;
+}
+.modeTag { font-size: 13px; opacity: 0.92; }
+
+.turnBadge {
+  padding: 7px 10px;
+  border-radius: 999px;
+  font-weight: 1000;
+  font-size: 12px;
+  letter-spacing: 0.8px;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  background: rgba(0, 0, 0, 0.20);
+  opacity: 0.95;
+}
+.turnBadge.p1 {
+  border-color: rgba(0, 229, 255, 0.30);
+  box-shadow: 0 0 18px rgba(0, 229, 255, 0.14);
+}
+.turnBadge.p2 {
+  border-color: rgba(255, 64, 96, 0.32);
+  box-shadow: 0 0 18px rgba(255, 64, 96, 0.14);
+}
+.turnBadge.end {
+  border-color: rgba(255, 255, 255, 0.18);
+  box-shadow: 0 0 18px rgba(255, 255, 255, 0.10);
+}
+
+.statusTag, .keysTag { font-size: 13px; opacity: 0.92; }
 
 .panel {
-  background: rgba(255,255,255,0.04);
-  border: 1px solid rgba(255,255,255,0.08);
+  background: rgba(10, 10, 16, 0.58);
+  border: 1px solid rgba(255, 255, 255, 0.10);
   border-radius: 14px;
   padding: 14px;
+  backdrop-filter: blur(10px);
 }
-
-.panelTitle { margin: 0 0 10px 0; font-size: 15px; font-weight: 900; }
-
-.divider { height: 1px; background: rgba(255,255,255,0.08); margin: 12px 0; }
-
+.panelTitle { margin: 0 0 10px 0; font-size: 15px; font-weight: 1000; }
+.divider { height: 1px; background: rgba(255, 255, 255, 0.10); margin: 12px 0; }
 .hintSmall { opacity: 0.75; font-size: 13px; padding: 6px 2px; }
 
-.gameover {
-  margin-top: 14px;
-  padding: 12px;
-  border-radius: 14px;
-  border: 1px solid rgba(255,255,255,0.10);
-  background: rgba(255,255,255,0.05);
+/* =========================
+   MODAL
+========================= */
+.modalOverlay {
+  position: fixed;
+  inset: 0;
+  z-index: 60;
+  background: rgba(0, 0, 0, 0.62);
+  backdrop-filter: blur(10px);
+  display: grid;
+  place-items: center;
+  padding: 18px;
 }
-.gameoverTitle { font-weight: 900; letter-spacing: 0.6px; }
-.gameoverText { margin: 6px 0 10px 0; opacity: 0.8; }
+
+.modalCard {
+  width: min(520px, 92vw);
+  border-radius: 18px;
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  background: rgba(10, 10, 16, 0.78);
+  box-shadow:
+    0 0 0 1px rgba(255, 255, 255, 0.06) inset,
+    0 20px 80px rgba(0, 0, 0, 0.65);
+  overflow: hidden;
+}
+
+.modalTop {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+  padding: 14px 14px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.10);
+}
+
+.modalTitle {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-weight: 1000;
+  letter-spacing: 0.3px;
+}
+.modalDot {
+  width: 10px;
+  height: 10px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.35);
+  box-shadow: 0 0 18px rgba(255, 255, 255, 0.12);
+}
+.modalDot.info { background: rgba(0, 229, 255, 0.75); box-shadow: 0 0 18px rgba(0, 229, 255, 0.18); }
+.modalDot.bad { background: rgba(255, 64, 96, 0.85); box-shadow: 0 0 18px rgba(255, 64, 96, 0.18); }
+.modalDot.good { background: rgba(0, 255, 154, 0.85); box-shadow: 0 0 18px rgba(0, 255, 154, 0.18); }
+
+.modalX {
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  background: rgba(255, 255, 255, 0.06);
+  color: #eaeaea;
+  width: 34px;
+  height: 34px;
+  border-radius: 12px;
+  cursor: pointer;
+  font-weight: 900;
+}
+.modalX:hover { background: rgba(255, 255, 255, 0.10); }
+
+.modalBody { padding: 14px; }
+.modalMsg { margin: 0 0 10px 0; opacity: 0.88; line-height: 1.5; }
+.modalMsg:last-child { margin-bottom: 0; }
+
+.modalActions {
+  padding: 14px;
+  padding-top: 0;
+  display: flex;
+  gap: 10px;
+  justify-content: flex-end;
+  flex-wrap: wrap;
+}
 </style>
