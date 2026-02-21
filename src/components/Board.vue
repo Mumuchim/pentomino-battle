@@ -19,12 +19,12 @@
           :class="cellClass(cell)"
           :style="cellInlineStyle(cell)"
           @mouseenter="setHover(cell.x, cell.y)"
-          @click="onCellClick(cell.x, cell.y)"
+          @click="onCellClick(cell.x, cell.y, $event)"
           @dragenter.prevent="setHover(cell.x, cell.y)"
           @drop.prevent="onDrop(cell.x, cell.y)"
           :title="cellTitle(cell)"
         >
-          <!-- ✅ Draft: show corner tag if drafted -->
+          <!-- Draft: corner tag if drafted -->
           <span
             v-if="game.phase === 'draft' && cell.v?.draftedBy"
             class="cornerTag"
@@ -36,6 +36,7 @@
         </button>
       </div>
 
+      <!-- PLACE phase ghost overlay -->
       <div
         v-if="ghostOverlay.visible"
         class="ghostOverlay"
@@ -56,10 +57,10 @@
       <span class="legendItem"><span class="swatch bad"></span> BAD</span>
 
       <span v-if="game.phase === 'draft'" class="legendItem muted">
-        Click a piece on the board to draft it (it will “send to tray” + lock).
+        Click a piece to draft — it’ll fly to the player tray.
       </span>
       <span v-else class="legendItem muted">
-        Neon arcade grid. Drop or click. (Q rotate, E flip)
+        Drop or click. (Q rotate, E flip)
       </span>
     </div>
 
@@ -75,6 +76,7 @@ import { computed, ref } from "vue";
 import { useGameStore } from "../store/game";
 import { getPieceStyle } from "../lib/pieceStyles";
 import { playBuzz } from "../lib/sfx";
+import { PENTOMINOES } from "../lib/pentominoes";
 
 const game = useGameStore();
 const shell = ref(null);
@@ -93,7 +95,6 @@ function showWarning(msg) {
   }, 1400);
 }
 
-// ✅ board source: draftBoard in draft, board in place
 const activeBoard = computed(() => (game.phase === "draft" ? game.draftBoard : game.board));
 
 const flat = computed(() => {
@@ -112,6 +113,9 @@ const gridStyle = computed(() => ({
   gridTemplateRows: `repeat(${game.boardH}, 1fr)`,
 }));
 
+/* ---------------------------
+   PLACE phase ghost preview
+---------------------------- */
 const ghost = computed(() => {
   if (!hover.value) return { map: new Set(), ok: false };
   if (game.phase !== "place") return { map: new Set(), ok: false };
@@ -149,6 +153,7 @@ function setHover(x, y) {
   if (!game.selectedPieceKey) return;
   hover.value = { x, y };
 }
+
 function clearHover() {
   hover.value = null;
 }
@@ -166,7 +171,12 @@ function updateHoverFromClientXY(clientX, clientY) {
   const innerW = rect.width - BOARD_PADDING * 2;
   const innerH = rect.height - BOARD_PADDING * 2;
 
-  if (clientX < innerLeft || clientY < innerTop || clientX >= innerLeft + innerW || clientY >= innerTop + innerH) {
+  if (
+    clientX < innerLeft ||
+    clientY < innerTop ||
+    clientX >= innerLeft + innerW ||
+    clientY >= innerTop + innerH
+  ) {
     hover.value = null;
     return;
   }
@@ -213,12 +223,126 @@ function onDrop(x, y) {
   }
 }
 
+/* ---------------------------
+   ✅ Floating clone animation
+   - create a fixed-position “mini tile” that flies to tray anchor
+---------------------------- */
+function getTrayAnchor(player) {
+  // Draft context first (we’ll add these anchors in DraftPanel)
+  const draft = document.querySelector(`[data-tray="${player}"][data-tray-context="draft"]`);
+  if (draft) return draft;
+
+  // Battle context (anchors in PiecePicker)
+  const battle = document.querySelector(`[data-tray="${player}"][data-tray-context="battle"]`);
+  if (battle) return battle;
+
+  return null;
+}
+
+function spawnFlyClone(pieceKey, player, fromEl) {
+  const tray = getTrayAnchor(player);
+  if (!tray || !fromEl) return;
+
+  const from = fromEl.getBoundingClientRect();
+  const to = tray.getBoundingClientRect();
+
+  const shape = PENTOMINOES[pieceKey];
+  const s = getPieceStyle(pieceKey);
+
+  // Container for whole piece
+  const node = document.createElement("div");
+  node.className = `flyClone ${player === 1 ? "p1" : "p2"}`;
+  node.style.position = "fixed";
+  node.style.left = `${from.left}px`;
+  node.style.top = `${from.top}px`;
+  node.style.pointerEvents = "none";
+  node.style.zIndex = "999999";
+  node.style.display = "grid";
+  node.style.transformOrigin = "center center";
+
+  // Calculate bounding box of shape
+  let maxX = 0, maxY = 0;
+  for (const [x, y] of shape) {
+    if (x > maxX) maxX = x;
+    if (y > maxY) maxY = y;
+  }
+
+  const cell = Math.min(from.width, from.height) * 0.5;
+
+  node.style.gridTemplateColumns = `repeat(${maxX + 1}, ${cell}px)`;
+  node.style.gridTemplateRows = `repeat(${maxY + 1}, ${cell}px)`;
+
+  // Create blocks
+  for (const [x, y] of shape) {
+    const block = document.createElement("div");
+    block.style.width = `${cell}px`;
+    block.style.height = `${cell}px`;
+    block.style.borderRadius = "6px";
+    block.style.border = "1px solid rgba(255,255,255,0.2)";
+    block.style.boxShadow =
+      "0 6px 12px rgba(0,0,0,0.5), inset 0 1px 0 rgba(255,255,255,0.3)";
+
+    if (s.skin) {
+      block.style.backgroundImage = `url(${s.skin})`;
+      block.style.backgroundSize = "cover";
+    } else {
+      block.style.background = s.color || "#fff";
+    }
+
+    block.style.gridColumn = x + 1;
+    block.style.gridRow = y + 1;
+
+    node.appendChild(block);
+  }
+
+  document.body.appendChild(node);
+
+  // Destination movement
+  const dx =
+    to.left + to.width / 2 - (from.left + from.width / 2);
+  const dy =
+    to.top + to.height / 2 - (from.top + from.height / 2);
+
+  node.animate(
+    [
+      { transform: "translate(0px,0px) scale(1)", opacity: 1 },
+      {
+        transform: `translate(${dx}px, ${dy}px) scale(0.35)`,
+        opacity: 0.95,
+      },
+    ],
+    {
+      duration: 520,
+      easing: "cubic-bezier(.18,.9,.18,1)",
+      fill: "forwards",
+    }
+  );
+
+  // Fade burst at end
+  setTimeout(() => {
+    node.animate(
+      [
+        { filter: "brightness(1.2)", opacity: 0.9 },
+        { filter: "brightness(1.6)", opacity: 0 },
+      ],
+      { duration: 180, easing: "ease-out", fill: "forwards" }
+    );
+  }, 470);
+
+  setTimeout(() => node.remove(), 700);
+}
+
 /** ✅ CLICK does two different things depending on phase */
-function onCellClick(x, y) {
+function onCellClick(x, y, evt) {
   if (game.phase === "draft") {
     const v = game.draftBoard[y][x];
     if (!v) return;
-    if (v.draftedBy) return; // already drafted
+    if (v.draftedBy) return;
+
+    // spawn animation BEFORE the state updates (so it still “looks” picked)
+    const fromEl = evt?.currentTarget;
+    spawnFlyClone(v.pieceKey, game.draftTurn, fromEl);
+
     game.draftPick(v.pieceKey);
     return;
   }
@@ -292,7 +416,6 @@ function cellTitle(cell) {
     if (cell.v.draftedBy) return `Drafted by P${cell.v.draftedBy}: ${cell.v.pieceKey}`;
     return `Draft piece: ${cell.v.pieceKey}`;
   }
-
   if (!cell.v) return `(${cell.x},${cell.y}) empty`;
   return `(${cell.x},${cell.y}) P${cell.v.player} ${cell.v.pieceKey}`;
 }
@@ -326,6 +449,7 @@ function ghostBlockStyle(b) {
 </script>
 
 <style scoped>
+/* board styles (same as your last version) */
 .boardWrap {
   display: flex;
   flex-direction: column;
@@ -445,7 +569,6 @@ function ghostBlockStyle(b) {
 .cell.ghost-ok { outline: 2px solid rgba(0,255,170,0.85); }
 .cell.ghost-bad { outline: 2px solid rgba(255,80,120,0.85); }
 
-/* ✅ Draft mode */
 .board.draftMode .cell { cursor: pointer; }
 
 .cell.draft {
@@ -455,7 +578,7 @@ function ghostBlockStyle(b) {
     inset 0 -6px 10px rgba(0,0,0,0.35);
 }
 
-/* ✅ Drafted pieces look "sent to tray": dim + locked + tag */
+/* Drafted pieces: dim + locked */
 .cell.drafted {
   cursor: default;
   transform: none !important;
@@ -464,12 +587,10 @@ function ghostBlockStyle(b) {
 }
 .cell.drafted:hover {
   transform: none !important;
-  box-shadow:
-    inset 0 1px 0 rgba(255,255,255,0.14),
-    inset 0 -6px 10px rgba(0,0,0,0.35);
   filter: brightness(0.80) saturate(0.8);
 }
 
+/* Corner P1/P2 */
 .cornerTag {
   position: absolute;
   top: 6px;
@@ -568,5 +689,19 @@ function ghostBlockStyle(b) {
 @keyframes warnPop {
   from { transform: translateY(-4px); opacity: 0; }
   to   { transform: translateY(0); opacity: 1; }
+}
+</style>
+
+<!-- global-ish style for created DOM node -->
+<style>
+/* created by JS, must be global */
+.flyClone {
+  will-change: transform, opacity, filter;
+}
+.flyClone.p1 {
+  outline: 2px solid rgba(78, 201, 255, 0.25);
+}
+.flyClone.p2 {
+  outline: 2px solid rgba(255, 107, 107, 0.25);
 }
 </style>

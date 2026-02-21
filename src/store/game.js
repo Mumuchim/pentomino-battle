@@ -210,63 +210,49 @@ export const useGameStore = defineStore("game", {
       this.currentPlayer = this.draftTurn;
     },
 
-    // ----- DRAFT: click piece on puzzle; it becomes "sent to tray" (dimmed + tagged), not deleted -----
-    draftPick(pieceKey) {
-      if (this.phase !== "draft") return;
-      if (!this.pool.includes(pieceKey)) return;
+// ----- DRAFT: remove piece from puzzle and send to tray -----
+draftPick(pieceKey) {
+  if (this.phase !== "draft") return;
+  if (!this.pool.includes(pieceKey)) return;
 
-      // prevent picking already drafted piece (just in case)
-      // if any cell has draftedBy set, treat as drafted
-      let already = false;
-      for (let y = 0; y < this.boardH; y++) {
-        for (let x = 0; x < this.boardW; x++) {
-          const v = this.draftBoard[y][x];
-          if (v && v.pieceKey === pieceKey && v.draftedBy) {
-            already = true;
-            break;
-          }
-        }
-        if (already) break;
+  // Add to player picks
+  this.picks[this.draftTurn].push(pieceKey);
+
+  // Remove from pool
+  this.pool = this.pool.filter((k) => k !== pieceKey);
+
+  // ❌ REMOVE piece from board completely
+  for (let y = 0; y < this.boardH; y++) {
+    for (let x = 0; x < this.boardW; x++) {
+      const v = this.draftBoard[y][x];
+      if (v && v.pieceKey === pieceKey) {
+        this.draftBoard[y][x] = null;
       }
-      if (already) return;
+    }
+  }
 
-      // add to current draft player
-      this.picks[this.draftTurn].push(pieceKey);
+  // Switch turn
+  this.draftTurn = this.draftTurn === 1 ? 2 : 1;
+  this.currentPlayer = this.draftTurn;
 
-      // remove from pool
-      this.pool = this.pool.filter((k) => k !== pieceKey);
+  // If all drafted → start placement
+  if (this.pool.length === 0) {
+    this.phase = "place";
 
-      // ✅ mark on-board cells as drafted by P1/P2 (dim + corner tag)
-      for (let y = 0; y < this.boardH; y++) {
-        for (let x = 0; x < this.boardW; x++) {
-          const v = this.draftBoard[y][x];
-          if (v && v.pieceKey === pieceKey) {
-            this.draftBoard[y][x] = { ...v, draftedBy: this.draftTurn };
-          }
-        }
-      }
+    this.board = makeEmptyBoard(this.boardW, this.boardH);
 
-      // swap turns
-      this.draftTurn = this.draftTurn === 1 ? 2 : 1;
-      this.currentPlayer = this.draftTurn;
+    this.remaining[1] = [...this.picks[1]];
+    this.remaining[2] = [...this.picks[2]];
 
-      // if all drafted -> start placement phase
-      if (this.pool.length === 0) {
-        this.phase = "place";
-        this.board = makeEmptyBoard(this.boardW, this.boardH);
+    this.currentPlayer = 1;
 
-        this.remaining[1] = [...this.picks[1]];
-        this.remaining[2] = [...this.picks[2]];
+    this.selectedPieceKey = null;
+    this.rotation = 0;
+    this.flipped = false;
 
-        this.currentPlayer = 1;
-
-        this.selectedPieceKey = null;
-        this.rotation = 0;
-        this.flipped = false;
-
-        this.placedCount = 0;
-      }
-    },
+    this.placedCount = 0;
+  }
+},
 
     // ----- SELECT / TRANSFORM -----
     selectPiece(pieceKey) {
