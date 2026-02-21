@@ -6,9 +6,9 @@
 export const PIECE_STYLES = {
   F: { color: "#7C5CFF", skin: null },
   I: { color: "#4CC9F0", skin: null },
-  L: { color: "#FF7A59", skin: null },
+  L: { color: "#ff0000", skin: null },
   P: { color: "#FFD166", skin: null },
-  N: { color: "#06D6A0", skin: null },
+  N: { color: "#f4f4f4", skin: null },
   T: { color: "#9B5DE5", skin: null },
   U: { color: "#F15BB5", skin: null },
   V: { color: "#00BBF9", skin: null },

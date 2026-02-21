@@ -4,12 +4,11 @@ import { PENTOMINOES } from "../lib/pentominoes";
 import { transformCells } from "../lib/geom";
 
 function makeEmptyBoard(w, h) {
-  // null = empty, otherwise { player: 1|2, pieceKey: "T" }
   return Array.from({ length: h }, () => Array.from({ length: w }, () => null));
 }
 
 function makeEmptyDraftBoard(w, h) {
-  // null = empty, otherwise { pieceKey: "T" }
+  // null = empty, otherwise { pieceKey: "T", draftedBy: null|1|2 }
   return Array.from({ length: h }, () => Array.from({ length: w }, () => null));
 }
 
@@ -59,7 +58,6 @@ function computeDraftTiling(w, h, allowFlip = true) {
 
   const keys = Object.keys(PENTOMINOES);
 
-  // precompute unique orientations for each piece
   const orients = {};
   for (const k of keys) {
     orients[k] = uniqOrientations(PENTOMINOES[k], allowFlip);
@@ -88,7 +86,7 @@ function computeDraftTiling(w, h, allowFlip = true) {
 
   function place(pieceKey, pieceCells, ox, oy) {
     for (const [dx, dy] of pieceCells) {
-      board[oy + dy][ox + dx] = { pieceKey };
+      board[oy + dy][ox + dx] = { pieceKey, draftedBy: null };
     }
   }
 
@@ -98,24 +96,19 @@ function computeDraftTiling(w, h, allowFlip = true) {
     }
   }
 
-  // heuristic: try pieces with fewer orientations first (often helps)
   const pieceOrder = [...keys].sort((a, b) => orients[a].length - orients[b].length);
-
   const used = new Set();
 
   function backtrack() {
     const next = findNextEmpty();
     if (!next) return true;
 
-    // choose next empty cell
     const { x: tx, y: ty } = next;
 
     for (const pk of pieceOrder) {
       if (used.has(pk)) continue;
 
-      // try all orientations of pk
       for (const cells of orients[pk]) {
-        // anchor trick: align each cell in the shape to the target empty cell
         for (const [ax, ay] of cells) {
           const ox = tx - ax;
           const oy = ty - ay;
@@ -132,13 +125,11 @@ function computeDraftTiling(w, h, allowFlip = true) {
         }
       }
     }
-
     return false;
   }
 
   const ok = backtrack();
   if (!ok) {
-    // fallback: should basically never happen unless piece defs are odd
     const empty = makeEmptyDraftBoard(w, h);
     _draftCache.set(cacheKey, empty);
     return empty;
@@ -153,15 +144,13 @@ export const useGameStore = defineStore("game", {
     boardW: 10,
     boardH: 6,
 
-    // ✅ Placement board (used in "place" phase)
+    // PLACE phase board
     board: makeEmptyBoard(10, 6),
 
-    // ✅ Draft board (completed puzzle shown in "draft" phase)
+    // DRAFT phase puzzle board (filled)
     draftBoard: makeEmptyDraftBoard(10, 6),
 
     phase: "draft", // "draft" | "place" | "gameover"
-
-    // During draft we keep currentPlayer synced to draftTurn for UI announcer.
     currentPlayer: 1,
 
     pool: Object.keys(PENTOMINOES),
@@ -186,8 +175,6 @@ export const useGameStore = defineStore("game", {
       const base = PENTOMINOES[state.selectedPieceKey];
       return transformCells(base, state.rotation, state.flipped);
     },
-
-    // Optional: show how many drafted
     draftedTotal(state) {
       return state.picks[1].length + state.picks[2].length;
     },
@@ -214,18 +201,34 @@ export const useGameStore = defineStore("game", {
       this.winner = null;
       this.lastMove = null;
 
-      // ✅ rebuild solved draft puzzle (cached)
-      this.draftBoard = computeDraftTiling(this.boardW, this.boardH, this.allowFlip)
-        .map(row => row.map(cell => (cell ? { pieceKey: cell.pieceKey } : null)));
+      // ✅ build solved draft puzzle; ensure draftedBy resets
+      const solved = computeDraftTiling(this.boardW, this.boardH, this.allowFlip);
+      this.draftBoard = solved.map((row) =>
+        row.map((cell) => (cell ? { pieceKey: cell.pieceKey, draftedBy: null } : null))
+      );
 
-      // keep announcer consistent during draft
       this.currentPlayer = this.draftTurn;
     },
 
-    // ----- DRAFT (click pieces on the puzzle board) -----
+    // ----- DRAFT: click piece on puzzle; it becomes "sent to tray" (dimmed + tagged), not deleted -----
     draftPick(pieceKey) {
       if (this.phase !== "draft") return;
       if (!this.pool.includes(pieceKey)) return;
+
+      // prevent picking already drafted piece (just in case)
+      // if any cell has draftedBy set, treat as drafted
+      let already = false;
+      for (let y = 0; y < this.boardH; y++) {
+        for (let x = 0; x < this.boardW; x++) {
+          const v = this.draftBoard[y][x];
+          if (v && v.pieceKey === pieceKey && v.draftedBy) {
+            already = true;
+            break;
+          }
+        }
+        if (already) break;
+      }
+      if (already) return;
 
       // add to current draft player
       this.picks[this.draftTurn].push(pieceKey);
@@ -233,11 +236,13 @@ export const useGameStore = defineStore("game", {
       // remove from pool
       this.pool = this.pool.filter((k) => k !== pieceKey);
 
-      // remove that piece from the draft board (so it "pulls out")
+      // ✅ mark on-board cells as drafted by P1/P2 (dim + corner tag)
       for (let y = 0; y < this.boardH; y++) {
         for (let x = 0; x < this.boardW; x++) {
           const v = this.draftBoard[y][x];
-          if (v && v.pieceKey === pieceKey) this.draftBoard[y][x] = null;
+          if (v && v.pieceKey === pieceKey) {
+            this.draftBoard[y][x] = { ...v, draftedBy: this.draftTurn };
+          }
         }
       }
 
@@ -248,18 +253,13 @@ export const useGameStore = defineStore("game", {
       // if all drafted -> start placement phase
       if (this.pool.length === 0) {
         this.phase = "place";
-
-        // placement board starts empty
         this.board = makeEmptyBoard(this.boardW, this.boardH);
 
-        // inventories become remaining pieces
         this.remaining[1] = [...this.picks[1]];
         this.remaining[2] = [...this.picks[2]];
 
-        // placement starts with P1
         this.currentPlayer = 1;
 
-        // clear selection
         this.selectedPieceKey = null;
         this.rotation = 0;
         this.flipped = false;
@@ -299,16 +299,13 @@ export const useGameStore = defineStore("game", {
 
       const abs = shape.map(([dx, dy]) => [anchorX + dx, anchorY + dy]);
 
-      // bounds + overlap
       for (const [x, y] of abs) {
         if (!inBounds(x, y, this.boardW, this.boardH)) return false;
         if (this.board[y][x] !== null) return false;
       }
 
-      // first move anywhere
       if (this.placedCount === 0) return true;
 
-      // must touch existing structure edge-to-edge
       const dirs = [
         [1, 0],
         [-1, 0],
@@ -319,10 +316,7 @@ export const useGameStore = defineStore("game", {
         for (const [ox, oy] of dirs) {
           const nx = x + ox,
             ny = y + oy;
-          if (
-            inBounds(nx, ny, this.boardW, this.boardH) &&
-            this.board[ny][nx] !== null
-          ) {
+          if (inBounds(nx, ny, this.boardW, this.boardH) && this.board[ny][nx] !== null) {
             return true;
           }
         }
@@ -340,22 +334,17 @@ export const useGameStore = defineStore("game", {
       }
 
       const key = this.selectedPieceKey;
-      this.remaining[this.currentPlayer] = this.remaining[this.currentPlayer].filter(
-        (k) => k !== key
-      );
+      this.remaining[this.currentPlayer] = this.remaining[this.currentPlayer].filter((k) => k !== key);
 
       this.placedCount += 1;
       this.lastMove = { player: this.currentPlayer, piece: key, x: anchorX, y: anchorY };
 
-      // next player
       this.currentPlayer = this.currentPlayer === 1 ? 2 : 1;
 
-      // clear selection
       this.selectedPieceKey = null;
       this.rotation = 0;
       this.flipped = false;
 
-      // if next player has no moves => loses
       if (!this.playerHasAnyMove(this.currentPlayer)) {
         this.phase = "gameover";
         this.winner = this.currentPlayer === 1 ? 2 : 1;

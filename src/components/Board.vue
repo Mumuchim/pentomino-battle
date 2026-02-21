@@ -23,10 +23,19 @@
           @dragenter.prevent="setHover(cell.x, cell.y)"
           @drop.prevent="onDrop(cell.x, cell.y)"
           :title="cellTitle(cell)"
-        />
+        >
+          <!-- ✅ Draft: show corner tag if drafted -->
+          <span
+            v-if="game.phase === 'draft' && cell.v?.draftedBy"
+            class="cornerTag"
+            :class="cell.v.draftedBy === 1 ? 'p1' : 'p2'"
+            aria-hidden="true"
+          >
+            P{{ cell.v.draftedBy }}
+          </span>
+        </button>
       </div>
 
-      <!-- ✅ only show ghost overlay in PLACE phase -->
       <div
         v-if="ghostOverlay.visible"
         class="ghostOverlay"
@@ -47,7 +56,7 @@
       <span class="legendItem"><span class="swatch bad"></span> BAD</span>
 
       <span v-if="game.phase === 'draft'" class="legendItem muted">
-        Click a piece on the board to draft it.
+        Click a piece on the board to draft it (it will “send to tray” + lock).
       </span>
       <span v-else class="legendItem muted">
         Neon arcade grid. Drop or click. (Q rotate, E flip)
@@ -73,7 +82,6 @@ const hover = ref(null);
 
 const BOARD_PADDING = 10;
 
-/** ✅ warning UI */
 const warningMessage = ref("");
 let warnTimer = null;
 function showWarning(msg) {
@@ -85,10 +93,8 @@ function showWarning(msg) {
   }, 1400);
 }
 
-/** ✅ board source: draftBoard in draft, board in place */
-const activeBoard = computed(() => {
-  return game.phase === "draft" ? game.draftBoard : game.board;
-});
+// ✅ board source: draftBoard in draft, board in place
+const activeBoard = computed(() => (game.phase === "draft" ? game.draftBoard : game.board));
 
 const flat = computed(() => {
   const out = [];
@@ -106,7 +112,6 @@ const gridStyle = computed(() => ({
   gridTemplateRows: `repeat(${game.boardH}, 1fr)`,
 }));
 
-/** ----- PLACE phase ghost ----- */
 const ghost = computed(() => {
   if (!hover.value) return { map: new Set(), ok: false };
   if (game.phase !== "place") return { map: new Set(), ok: false };
@@ -140,12 +145,10 @@ const ghostOverlay = computed(() => {
 });
 
 function setHover(x, y) {
-  // only matters in place phase
   if (game.phase !== "place") return;
   if (!game.selectedPieceKey) return;
   hover.value = { x, y };
 }
-
 function clearHover() {
   hover.value = null;
 }
@@ -158,18 +161,12 @@ function updateHoverFromClientXY(clientX, clientY) {
   if (!el) return;
 
   const rect = el.getBoundingClientRect();
-
   const innerLeft = rect.left + BOARD_PADDING;
   const innerTop = rect.top + BOARD_PADDING;
   const innerW = rect.width - BOARD_PADDING * 2;
   const innerH = rect.height - BOARD_PADDING * 2;
 
-  if (
-    clientX < innerLeft ||
-    clientY < innerTop ||
-    clientX >= innerLeft + innerW ||
-    clientY >= innerTop + innerH
-  ) {
+  if (clientX < innerLeft || clientY < innerTop || clientX >= innerLeft + innerW || clientY >= innerTop + innerH) {
     hover.value = null;
     return;
   }
@@ -193,7 +190,6 @@ function onDragOver(e) {
   updateHoverFromClientXY(e.clientX, e.clientY);
 }
 
-/** ---- DROP handlers only in PLACE ---- */
 function onShellDrop() {
   if (!hover.value) return;
   if (game.phase !== "place") return;
@@ -219,15 +215,14 @@ function onDrop(x, y) {
 
 /** ✅ CLICK does two different things depending on phase */
 function onCellClick(x, y) {
-  // DRAFT: click a piece on the filled puzzle to pick it
   if (game.phase === "draft") {
     const v = game.draftBoard[y][x];
     if (!v) return;
+    if (v.draftedBy) return; // already drafted
     game.draftPick(v.pieceKey);
     return;
   }
 
-  // PLACE: place selected piece
   if (game.phase !== "place") return;
   if (!game.selectedPieceKey) return;
 
@@ -239,18 +234,17 @@ function onCellClick(x, y) {
 }
 
 function cellClass(cell) {
-  const isDraft = game.phase === "draft";
-
-  // draft shading
-  if (isDraft) {
+  if (game.phase === "draft") {
+    const drafted = !!cell.v?.draftedBy;
     return {
       empty: cell.v === null,
       draft: cell.v !== null,
-      "draft-hole": cell.v === null,
+      drafted,
+      "drafted-p1": drafted && cell.v.draftedBy === 1,
+      "drafted-p2": drafted && cell.v.draftedBy === 2,
     };
   }
 
-  // place shading + ghost
   const isGhost = ghost.value.map?.has(cell.key);
   return {
     empty: cell.v === null,
@@ -261,7 +255,6 @@ function cellClass(cell) {
 }
 
 function cellInlineStyle(cell) {
-  // DRAFT cells store {pieceKey}
   if (game.phase === "draft") {
     if (!cell.v?.pieceKey) return null;
 
@@ -271,13 +264,14 @@ function cellInlineStyle(cell) {
         backgroundImage: `url(${s.skin})`,
         backgroundSize: "cover",
         backgroundPosition: "center",
-        filter: "brightness(0.92) saturate(1.05)",
+        filter: cell.v.draftedBy
+          ? "brightness(0.55) saturate(0.65)"
+          : "brightness(0.92) saturate(1.05)",
       };
     }
     return { backgroundColor: s.color };
   }
 
-  // PLACE cells store {player,pieceKey}
   if (cell.v && cell.v.pieceKey) {
     const s = getPieceStyle(cell.v.pieceKey);
     if (s.skin) {
@@ -295,6 +289,7 @@ function cellInlineStyle(cell) {
 function cellTitle(cell) {
   if (game.phase === "draft") {
     if (!cell.v) return `(${cell.x},${cell.y}) empty`;
+    if (cell.v.draftedBy) return `Drafted by P${cell.v.draftedBy}: ${cell.v.pieceKey}`;
     return `Draft piece: ${cell.v.pieceKey}`;
   }
 
@@ -326,13 +321,11 @@ function ghostBlockStyle(b) {
       backgroundPosition: "center",
     };
   }
-
   return { ...base, backgroundColor: s.color };
 }
 </script>
 
 <style scoped>
-/* (UNCHANGED STYLES — full file kept as in your project) */
 .boardWrap {
   display: flex;
   flex-direction: column;
@@ -346,7 +339,6 @@ function ghostBlockStyle(b) {
   border-radius: 18px;
 }
 
-/* Neon frame */
 .neonFrame {
   position: absolute;
   inset: -10px;
@@ -378,7 +370,6 @@ function ghostBlockStyle(b) {
   50% { transform: translateY(-1px); filter: saturate(1.25); opacity: 0.98; }
 }
 
-/* Scanlines */
 .scanlines {
   position: absolute;
   inset: 0;
@@ -421,8 +412,8 @@ function ghostBlockStyle(b) {
     inset 0 0 0 1px rgba(0,255,255,0.07);
 }
 
-/* cells */
 .cell {
+  position: relative;
   border-radius: 7px;
   cursor: pointer;
   border: 1px solid rgba(255,255,255,0.07);
@@ -442,7 +433,6 @@ function ghostBlockStyle(b) {
     inset 0 -2px 0 rgba(0,0,0,0.25);
 }
 
-/* placed pieces */
 .cell.placed {
   border: 1px solid rgba(255,255,255,0.16);
   box-shadow:
@@ -452,30 +442,52 @@ function ghostBlockStyle(b) {
     inset 0 -4px 0 rgba(0,0,0,0.30);
 }
 
-/* preview outlines */
 .cell.ghost-ok { outline: 2px solid rgba(0,255,170,0.85); }
 .cell.ghost-bad { outline: 2px solid rgba(255,80,120,0.85); }
 
-/* ✅ draft look */
-.board.draftMode .cell {
-  cursor: pointer;
-}
+/* ✅ Draft mode */
+.board.draftMode .cell { cursor: pointer; }
+
 .cell.draft {
   border: 1px solid rgba(255,255,255,0.14);
   box-shadow:
     inset 0 1px 0 rgba(255,255,255,0.20),
     inset 0 -6px 10px rgba(0,0,0,0.35);
 }
-.cell.draft-hole {
+
+/* ✅ Drafted pieces look "sent to tray": dim + locked + tag */
+.cell.drafted {
   cursor: default;
-  background:
-    radial-gradient(240px 140px at 50% 30%, rgba(255,255,255,0.06), rgba(0,0,0,0) 60%),
-    linear-gradient(180deg, rgba(0,0,0,0.18), rgba(0,0,0,0.32));
-  border: 1px dashed rgba(255,255,255,0.10);
-  filter: brightness(0.92);
+  transform: none !important;
+  filter: brightness(0.82) saturate(0.8);
+  opacity: 0.95;
+}
+.cell.drafted:hover {
+  transform: none !important;
+  box-shadow:
+    inset 0 1px 0 rgba(255,255,255,0.14),
+    inset 0 -6px 10px rgba(0,0,0,0.35);
+  filter: brightness(0.80) saturate(0.8);
 }
 
-/* ghost overlay */
+.cornerTag {
+  position: absolute;
+  top: 6px;
+  left: 6px;
+  font-size: 10px;
+  font-weight: 1000;
+  letter-spacing: 0.08em;
+  padding: 2px 6px;
+  border-radius: 999px;
+  border: 1px solid rgba(255,255,255,0.18);
+  background: rgba(10,10,14,0.65);
+  box-shadow: 0 8px 14px rgba(0,0,0,0.35);
+  pointer-events: none;
+  z-index: 2;
+}
+.cornerTag.p1 { color: rgba(78, 201, 255, 0.98); }
+.cornerTag.p2 { color: rgba(255, 107, 107, 0.98); }
+
 .ghostOverlay {
   position: absolute;
   inset: 10px;
@@ -510,10 +522,7 @@ function ghostBlockStyle(b) {
     rgba(0,0,0,0.12)
   );
 }
-.ghostOverlay.ok .ghostBlock { outline: 2px solid rgba(0,255,170,0.30); }
-.ghostOverlay.bad .ghostBlock { outline: 2px solid rgba(255,80,120,0.30); }
 
-/* legend */
 .legend {
   display: flex;
   gap: 14px;
@@ -530,7 +539,6 @@ function ghostBlockStyle(b) {
 .swatch.ok { background: rgba(0,255,170,0.60); }
 .swatch.bad { background: rgba(255,80,120,0.60); }
 
-/* warning */
 .warning {
   display: inline-flex;
   align-items: center;
