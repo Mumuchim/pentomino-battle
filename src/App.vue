@@ -33,7 +33,7 @@
       <div class="right">
         <button class="btn ghost" v-if="canGoBack" @click="goBack">← Back</button>
         <button class="btn ghost" v-if="screen !== 'auth'" @click="goAuth">Main Menu</button>
-        <button class="btn" v-if="isInGame" @click="game.resetGame()">Reset Match</button>
+        <button class="btn" v-if="isInGame" @click="hardResetMatch">Reset Match</button>
       </div>
     </header>
 
@@ -133,7 +133,7 @@
                 <div class="menuBtnIcon">⚡</div>
                 <div class="menuBtnText">
                   <div class="menuBtnTop">Quick Match</div>
-                  <div class="menuBtnSub">Find lobby or make lobby</div>
+                  <div class="menuBtnSub">Browse public lobbies or join by code</div>
                 </div>
               </div>
               <div class="menuBtnRight">▶</div>
@@ -168,7 +168,7 @@
           </div>
 
           <div class="finePrint">
-            Built for Web vibes — we’ll wire multiplayer later if you want.
+            Public lobbies are visible. Private lobbies require a code.
           </div>
         </div>
       </section>
@@ -182,17 +182,17 @@
           <h1 class="heroTitle small">
             <span class="rgbText">Quick Match</span>
           </h1>
-          <p class="heroDesc small">UI is ready — backend coming later.</p>
+          <p class="heroDesc small">Public lobbies are listed. Private requires code.</p>
         </div>
 
         <div class="menuCard">
           <div class="menuStack">
-            <button class="menuBtn primary" @click="screen = 'quick_find'">
+            <button class="menuBtn primary" @click="enterQuickFind">
               <div class="menuBtnLeft">
                 <div class="menuBtnIcon">🔎</div>
                 <div class="menuBtnText">
-                  <div class="menuBtnTop">Find Lobby</div>
-                  <div class="menuBtnSub">Browse / matchmake</div>
+                  <div class="menuBtnTop">Matchmaking</div>
+                  <div class="menuBtnSub">See public lobbies + join by code</div>
                 </div>
               </div>
               <div class="menuBtnRight">▶</div>
@@ -203,7 +203,7 @@
                 <div class="menuBtnIcon">➕</div>
                 <div class="menuBtnText">
                   <div class="menuBtnTop">Make Lobby</div>
-                  <div class="menuBtnSub">Host a room</div>
+                  <div class="menuBtnSub">Create public or private room</div>
                 </div>
               </div>
               <div class="menuBtnRight">▶</div>
@@ -213,7 +213,7 @@
           </div>
 
           <div class="finePrint">
-            When you’re ready: Supabase/Firebase realtime lobbies.
+            Tip: Public = visible. Private = hidden, join by code.
           </div>
         </div>
       </section>
@@ -221,36 +221,65 @@
       <!-- QUICK MATCH: FIND -->
       <section v-else-if="screen === 'quick_find'" class="menuShell">
         <div class="hero compact">
-          <div class="heroBadge">SEARCH</div>
-          <h1 class="heroTitle small">Find Lobby</h1>
-          <p class="heroDesc small">Placeholder UI — no backend yet.</p>
+          <div class="heroBadge">MATCHMAKING</div>
+          <h1 class="heroTitle small">Find / Join Lobby</h1>
+          <p class="heroDesc small">Join a public lobby from the list or type a private code.</p>
         </div>
 
         <div class="menuCard">
           <div class="form">
             <label class="field">
-              <span>Region</span>
-              <select v-model="quick.region" class="select">
-                <option value="auto">Auto</option>
-                <option value="asia">Asia</option>
-                <option value="na">NA</option>
-                <option value="eu">EU</option>
-              </select>
-            </label>
-
-            <label class="field">
-              <span>Ruleset</span>
-              <select v-model="quick.ruleset" class="select">
-                <option value="default">Default</option>
-                <option value="tournament">Tournament</option>
-                <option value="casual">Casual</option>
-              </select>
+              <span>Join Code</span>
+              <input
+                v-model="quick.joinCode"
+                class="input"
+                placeholder="e.g., PB-AB12CD34"
+                @keydown.enter.prevent="joinByCode"
+              />
             </label>
           </div>
 
           <div class="row">
             <button class="btn soft" @click="screen = 'quick'">← Back</button>
-            <button class="btn primary" @click="quickFind">Search</button>
+            <button class="btn" @click="refreshPublicLobbies">Refresh</button>
+            <button class="btn primary" @click="joinByCode">Join by Code</button>
+          </div>
+
+          <div class="divider"></div>
+
+          <div class="menuTitleRow" style="margin-bottom: 8px;">
+            <div class="menuTitle">Public Lobbies</div>
+            <div class="menuHint">{{ publicLobbies.length }} found</div>
+          </div>
+
+          <div v-if="loadingPublic" class="finePrint" style="border-top:none;padding-top:0;margin-top:0;">
+            Loading public lobbies...
+          </div>
+
+          <div v-else-if="!publicLobbies.length" class="finePrint" style="border-top:none;padding-top:0;margin-top:0;">
+            No public lobbies waiting right now. Create one or refresh.
+          </div>
+
+          <div v-else class="form">
+            <div
+              class="field"
+              v-for="l in publicLobbies"
+              :key="l.id"
+              style="justify-content: space-between;"
+            >
+              <div style="display:flex;flex-direction:column;gap:4px;min-width:0;">
+                <div style="font-weight:900;letter-spacing:.2px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">
+                  {{ l.lobby_name || "Public Lobby" }}
+                </div>
+                <div style="opacity:.75;font-size:12px;">
+                  Code: <b>{{ l.code || "—" }}</b> · Status: <b>{{ l.status || "waiting" }}</b>
+                </div>
+              </div>
+
+              <button class="btn primary" @click="joinPublicLobby(l)">
+                Join
+              </button>
+            </div>
           </div>
         </div>
       </section>
@@ -260,7 +289,7 @@
         <div class="hero compact">
           <div class="heroBadge">HOST</div>
           <h1 class="heroTitle small">Make Lobby</h1>
-          <p class="heroDesc small">Placeholder UI — no backend yet.</p>
+          <p class="heroDesc small">Public shows in matchmaking. Private requires a code.</p>
         </div>
 
         <div class="menuCard">
@@ -279,6 +308,10 @@
           <div class="row">
             <button class="btn soft" @click="screen = 'quick'">← Back</button>
             <button class="btn primary" @click="quickMake">Create</button>
+          </div>
+
+          <div class="finePrint">
+            Public lobbies appear in matchmaking. Private lobbies are hidden and must be joined by code.
           </div>
         </div>
       </section>
@@ -362,7 +395,7 @@
       </section>
 
       <!-- =========================
-           GAME (COUCH / AI)
+           GAME (COUCH / AI / ONLINE)
       ========================== -->
       <section v-else class="gameLayout">
         <section class="leftPanel">
@@ -370,7 +403,6 @@
             <div class="modeRow">
               <div class="modeTag">Mode: <b>{{ modeLabel }}</b></div>
 
-              <!-- ✅ Turn badge (highlighted) -->
               <div
                 class="turnBadge"
                 :class="{
@@ -387,12 +419,26 @@
 
             <div class="statusTag">
               Phase: <b>{{ game.phase }}</b>
-              <span v-if="game.phase === 'draft'"> · Draft pick: <b>P{{ game.draftTurn }}</b></span>
-              <span v-else-if="game.phase === 'place'"> · Turn: <b>P{{ game.currentPlayer }}</b></span>
+              <span v-if="game.phase === 'draft'">
+                · Draft pick:
+                <b>P{{ game.draftTurn }}</b>
+                <span v-if="isOnline && myPlayer"> · You are <b>P{{ myPlayer }}</b></span>
+                <span v-if="isOnline && myPlayer && !canAct"> · <b style="opacity:.85;">WAIT</b></span>
+              </span>
+              <span v-else-if="game.phase === 'place'">
+                · Turn:
+                <b>P{{ game.currentPlayer }}</b>
+                <span v-if="isOnline && myPlayer"> · You are <b>P{{ myPlayer }}</b></span>
+                <span v-if="isOnline && myPlayer && !canAct"> · <b style="opacity:.85;">WAIT</b></span>
+              </span>
             </div>
 
             <div class="keysTag" v-if="game.phase === 'place'">
               Keys: <b>Q</b> Rotate · <b>E</b> Flip
+            </div>
+
+            <div v-if="isOnline && online.code" class="keysTag" style="opacity:.82;">
+              Lobby: <b>{{ online.code }}</b>
             </div>
           </div>
 
@@ -400,15 +446,28 @@
 
           <section v-else class="panel">
             <h2 class="panelTitle">Player {{ game.currentPlayer }} Pieces</h2>
-            <PiecePicker />
+
+            <PiecePicker
+              :isOnline="isOnline"
+              :myPlayer="myPlayer"
+              :canAct="canAct"
+            />
 
             <div class="divider"></div>
-            <Controls />
+
+            <Controls
+              :isOnline="isOnline"
+              :canAct="canAct"
+            />
           </section>
         </section>
 
         <section class="rightPanel">
-          <Board />
+          <Board
+            :isOnline="isOnline"
+            :myPlayer="myPlayer"
+            :canAct="canAct"
+          />
           <div class="hintSmall">
             Drag a piece to the board and hover to preview. Click or drop to place.
           </div>
@@ -460,22 +519,45 @@ const loggedIn = ref(false);
 const allowFlip = ref(true);
 
 const quick = reactive({
-  region: "auto",
-  ruleset: "default",
   lobbyName: "",
   isPrivate: false,
+  joinCode: "",
 });
 
 const rankedTier = computed(() => (loggedIn.value ? "Wood" : "—"));
 
-const isInGame = computed(() => screen.value === "couch" || screen.value === "ai");
+const isInGame = computed(() =>
+  screen.value === "couch" || screen.value === "ai" || screen.value === "online"
+);
+
 const modeLabel = computed(() =>
-  screen.value === "ai" ? "Practice vs AI" : screen.value === "couch" ? "Couch Play" : "—"
+  screen.value === "ai"
+    ? "Practice vs AI"
+    : screen.value === "couch"
+    ? "Couch Play"
+    : screen.value === "online"
+    ? "Quick Match (Online)"
+    : "—"
 );
 
 const canGoBack = computed(() =>
-  ["mode", "quick", "quick_find", "quick_make", "settings", "credits", "ranked"].includes(screen.value)
+  ["mode", "quick", "quick_find", "quick_make", "settings", "credits", "ranked"].includes(
+    screen.value
+  )
 );
+
+// ✅ Online match
+const isOnline = computed(() => screen.value === "online");
+const myPlayer = ref(null); // 1 | 2 | null
+
+const canAct = computed(() => {
+  if (!isOnline.value) return true;
+  if (!myPlayer.value) return false;
+  if (game.phase === "gameover") return false;
+  if (game.phase === "draft") return game.draftTurn === myPlayer.value;
+  if (game.phase === "place") return game.currentPlayer === myPlayer.value;
+  return false;
+});
 
 /* =========================
    ✅ MODAL SYSTEM
@@ -488,7 +570,11 @@ const modal = reactive({
   cta: null, // null | "reset"
 });
 
-const modalLines = computed(() => String(modal.message || "").split("\n").filter(Boolean));
+const modalLines = computed(() =>
+  String(modal.message || "")
+    .split("\n")
+    .filter(Boolean)
+);
 
 const modalDotClass = computed(() => {
   if (modal.tone === "bad") return "bad";
@@ -510,12 +596,11 @@ function closeModal() {
 
 function resetFromModal() {
   closeModal();
-  game.resetGame();
+  hardResetMatch();
 }
 
 /* =========================
    ✅ Hijack alert() so Board's illegal placement alert becomes a nice modal
-   (Board.vue currently does: alert("Illegal placement...")
 ========================= */
 let originalAlert = null;
 
@@ -553,8 +638,8 @@ watch(
 );
 
 /* =========================
-   QUICK MATCH (Guest) — Supabase REST (no supabase-js dependency)
-   Uses:
+   QUICK MATCH — Supabase REST
+   Env:
    - VITE_SUPABASE_URL
    - VITE_SUPABASE_ANON_KEY
    Table: public.pb_lobbies
@@ -565,7 +650,16 @@ const online = reactive({
   role: null, // "host" | "guest"
   polling: false,
   pollTimer: null,
+
+  // sync state
+  version: 0,
+  applyGuard: false, // prevent echo loop
+  pushTimer: null,
+  lastSig: "",
 });
+
+const publicLobbies = ref([]);
+const loadingPublic = ref(false);
 
 function getGuestId() {
   const k = "pb_guest_id";
@@ -598,39 +692,64 @@ function sbRestUrl(pathAndQuery) {
   return `${base}/rest/v1/${pathAndQuery}`;
 }
 
+async function ensureSupabaseReadyOrExplain() {
+  const { url, anon } = sbConfig();
+  if (!url || !anon) {
+    showModal({
+      title: "Supabase Not Connected",
+      tone: "bad",
+      message:
+        "Missing .env values.\n\nAdd these to your project root .env:\nVITE_SUPABASE_URL=...\nVITE_SUPABASE_ANON_KEY=...\n\nThen restart: npm run dev",
+    });
+    return false;
+  }
+  return true;
+}
+
+function stopPolling() {
+  online.polling = false;
+  if (online.pollTimer) clearInterval(online.pollTimer);
+  online.pollTimer = null;
+  if (online.pushTimer) clearTimeout(online.pushTimer);
+  online.pushTimer = null;
+}
+
 async function sbSelectLobbyById(id) {
-  const res = await fetch(
-    sbRestUrl(`pb_lobbies?id=eq.${encodeURIComponent(id)}&select=*`),
-    { headers: sbHeaders() }
-  );
+  const res = await fetch(sbRestUrl(`pb_lobbies?id=eq.${encodeURIComponent(id)}&select=*`), {
+    headers: sbHeaders(),
+  });
   if (!res.ok) throw new Error(`Select lobby failed (${res.status})`);
   const rows = await res.json();
   return rows?.[0] || null;
 }
 
-async function sbFindOpenLobby({ region = "auto", ruleset = "default" } = {}) {
-  // Match on: status='waiting', is_private=false, guest_id is null
-  // region/ruleset are optional columns; if they don't exist, no harm (Supabase will error).
-  // We'll keep it simple and only filter columns we KNOW exist from your screenshot.
-  const q = [
-    "select=*",
-    "status=eq.waiting",
-    "is_private=eq.false",
-    "guest_id=is.null",
-    "order=updated_at.asc",
-    "limit=1",
-  ].join("&");
-
-  const res = await fetch(sbRestUrl(`pb_lobbies?${q}`), { headers: sbHeaders() });
-  if (!res.ok) throw new Error(`Find open lobby failed (${res.status})`);
+async function sbSelectLobbyByCode(code) {
+  const safe = String(code || "").trim();
+  const res = await fetch(sbRestUrl(`pb_lobbies?code=eq.${encodeURIComponent(safe)}&select=*`), {
+    headers: sbHeaders(),
+  });
+  if (!res.ok) throw new Error(`Lookup by code failed (${res.status})`);
   const rows = await res.json();
   return rows?.[0] || null;
 }
 
-async function sbCreateLobby({ isPrivate = false, lobbyName = "", region = "auto" } = {}) {
-  const hostId = getGuestId();
+async function sbListPublicWaitingLobbies() {
+  const q = [
+    "select=id,code,status,is_private,lobby_name,updated_at",
+    "status=eq.waiting",
+    "is_private=eq.false",
+    "guest_id=is.null",
+    "order=updated_at.desc",
+    "limit=25",
+  ].join("&");
 
-  // Generate a short join code
+  const res = await fetch(sbRestUrl(`pb_lobbies?${q}`), { headers: sbHeaders() });
+  if (!res.ok) throw new Error(`List public lobbies failed (${res.status})`);
+  return await res.json();
+}
+
+async function sbCreateLobby({ isPrivate = false, lobbyName = "" } = {}) {
+  const hostId = getGuestId();
   const code = `PB-${Math.random().toString(16).slice(2, 6).toUpperCase()}${Math.random()
     .toString(16)
     .slice(2, 6)
@@ -641,7 +760,6 @@ async function sbCreateLobby({ isPrivate = false, lobbyName = "", region = "auto
     status: "waiting",
     is_private: !!isPrivate,
     lobby_name: String(lobbyName || "").slice(0, 40),
-    region: String(region || "auto").slice(0, 12),
     host_id: hostId,
     guest_id: null,
     host_ready: false,
@@ -687,11 +805,191 @@ async function sbJoinLobby(lobbyId) {
   return rows?.[0] || null;
 }
 
-function stopPolling() {
-  online.polling = false;
-  if (online.pollTimer) clearInterval(online.pollTimer);
-  online.pollTimer = null;
+/* =========================
+   ✅ ONLINE GAME STATE SYNC
+   - Host initializes random P1/P2 mapping once both connected
+   - Both clients poll lobby.version/state and apply newest
+   - Local changes auto push (only if canAct + online)
+========================= */
+function deepClone(obj) {
+  if (typeof structuredClone === "function") return structuredClone(obj);
+  return JSON.parse(JSON.stringify(obj));
 }
+
+function snapshotGameState(lobby) {
+  // Keep ONLY authoritative gameplay state here (no local UI selections)
+  return {
+    _schema: 1,
+    meta: {
+      code: lobby?.code || online.code || null,
+      players: lobby?.state?.meta?.players || null, // { p1: "host"|"guest", p2: "host"|"guest" }
+      createdAt: lobby?.state?.meta?.createdAt || new Date().toISOString(),
+    },
+    game: {
+      boardW: game.boardW,
+      boardH: game.boardH,
+      allowFlip: game.allowFlip,
+
+      phase: game.phase,
+      draftTurn: game.draftTurn,
+      currentPlayer: game.currentPlayer,
+      winner: game.winner ?? null,
+
+      board: deepClone(game.board),
+      draftBoard: deepClone(game.draftBoard),
+      remaining: deepClone(game.remaining),
+    },
+  };
+}
+
+function applySnapshotToGame(state) {
+  if (!state?.game) return;
+
+  online.applyGuard = true;
+  try {
+    // fixed board for your game
+    game.boardW = state.game.boardW ?? 10;
+    game.boardH = state.game.boardH ?? 6;
+    game.allowFlip = !!state.game.allowFlip;
+
+    // authoritative progression
+    game.phase = state.game.phase || game.phase;
+    game.draftTurn = state.game.draftTurn ?? game.draftTurn;
+    game.currentPlayer = state.game.currentPlayer ?? game.currentPlayer;
+    game.winner = state.game.winner ?? null;
+
+    if (state.game.board) game.board = deepClone(state.game.board);
+    if (state.game.draftBoard) game.draftBoard = deepClone(state.game.draftBoard);
+    if (state.game.remaining) game.remaining = deepClone(state.game.remaining);
+
+    // IMPORTANT: do NOT force-select pieces for the other user
+    // let each client keep its own selectedPieceKey/rotation/flipped
+  } finally {
+    // tiny delay prevents immediate echo when watchers run same tick
+    setTimeout(() => {
+      online.applyGuard = false;
+    }, 0);
+  }
+}
+
+function computeMyPlayerFromPlayersMap(playersMap) {
+  if (!playersMap) return null;
+  const mine = online.role; // "host"|"guest"
+  if (!mine) return null;
+  if (playersMap.p1 === mine) return 1;
+  if (playersMap.p2 === mine) return 2;
+  return null;
+}
+
+function randomBool() {
+  const a = new Uint8Array(1);
+  crypto.getRandomValues(a);
+  return (a[0] % 2) === 0;
+}
+
+async function sbPatchLobbyState(nextState) {
+  // optimistic concurrency: patch only if version matches
+  const lobbyId = online.lobbyId;
+  const currentVersion = online.version || 1;
+
+  const res = await fetch(
+    sbRestUrl(`pb_lobbies?id=eq.${encodeURIComponent(lobbyId)}&version=eq.${encodeURIComponent(currentVersion)}`),
+    {
+      method: "PATCH",
+      headers: { ...sbHeaders(), Prefer: "return=representation" },
+      body: JSON.stringify({
+        state: nextState,
+        version: currentVersion + 1,
+        updated_at: new Date().toISOString(),
+      }),
+    }
+  );
+
+  // If mismatch (0 rows updated), Supabase returns 200 with [] sometimes, or 204
+  const ok = res.ok;
+  const rows = ok ? await res.json().catch(() => []) : [];
+  if (!ok) {
+    const txt = await res.text().catch(() => "");
+    throw new Error(`State push failed (${res.status})\n${txt}`);
+  }
+  if (!Array.isArray(rows) || rows.length === 0) {
+    // version mismatch; caller should refetch
+    return null;
+  }
+  return rows[0];
+}
+
+function gameSigForSync() {
+  // Small + stable signature for detecting changes
+  const payload = {
+    phase: game.phase,
+    draftTurn: game.draftTurn,
+    currentPlayer: game.currentPlayer,
+    winner: game.winner ?? null,
+    allowFlip: game.allowFlip,
+    board: game.board,
+    draftBoard: game.draftBoard,
+    remaining: game.remaining,
+  };
+  return JSON.stringify(payload);
+}
+
+function schedulePush(reason = "") {
+  if (!isOnline.value) return;
+  if (online.applyGuard) return; // remote apply => no echo
+  if (!online.lobbyId) return;
+  if (!canAct.value) return; // only push when it's your legit turn
+
+  // debounce
+  if (online.pushTimer) clearTimeout(online.pushTimer);
+  online.pushTimer = setTimeout(async () => {
+    try {
+      const lobby = await sbSelectLobbyById(online.lobbyId);
+      if (!lobby) return;
+
+      online.version = lobby.version || online.version || 1;
+      online.code = lobby.code || online.code;
+
+      const sig = gameSigForSync();
+      if (sig === online.lastSig) return;
+
+      const nextState = snapshotGameState(lobby);
+      const patched = await sbPatchLobbyState(nextState);
+
+      if (!patched) {
+        // version mismatch; refetch and let polling reapply
+        return;
+      }
+
+      online.version = patched.version || online.version;
+      online.lastSig = sig;
+      // console.log("pushed:", reason, online.version);
+    } catch {
+      // silent; polling will recover
+    }
+  }, 120);
+}
+
+watch(
+  () => [
+    isOnline.value,
+    canAct.value,
+    game.phase,
+    game.draftTurn,
+    game.currentPlayer,
+    game.winner,
+    game.allowFlip,
+    game.board,
+    game.draftBoard,
+    game.remaining,
+  ],
+  () => {
+    // If user changed authoritative stuff locally (draftPick/placeAt), push it.
+    // NOTE: schedulePush only runs when canAct + online.
+    schedulePush("state-change");
+  },
+  { deep: true }
+);
 
 function startPollingLobby(lobbyId, role) {
   stopPolling();
@@ -712,114 +1010,159 @@ function startPollingLobby(lobbyId, role) {
         return;
       }
 
-      // If both players exist, we "start"
+      online.code = lobby.code || online.code;
+      online.version = lobby.version || online.version || 1;
+
       const hasHost = !!lobby.host_id;
       const hasGuest = !!lobby.guest_id;
 
-      if (hasHost && hasGuest) {
-        stopPolling();
-        showModal({
-          title: "Match Found!",
-          message: `Players connected.\n(Online sync comes next — this just confirms matchmaking works.)`,
-          tone: "good",
-        });
-        // Optional: auto-start local match UI so you feel the flow
-        // (Does NOT sync moves yet)
-        screen.value = "couch";
+      // Wait until both connected
+      if (!(hasHost && hasGuest)) return;
+
+      // Host initializes the match state + random role assignment once
+      const hasPlayersMap = !!lobby.state?.meta?.players?.p1 && !!lobby.state?.meta?.players?.p2;
+      if (role === "host" && !hasPlayersMap) {
+        // initialize local game then push initial snapshot
         game.boardW = 10;
         game.boardH = 6;
         game.allowFlip = allowFlip.value;
         game.resetGame();
+
+        const players = randomBool()
+          ? { p1: "host", p2: "guest" }
+          : { p1: "guest", p2: "host" };
+
+        const initState = snapshotGameState(lobby);
+        initState.meta.players = players;
+
+        // push with concurrency; if mismatch, polling will retry later
+        const patched = await sbPatchLobbyState(initState);
+        if (patched) {
+          online.version = patched.version || online.version;
+          // set myPlayer immediately for host
+          myPlayer.value = computeMyPlayerFromPlayersMap(players);
+          screen.value = "online";
+          showModal({
+            title: "Match Found!",
+            message: `Connected.\nYou are Player ${myPlayer.value}.\nLobby: ${online.code || "—"}`,
+            tone: "good",
+          });
+        }
+        return;
       }
-    } catch (e) {
-      // stay silent while polling (don’t spam modals)
+
+      // Guest: wait until host wrote players map
+      const playersMap = lobby.state?.meta?.players;
+      if (!playersMap?.p1 || !playersMap?.p2) return;
+
+      // enter online mode + apply newest state
+      if (screen.value !== "online") {
+        screen.value = "online";
+        myPlayer.value = computeMyPlayerFromPlayersMap(playersMap);
+
+        showModal({
+          title: "Match Found!",
+          message: `Connected.\nYou are Player ${myPlayer.value}.\nLobby: ${online.code || "—"}`,
+          tone: "good",
+        });
+      }
+
+      // Apply state only when version is newer
+      const incomingVersion = lobby.version || 0;
+      const localVersion = online.version || 0;
+
+      // If lobby version changed (or we have no sig yet), apply
+      if (incomingVersion && incomingVersion >= localVersion) {
+        // apply only if different signature to avoid reassign spam
+        const incomingSig = JSON.stringify(lobby.state?.game || {});
+        const localSig = online.lastSig;
+
+        // Note: localSig is about our local authoritative state; if not set, apply anyway
+        if (!localSig || incomingSig) {
+          applySnapshotToGame(lobby.state);
+          online.version = incomingVersion;
+          online.lastSig = gameSigForSync();
+        }
+      }
+    } catch {
+      // keep polling quietly
     }
-  }, 1200);
+  }, 650);
 }
 
-async function ensureSupabaseReadyOrExplain() {
-  const { url, anon } = sbConfig();
-  if (!url || !anon) {
-    showModal({
-      title: "Supabase Not Connected",
-      tone: "bad",
-      message:
-        "Missing .env values.\n\nAdd these to your project root .env:\nVITE_SUPABASE_URL=...\nVITE_SUPABASE_ANON_KEY=...\n\nThen restart: npm run dev",
-    });
-    return false;
-  }
-  return true;
-}
-
-async function quickFind() {
+async function refreshPublicLobbies() {
   if (!(await ensureSupabaseReadyOrExplain())) return;
-
+  loadingPublic.value = true;
   try {
+    const rows = await sbListPublicWaitingLobbies();
+    publicLobbies.value = Array.isArray(rows) ? rows : [];
+  } catch (e) {
     showModal({
-      title: "Searching...",
-      tone: "info",
-      message: "Looking for an open public lobby...",
+      title: "Refresh Failed",
+      tone: "bad",
+      message: String(e?.message || e || "Could not load public lobbies."),
     });
+  } finally {
+    loadingPublic.value = false;
+  }
+}
 
-    const open = await sbFindOpenLobby({ region: quick.region, ruleset: quick.ruleset });
+function normalizeCode(s) {
+  return String(s || "").trim().toUpperCase();
+}
 
-    if (open?.id) {
-      closeModal();
-      showModal({
-        title: "Lobby Found",
-        tone: "info",
-        message: `Joining lobby...\nCode: ${open.code || "—"}`,
-      });
-
-      const joined = await sbJoinLobby(open.id);
-      closeModal();
-
-      showModal({
-        title: "Joined!",
-        tone: "good",
-        message: `Connected to lobby.\nCode: ${joined?.code || open.code || "—"}`,
-      });
-
-      // Start polling (mostly instant, but safe)
-      startPollingLobby(open.id, "guest");
-      return;
-    }
-
-    // No open lobby? Create one automatically for “quick match” vibe
+async function joinPublicLobby(lobby) {
+  if (!(await ensureSupabaseReadyOrExplain())) return;
+  try {
+    showModal({ title: "Joining...", tone: "info", message: `Joining lobby...\nCode: ${lobby?.code || "—"}` });
+    const joined = await sbJoinLobby(lobby.id);
     closeModal();
-    showModal({
-      title: "No Lobby Found",
-      tone: "info",
-      message: "Creating a new lobby and waiting for an opponent...",
-    });
-
-    const created = await sbCreateLobby({
-      isPrivate: false,
-      lobbyName: quick.lobbyName || "Quick Lobby",
-      region: quick.region,
-    });
-
-    closeModal();
-    if (!created?.id) throw new Error("Lobby created but no ID returned.");
-
-    // Copy code for convenience (silent fail if blocked)
-    if (created.code) {
-      try {
-        await navigator.clipboard.writeText(created.code);
-      } catch {}
-    }
-
-    showModal({
-      title: "Lobby Created",
-      tone: "good",
-      message: `Waiting for opponent...\nLobby Code: ${created.code || "—"}\n\n(Code copied if your browser allowed it.)`,
-    });
-
-    startPollingLobby(created.id, "host");
+    showModal({ title: "Joined!", tone: "good", message: `Waiting for host...\nLobby: ${joined?.code || lobby?.code || "—"}` });
+    startPollingLobby(lobby.id, "guest");
   } catch (e) {
     closeModal();
     showModal({
-      title: "Quick Match Error",
+      title: "Join Failed",
+      tone: "bad",
+      message: String(e?.message || e || "Could not join lobby."),
+    });
+  }
+}
+
+async function joinByCode() {
+  if (!(await ensureSupabaseReadyOrExplain())) return;
+
+  const code = normalizeCode(quick.joinCode);
+  if (!code) {
+    showModal({ title: "Enter a Code", tone: "bad", message: "Type a lobby code first (example: PB-AB12CD34)." });
+    return;
+  }
+
+  try {
+    showModal({ title: "Searching Code...", tone: "info", message: `Looking up lobby...\n${code}` });
+
+    const lobby = await sbSelectLobbyByCode(code);
+    if (!lobby) {
+      closeModal();
+      showModal({ title: "Not Found", tone: "bad", message: `No lobby exists with code:\n${code}` });
+      return;
+    }
+
+    if (lobby.guest_id) {
+      closeModal();
+      showModal({ title: "Lobby Full", tone: "bad", message: "That lobby already has a guest." });
+      return;
+    }
+
+    const joined = await sbJoinLobby(lobby.id);
+    closeModal();
+
+    showModal({ title: "Joined!", tone: "good", message: `Waiting for host...\nLobby: ${joined?.code || code}` });
+    startPollingLobby(lobby.id, "guest");
+  } catch (e) {
+    closeModal();
+    showModal({
+      title: "Join by Code Error",
       tone: "bad",
       message: String(e?.message || e || "Something went wrong."),
     });
@@ -838,13 +1181,14 @@ async function quickMake() {
 
     const created = await sbCreateLobby({
       isPrivate: quick.isPrivate,
-      lobbyName: quick.lobbyName || "My Lobby",
-      region: quick.region,
+      lobbyName: quick.lobbyName || (quick.isPrivate ? "Private Lobby" : "Public Lobby"),
     });
 
     closeModal();
 
     if (!created?.id) throw new Error("Lobby created but no ID returned.");
+
+    online.code = created.code || null;
 
     if (created.code) {
       try {
@@ -855,8 +1199,16 @@ async function quickMake() {
     showModal({
       title: "Lobby Ready",
       tone: "good",
-      message: `Lobby Code: ${created.code || "—"}\n\nShare the code to a friend.\n(Code copied if your browser allowed it.)`,
+      message: `Lobby Code: ${created.code || "—"}\n\n${
+        created.is_private
+          ? "This is PRIVATE. Only people with the code can join."
+          : "This is PUBLIC. It will appear in matchmaking."
+      }\n\n(Code copied if your browser allowed it.)`,
     });
+
+    if (!created.is_private) {
+      await refreshPublicLobbies();
+    }
 
     startPollingLobby(created.id, "host");
   } catch (e) {
@@ -867,6 +1219,11 @@ async function quickMake() {
       message: String(e?.message || e || "Something went wrong."),
     });
   }
+}
+
+async function enterQuickFind() {
+  screen.value = "quick_find";
+  await refreshPublicLobbies();
 }
 
 /* =========================
@@ -888,10 +1245,22 @@ function goBack() {
 }
 function goAuth() {
   stopPolling();
+  online.lobbyId = null;
+  online.code = null;
+  online.role = null;
+  online.version = 0;
+  online.lastSig = "";
+  myPlayer.value = null;
   screen.value = "auth";
 }
 function goMode() {
   stopPolling();
+  online.lobbyId = null;
+  online.code = null;
+  online.role = null;
+  online.version = 0;
+  online.lastSig = "";
+  myPlayer.value = null;
   screen.value = "mode";
 }
 function playAsGuest() {
@@ -907,6 +1276,7 @@ function goRanked() {
 }
 function startCouchPlay() {
   stopPolling();
+  myPlayer.value = null;
   screen.value = "couch";
   game.boardW = 10;
   game.boardH = 6;
@@ -915,6 +1285,7 @@ function startCouchPlay() {
 }
 function startPracticeAi() {
   stopPolling();
+  myPlayer.value = null;
   screen.value = "ai";
   game.boardW = 10;
   game.boardH = 6;
@@ -928,6 +1299,15 @@ function applySettings() {
     tone: "info",
   });
   screen.value = "mode";
+}
+
+function hardResetMatch() {
+  // Local reset always works; online will auto-push ONLY when it's your turn
+  game.boardW = 10;
+  game.boardH = 6;
+  game.allowFlip = allowFlip.value;
+  game.resetGame();
+  schedulePush("manual-reset");
 }
 
 onBeforeUnmount(() => stopPolling());

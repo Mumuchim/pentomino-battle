@@ -24,7 +24,6 @@
           @drop.prevent="onDrop(cell.x, cell.y)"
           :title="cellTitle(cell)"
         >
-          <!-- Draft: corner tag if drafted -->
           <span
             v-if="game.phase === 'draft' && cell.v?.draftedBy"
             class="cornerTag"
@@ -36,7 +35,6 @@
         </button>
       </div>
 
-      <!-- PLACE phase ghost overlay -->
       <div
         v-if="ghostOverlay.visible"
         class="ghostOverlay"
@@ -77,6 +75,12 @@ import { useGameStore } from "../store/game";
 import { getPieceStyle } from "../lib/pieceStyles";
 import { playBuzz } from "../lib/sfx";
 import { PENTOMINOES } from "../lib/pentominoes";
+
+const props = defineProps({
+  isOnline: { type: Boolean, default: false },
+  myPlayer: { type: [Number, null], default: null },
+  canAct: { type: Boolean, default: true },
+});
 
 const game = useGameStore();
 const shell = ref(null);
@@ -204,6 +208,7 @@ function onShellDrop() {
   if (!hover.value) return;
   if (game.phase !== "place") return;
   if (!game.selectedPieceKey) return;
+  if (props.isOnline && !props.canAct) return;
 
   const ok = game.placeAt(hover.value.x, hover.value.y);
   if (!ok) {
@@ -215,6 +220,7 @@ function onShellDrop() {
 function onDrop(x, y) {
   if (game.phase !== "place") return;
   if (!game.selectedPieceKey) return;
+  if (props.isOnline && !props.canAct) return;
 
   const ok = game.placeAt(x, y);
   if (!ok) {
@@ -225,14 +231,11 @@ function onDrop(x, y) {
 
 /* ---------------------------
    ✅ Floating clone animation
-   - create a fixed-position “mini tile” that flies to tray anchor
 ---------------------------- */
 function getTrayAnchor(player) {
-  // Draft context first (we’ll add these anchors in DraftPanel)
   const draft = document.querySelector(`[data-tray="${player}"][data-tray-context="draft"]`);
   if (draft) return draft;
 
-  // Battle context (anchors in PiecePicker)
   const battle = document.querySelector(`[data-tray="${player}"][data-tray-context="battle"]`);
   if (battle) return battle;
 
@@ -249,7 +252,6 @@ function spawnFlyClone(pieceKey, player, fromEl) {
   const shape = PENTOMINOES[pieceKey];
   const s = getPieceStyle(pieceKey);
 
-  // Container for whole piece
   const node = document.createElement("div");
   node.className = `flyClone ${player === 1 ? "p1" : "p2"}`;
   node.style.position = "fixed";
@@ -260,7 +262,6 @@ function spawnFlyClone(pieceKey, player, fromEl) {
   node.style.display = "grid";
   node.style.transformOrigin = "center center";
 
-  // Calculate bounding box of shape
   let maxX = 0, maxY = 0;
   for (const [x, y] of shape) {
     if (x > maxX) maxX = x;
@@ -272,7 +273,6 @@ function spawnFlyClone(pieceKey, player, fromEl) {
   node.style.gridTemplateColumns = `repeat(${maxX + 1}, ${cell}px)`;
   node.style.gridTemplateRows = `repeat(${maxY + 1}, ${cell}px)`;
 
-  // Create blocks
   for (const [x, y] of shape) {
     const block = document.createElement("div");
     block.style.width = `${cell}px`;
@@ -297,11 +297,8 @@ function spawnFlyClone(pieceKey, player, fromEl) {
 
   document.body.appendChild(node);
 
-  // Destination movement
-  const dx =
-    to.left + to.width / 2 - (from.left + from.width / 2);
-  const dy =
-    to.top + to.height / 2 - (from.top + from.height / 2);
+  const dx = to.left + to.width / 2 - (from.left + from.width / 2);
+  const dy = to.top + to.height / 2 - (from.top + from.height / 2);
 
   node.animate(
     [
@@ -318,7 +315,6 @@ function spawnFlyClone(pieceKey, player, fromEl) {
     }
   );
 
-  // Fade burst at end
   setTimeout(() => {
     node.animate(
       [
@@ -335,11 +331,13 @@ function spawnFlyClone(pieceKey, player, fromEl) {
 /** ✅ CLICK does two different things depending on phase */
 function onCellClick(x, y, evt) {
   if (game.phase === "draft") {
+    // online gate: only your draft turn can click
+    if (props.isOnline && !props.canAct) return;
+
     const v = game.draftBoard[y][x];
     if (!v) return;
     if (v.draftedBy) return;
 
-    // spawn animation BEFORE the state updates (so it still “looks” picked)
     const fromEl = evt?.currentTarget;
     spawnFlyClone(v.pieceKey, game.draftTurn, fromEl);
 
@@ -349,6 +347,7 @@ function onCellClick(x, y, evt) {
 
   if (game.phase !== "place") return;
   if (!game.selectedPieceKey) return;
+  if (props.isOnline && !props.canAct) return;
 
   const ok = game.placeAt(x, y);
   if (!ok) {
@@ -692,16 +691,8 @@ function ghostBlockStyle(b) {
 }
 </style>
 
-<!-- global-ish style for created DOM node -->
 <style>
-/* created by JS, must be global */
-.flyClone {
-  will-change: transform, opacity, filter;
-}
-.flyClone.p1 {
-  outline: 2px solid rgba(78, 201, 255, 0.25);
-}
-.flyClone.p2 {
-  outline: 2px solid rgba(255, 107, 107, 0.25);
-}
+.flyClone { will-change: transform, opacity, filter; }
+.flyClone.p1 { outline: 2px solid rgba(78, 201, 255, 0.25); }
+.flyClone.p2 { outline: 2px solid rgba(255, 107, 107, 0.25); }
 </style>

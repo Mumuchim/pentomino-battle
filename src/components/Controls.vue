@@ -17,19 +17,19 @@
     </div>
 
     <div class="row buttons">
-      <button class="btn" :disabled="!game.selectedPieceKey" @click="game.rotateSelected()">
+      <button class="btn" :disabled="!game.selectedPieceKey || !props.canAct" @click="game.rotateSelected()">
         Rotate (Q)
       </button>
 
       <button
         class="btn"
-        :disabled="!game.selectedPieceKey || !game.allowFlip"
+        :disabled="!game.selectedPieceKey || !game.allowFlip || !props.canAct"
         @click="game.flipSelected()"
       >
         Flip (E)
       </button>
 
-      <button class="btn" @click="toggleFlipAllowed">
+      <button class="btn" :disabled="props.isOnline || !props.canAct" @click="toggleFlipAllowed">
         Allow Flip: <b>{{ game.allowFlip ? "ON" : "OFF" }}</b>
       </button>
     </div>
@@ -45,20 +45,24 @@ import { onMounted, onBeforeUnmount } from "vue";
 import { useGameStore } from "../store/game";
 import PiecePreview from "./PiecePreview.vue";
 
+const props = defineProps({
+  isOnline: { type: Boolean, default: false },
+  canAct: { type: Boolean, default: true },
+});
+
 const game = useGameStore();
 
 function toggleFlipAllowed() {
   game.allowFlip = !game.allowFlip;
-  // If flip gets disabled, force unflipped
   if (!game.allowFlip) game.flipped = false;
 }
 
 function onKeyDown(e) {
-  // Don't hijack keys when typing
   const tag = (e.target?.tagName || "").toLowerCase();
   if (tag === "input" || tag === "textarea" || tag === "select") return;
 
   if (game.phase !== "place") return;
+  if (!props.canAct) return;
   if (!game.selectedPieceKey) return;
 
   const k = e.key?.toLowerCase();
@@ -87,14 +91,9 @@ onBeforeUnmount(() => window.removeEventListener("keydown", onKeyDown));
 .label { width: 86px; opacity: 0.75; }
 .value { opacity: 0.95; }
 
-.previewRow {
-  margin: 10px 0;
-}
+.previewRow { margin: 10px 0; }
 
-.buttons {
-  gap: 8px;
-  flex-wrap: wrap;
-}
+.buttons { gap: 8px; flex-wrap: wrap; }
 
 .btn {
   border: 1px solid rgba(255,255,255,0.14);

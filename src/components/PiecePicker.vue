@@ -7,7 +7,6 @@
           <span class="headLeft">Player 1 Pieces</span>
           <span class="count">{{ game.remaining[1].length }}</span>
 
-          <!-- battle tray anchor -->
           <span
             class="trayAnchor"
             data-tray="1"
@@ -41,7 +40,6 @@
           <span class="headLeft">Player 2 Pieces</span>
           <span class="count">{{ game.remaining[2].length }}</span>
 
-          <!-- battle tray anchor -->
           <span
             class="trayAnchor"
             data-tray="2"
@@ -76,10 +74,19 @@
 import { useGameStore } from "../store/game";
 import PiecePreview from "./PiecePreview.vue";
 
+const props = defineProps({
+  isOnline: { type: Boolean, default: false },
+  myPlayer: { type: [Number, null], default: null },
+  canAct: { type: Boolean, default: true },
+});
+
 const game = useGameStore();
 
 function canSelect(player) {
-  return game.phase === "place" && game.currentPlayer === player;
+  if (game.phase !== "place") return false;
+  if (game.currentPlayer !== player) return false;
+  if (!props.isOnline) return true;
+  return props.canAct && props.myPlayer === player;
 }
 
 function onPick(player, key) {
@@ -99,29 +106,21 @@ function btnClass(player, key) {
 </script>
 
 <style scoped>
-/* ✅ Match DraftPanel style: NO inner container boxes */
 .picker {
   display: flex;
   flex-direction: column;
   gap: 10px;
 }
 
-/* same structure names as DraftPanel */
 .draftRow {
   display: grid;
   grid-template-columns: 1fr 1fr;
   gap: 14px;
 }
 
-/* DraftPanel has no border/background here — we keep it clean */
-.draftCol {
-  min-width: 0;
-}
+.draftCol { min-width: 0; }
 
-/* Active player subtle emphasis (without adding a full container card) */
-.draftCol.active .draftHead {
-  filter: brightness(1.08);
-}
+.draftCol.active .draftHead { filter: brightness(1.08); }
 .draftCol.active .draftHead::after {
   content: "";
   position: absolute;
@@ -147,16 +146,10 @@ function btnClass(player, key) {
   gap: 10px;
 }
 
-.headLeft {
-  min-width: 0;
-}
+.headLeft { min-width: 0; }
 
-.draftHead.p1 {
-  color: rgba(78, 201, 255, 0.98);
-}
-.draftHead.p2 {
-  color: rgba(255, 107, 107, 0.98);
-}
+.draftHead.p1 { color: rgba(78, 201, 255, 0.98); }
+.draftHead.p2 { color: rgba(255, 107, 107, 0.98); }
 
 .count {
   padding: 2px 8px;
@@ -167,7 +160,6 @@ function btnClass(player, key) {
   flex: 0 0 auto;
 }
 
-/* 🔥 BIG tray layout (same as DraftPanel) */
 .chips.big {
   display: flex;
   flex-wrap: wrap;
@@ -175,7 +167,6 @@ function btnClass(player, key) {
   min-height: 64px;
 }
 
-/* button wrapper (still clean, no box UI) */
 .chipBtn {
   padding: 0;
   border: 0;
@@ -191,23 +182,18 @@ function btnClass(player, key) {
   filter: brightness(1.06);
 }
 
-/* selected glow */
 .chipBtn.selected {
   outline: 2px solid rgba(0, 255, 170, 0.55);
   box-shadow: 0 0 18px rgba(0, 255, 170, 0.1);
 }
 
-/* enemy visible but locked */
 .chipBtn.enemy {
   opacity: 0.55;
   filter: grayscale(0.25) saturate(0.8);
   cursor: default;
 }
-.chipBtn:disabled {
-  pointer-events: none;
-}
+.chipBtn:disabled { pointer-events: none; }
 
-/* empty note (same as DraftPanel) */
 .emptyNote {
   opacity: 0.6;
   font-size: 13px;
@@ -216,13 +202,12 @@ function btnClass(player, key) {
   border-radius: 12px;
 }
 
-/* Animation target */
 .trayAnchor {
-  width: 18px;
-  height: 18px;
-  border-radius: 9px;
-  opacity: 0;
-  pointer-events: none;
-  flex: 0 0 auto;
+  position: absolute;
+  right: 0;
+  top: 50%;
+  width: 1px;
+  height: 1px;
+  transform: translateY(-50%);
 }
 </style>
