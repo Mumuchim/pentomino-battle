@@ -23,16 +23,6 @@ function inBounds(x, y, w, h) {
  */
 const _draftCache = new Map();
 
-function shuffleArray(arr) {
-  // Fisher–Yates (in-place)
-  for (let i = arr.length - 1; i > 0; i--) {
-    const j = Math.floor(Math.random() * (i + 1));
-    [arr[i], arr[j]] = [arr[j], arr[i]];
-  }
-  return arr;
-}
-
-
 function uniqOrientations(baseCells, allowFlip = true) {
   const seen = new Set();
   const outs = [];
@@ -63,9 +53,9 @@ function uniqOrientations(baseCells, allowFlip = true) {
   return outs;
 }
 
-function computeDraftTiling(w, h, allowFlip = true, randomize = false) {
+function computeDraftTiling(w, h, allowFlip = true) {
   const cacheKey = `${w}x${h}|flip:${allowFlip ? 1 : 0}`;
-  if (!randomize && _draftCache.has(cacheKey)) return _draftCache.get(cacheKey);
+  if (_draftCache.has(cacheKey)) return _draftCache.get(cacheKey);
 
   const keys = Object.keys(PENTOMINOES);
 
@@ -111,13 +101,6 @@ function computeDraftTiling(w, h, allowFlip = true, randomize = false) {
   // heuristic: try pieces with fewer orientations first (often helps)
   const pieceOrder = [...keys].sort((a, b) => orients[a].length - orients[b].length);
 
-  if (randomize) {
-    shuffleArray(pieceOrder);
-    // also shuffle orientation order per piece to vary solutions
-    for (const k of keys) shuffleArray(orients[k]);
-  }
-
-
   const used = new Set();
 
   function backtrack() {
@@ -157,11 +140,11 @@ function computeDraftTiling(w, h, allowFlip = true, randomize = false) {
   if (!ok) {
     // fallback: should basically never happen unless piece defs are odd
     const empty = makeEmptyDraftBoard(w, h);
-    if (!randomize) _draftCache.set(cacheKey, empty);
+    _draftCache.set(cacheKey, empty);
     return empty;
   }
 
-  if (!randomize) _draftCache.set(cacheKey, board);
+  _draftCache.set(cacheKey, board);
   return board;
 }
 
@@ -195,13 +178,6 @@ export const useGameStore = defineStore("game", {
 
     winner: null,
     lastMove: null,
-
-    // Timers (synced for online fairness)
-    turnStartedAt: null,
-    matchInvalid: false,
-    matchInvalidReason: null,
-    turnLimitDraftSec: 30,
-    turnLimitPlaceSec: 60,
   }),
 
   getters: {
@@ -238,12 +214,8 @@ export const useGameStore = defineStore("game", {
       this.winner = null;
       this.lastMove = null;
 
-      this.turnStartedAt = Date.now();
-      this.matchInvalid = false;
-      this.matchInvalidReason = null;
-
-      // ✅ rebuild solved draft puzzle (randomized)
-      this.draftBoard = computeDraftTiling(this.boardW, this.boardH, this.allowFlip, true)
+      // ✅ rebuild solved draft puzzle (cached)
+      this.draftBoard = computeDraftTiling(this.boardW, this.boardH, this.allowFlip)
         .map(row => row.map(cell => (cell ? { pieceKey: cell.pieceKey } : null)));
 
       // keep announcer consistent during draft
@@ -269,12 +241,9 @@ export const useGameStore = defineStore("game", {
         }
       }
 
-      this.lastMove = { type: "draft", player: this.draftTurn, piece: pieceKey };
-
       // swap turns
       this.draftTurn = this.draftTurn === 1 ? 2 : 1;
       this.currentPlayer = this.draftTurn;
-      this.turnStartedAt = Date.now();
 
       // if all drafted -> start placement phase
       if (this.pool.length === 0) {
@@ -289,7 +258,6 @@ export const useGameStore = defineStore("game", {
 
         // placement starts with P1
         this.currentPlayer = 1;
-        this.turnStartedAt = Date.now();
 
         // clear selection
         this.selectedPieceKey = null;
@@ -377,11 +345,10 @@ export const useGameStore = defineStore("game", {
       );
 
       this.placedCount += 1;
-      this.lastMove = { type: "place", player: this.currentPlayer, piece: key, x: anchorX, y: anchorY };
+      this.lastMove = { player: this.currentPlayer, piece: key, x: anchorX, y: anchorY };
 
       // next player
       this.currentPlayer = this.currentPlayer === 1 ? 2 : 1;
-      this.turnStartedAt = Date.now();
 
       // clear selection
       this.selectedPieceKey = null;
@@ -434,50 +401,6 @@ export const useGameStore = defineStore("game", {
 
       Object.assign(this, saved);
       return false;
-    },
-
-
-    // ----- TIMEOUTS / SURRENDER -----
-    getTurnLimitSec() {
-      return this.phase === "draft" ? this.turnLimitDraftSec : this.turnLimitPlaceSec;
-    },
-
-    checkAndApplyTimeout(now = Date.now()) {
-      if (this.phase === "gameover") return false;
-      if (!this.turnStartedAt) return false;
-
-      const limitSec = this.getTurnLimitSec();
-      const elapsedSec = (now - this.turnStartedAt) / 1000;
-
-      if (elapsedSec < limitSec) return false;
-
-      if (this.phase === "draft") {
-        // Draft pick took too long -> invalid match (dodged)
-        this.matchInvalid = true;
-        this.matchInvalidReason = "match dodged";
-        this.phase = "gameover";
-        this.winner = null;
-        this.lastMove = { type: "dodged", player: this.currentPlayer };
-        return true;
-      }
-
-      // Place phase timeout -> current player loses
-      const loser = this.currentPlayer;
-      const winner = loser === 1 ? 2 : 1;
-      this.phase = "gameover";
-      this.winner = winner;
-      this.lastMove = { type: "timeout", player: loser };
-      return true;
-    },
-
-    surrender(player) {
-      if (this.phase === "gameover") return false;
-      const loser = player;
-      const winner = loser === 1 ? 2 : 1;
-      this.phase = "gameover";
-      this.winner = winner;
-      this.lastMove = { type: "surrender", player: loser };
-      return true;
     },
   },
 });

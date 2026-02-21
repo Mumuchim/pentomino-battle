@@ -23,10 +23,7 @@
 
     <header class="topbar">
       <div class="brand" @click="goAuth" title="Back to Main Menu">
-        <div class="logoMark">
-          <img v-if="logoDataUrl" :src="logoDataUrl" alt="Logo" class="logoImg" />
-          <span v-else>⬛</span>
-        </div>
+        <div class="logoMark">⬛</div>
         <div class="brandText">
           <div class="title">PentoBattle</div>
           <div class="sub">Rotate • Flip • Dominate</div>
@@ -36,7 +33,7 @@
       <div class="right">
         <button class="btn ghost" v-if="canGoBack" @click="goBack">← Back</button>
         <button class="btn ghost" v-if="screen !== 'auth'" @click="goAuth">Main Menu</button>
-        <button class="btn" v-if="isInGame" @click="onPrimaryMatchAction">{{ primaryMatchActionLabel }}</button>
+        <button class="btn" v-if="isInGame" @click="onResetClick">Reset Match</button>
       </div>
     </header>
 
@@ -87,9 +84,6 @@
 
           <div class="finePrint">
             Tip: You can still play Couch + Practice without login.
-            <span class="sep">·</span>
-            <button class="linkBtn" @click="logoFileInput?.click()">Upload Logo</button>
-            <input ref="logoFileInput" type="file" accept="image/png" style="display:none" @change="onPickLogoFile" />
           </div>
         </div>
       </section>
@@ -433,9 +427,9 @@
             </div>
 
             <div v-if="isOnline" class="statusTag">
-              <span><b>Ping:</b> {{ pingText }}</span>
+              <span v-if="onlineSyncing"><b>Online Sync:</b> SYNCING</span>
+              <span v-else><b>Online Sync:</b> READY</span>
               <span v-if="onlineTurnText"> · {{ onlineTurnText }}</span>
-              <span v-if="turnTimerText"> · {{ turnTimerText }}</span>
             </div>
 
             <div class="keysTag" v-if="game.phase === 'place'">
@@ -455,7 +449,7 @@
         </section>
 
         <section class="rightPanel">
-          <Board />
+          <Board :isOnline="isOnline" :myPlayer="myPlayer" :canAct="canAct" />
           <div class="hintSmall">
             Drag a piece to the board and hover to preview. Click or drop to place.
           </div>
@@ -506,25 +500,6 @@ const screen = ref("auth");
 const loggedIn = ref(false);
 const allowFlip = ref(true);
 
-const logoDataUrl = ref(localStorage.getItem("pb_logo_dataurl") || "");
-const logoFileInput = ref(null);
-
-function onPickLogoFile(e) {
-  const file = e?.target?.files?.[0];
-  if (!file) return;
-  if (!file.type?.includes("png")) {
-    showModal({ title: "Logo", message: "Please upload a PNG file.", tone: "bad" });
-    return;
-  }
-  const reader = new FileReader();
-  reader.onload = () => {
-    const v = String(reader.result || "");
-    logoDataUrl.value = v;
-    try { localStorage.setItem("pb_logo_dataurl", v); } catch {}
-  };
-  reader.readAsDataURL(file);
-}
-
 const quick = reactive({
   lobbyName: "",
   isPrivate: false,
@@ -557,100 +532,6 @@ const onlineTurnText = computed(() => {
   }
   return "";
 });
-
-const pingText = computed(() => {
-  const v = online.pingMs;
-  if (v === null || v === undefined) return "—";
-  const ms = Math.max(0, Math.round(v));
-  return `${ms}ms`;
-});
-
-const turnTimerText = computed(() => {
-  if (!isInGame.value) return "";
-  if (game.phase === "gameover") return "";
-  if (!game.turnStartedAt) return "";
-  const limit = game.phase === "draft" ? (game.turnLimitDraftSec || 30) : (game.turnLimitPlaceSec || 60);
-  const left = Math.max(0, limit - (Date.now() - game.turnStartedAt) / 1000);
-  const s = Math.ceil(left);
-  return `Time: ${s}s`;
-});
-
-// Top-right button: Reset (offline) / Surrender (online)
-const primaryMatchActionLabel = computed(() => {
-  if (!isInGame.value) return "";
-  return isOnline.value ? "Surrender" : "Reset Match";
-});
-
-function onPrimaryMatchAction() {
-  if (!isInGame.value) return;
-  if (isOnline.value) {
-    if (myPlayer.value) {
-      game.surrender(myPlayer.value);
-      online.localDirty = true;
-      pushMyState("surrender");
-    }
-  } else {
-    onResetClick();
-  }
-}
-
-function winnerMessage(w) {
-  const me = myPlayer.value;
-  if (!me) return `Player ${w} wins.\nGG!`;
-  if (w === null || w === undefined) {
-    return game.matchInvalid ? `Match invalid — ${game.matchInvalidReason || "dodged"}.` : "Match ended.";
-  }
-  return w === me ? "You win!\nGG!" : "Opponent wins.\nGG!";
-}
-
-const sfxPick = new Audio();
-const sfxPlace = new Audio();
-const bgm = new Audio();
-
-function loadAudioSafe(audio, url) {
-  try {
-    audio.src = url;
-    audio.load?.();
-  } catch {
-    // ignore
-  }
-}
-
-function initAudio() {
-  // optional: place your files here (add them under src/assets/audio/*)
-  loadAudioSafe(sfxPick, new URL("./assets/audio/pick.mp3", import.meta.url).href);
-  loadAudioSafe(sfxPlace, new URL("./assets/audio/place.mp3", import.meta.url).href);
-  loadAudioSafe(bgm, new URL("./assets/audio/bgm.mp3", import.meta.url).href);
-  bgm.loop = true;
-  bgm.volume = 0.25;
-}
-
-function playSfx(a) {
-  try {
-    a.currentTime = 0;
-    a.play?.();
-  } catch {
-    // ignore autoplay restrictions
-  }
-}
-
-function tryStartBgm() {
-  try {
-    if (!bgm.src) return;
-    bgm.play?.();
-  } catch {}
-}
-
-initAudio();
-
-watch(
-  () => game.lastMove,
-  (mv, prev) => {
-    if (!mv || mv === prev) return;
-    if (mv.type === "draft") playSfx(sfxPick);
-    if (mv.type === "place") playSfx(sfxPlace);
-  }
-);
 
 const canAct = computed(() => {
   if (!isOnline.value) return true;
@@ -701,7 +582,6 @@ function resetFromModal() {
    ✅ Hijack alert() so Board's illegal placement alert becomes a nice modal
 ========================= */
 let originalAlert = null;
-let tickTimer = null;
 
 onMounted(() => {
   originalAlert = window.alert;
@@ -712,31 +592,10 @@ onMounted(() => {
       tone: "bad",
     });
   };
-
-  // Timer watchdog (draft 30s / place 60s)
-  tickTimer = window.setInterval(() => {
-    if (!isOnline.value) return;
-    // Only one side needs to finalize; allow either client to declare.
-    const changed = game.checkAndApplyTimeout(Date.now());
-    if (changed) {
-      online.localDirty = true;
-      pushMyState("timeout");
-    }
-  }, 250);
-
-  // Start BGM on first user gesture
-  const startBgmOnce = () => {
-    tryStartBgm();
-    window.removeEventListener("pointerdown", startBgmOnce);
-    window.removeEventListener("keydown", startBgmOnce);
-  };
-  window.addEventListener("pointerdown", startBgmOnce, { once: true });
-  window.addEventListener("keydown", startBgmOnce, { once: true });
 });
 
 onBeforeUnmount(() => {
   if (originalAlert) window.alert = originalAlert;
-  if (tickTimer) window.clearInterval(tickTimer);
 });
 
 /* =========================
@@ -749,7 +608,7 @@ watch(
       const w = game.winner ?? "?";
       showModal({
         title: "Victory!",
-        message: winnerMessage(w),
+        message: `Player ${w} wins.\nGG!`,
         tone: "good",
         cta: "reset",
       });
@@ -773,7 +632,6 @@ const online = reactive({
   lastAppliedVersion: 0,
   lastSeenUpdatedAt: null,
   applyingRemote: false,
-  pingMs: null,
   localDirty: false,
 });
 
@@ -973,18 +831,11 @@ function buildSyncedState(meta = {}) {
       draftTurn: game.draftTurn,
       currentPlayer: game.currentPlayer,
 
-      // pools
+      // draft + inventories
       pool: game.pool,
       picks: game.picks,
       remaining: game.remaining,
       placedCount: game.placedCount,
-
-      // timers / validity
-      turnStartedAt: game.turnStartedAt,
-      matchInvalid: game.matchInvalid,
-      matchInvalidReason: game.matchInvalidReason,
-      turnLimitDraftSec: game.turnLimitDraftSec,
-      turnLimitPlaceSec: game.turnLimitPlaceSec,
 
       // win
       winner: game.winner,
@@ -1002,8 +853,6 @@ function applySyncedState(state) {
     const g = state.game;
 
     // patch only known fields to avoid nuking Pinia internals
-    online.localDirty = false;
-
     game.$patch({
       phase: g.phase,
       boardW: g.boardW,
@@ -1016,16 +865,10 @@ function applySyncedState(state) {
       draftTurn: g.draftTurn,
       currentPlayer: g.currentPlayer,
 
-      pool: g.pool,
-      picks: g.picks,
-      remaining: g.remaining,
-      placedCount: g.placedCount,
-
-      turnStartedAt: g.turnStartedAt,
-      matchInvalid: g.matchInvalid,
-      matchInvalidReason: g.matchInvalidReason,
-      turnLimitDraftSec: g.turnLimitDraftSec,
-      turnLimitPlaceSec: g.turnLimitPlaceSec,
+      pool: g.pool ?? game.pool,
+      picks: g.picks ?? game.picks,
+      remaining: g.remaining ?? game.remaining,
+      placedCount: (typeof g.placedCount === "number") ? g.placedCount : game.placedCount,
 
       winner: g.winner,
     });
@@ -1033,6 +876,7 @@ function applySyncedState(state) {
     // release in next tick so watchers don't instantly re-push
     setTimeout(() => {
       online.applyingRemote = false;
+      online.localDirty = false;
     }, 0);
   }
 }
@@ -1076,8 +920,8 @@ async function pushMyState(reason = "") {
   if (!online.lobbyId) return;
   if (online.applyingRemote) return;
 
-  // only the player whose turn can push moves (prevents overwrites)
-  // BUT: we allow one-shot push right after a local action (localDirty)
+  // Only the player whose turn can push moves (prevents overwrites),
+  // BUT allow a one-shot push right after our move even if the turn already advanced.
   if (!canAct.value && !online.localDirty) return;
 
   onlineSyncing.value = true;
@@ -1206,9 +1050,7 @@ function startPollingLobby(lobbyId, role) {
   online.pollTimer = setInterval(async () => {
     try {
       onlineSyncing.value = true;
-      const t0 = performance.now();
       const lobby = await sbSelectLobbyById(lobbyId);
-      online.pingMs = performance.now() - t0;
       if (!lobby) {
         stopPolling();
         showModal({ title: "Lobby Closed", message: "The lobby no longer exists.", tone: "bad" });
@@ -1249,23 +1091,20 @@ watch(
     game.draftTurn,
     game.currentPlayer,
     game.winner,
+    game.placedCount,
     // JSON string keeps it simple + stable for small boards
     JSON.stringify(game.draftBoard),
     JSON.stringify(game.board),
     JSON.stringify(game.pool),
     JSON.stringify(game.picks),
     JSON.stringify(game.remaining),
-    String(game.placedCount),
-    String(game.turnStartedAt),
-    String(game.matchInvalid),
-    String(game.matchInvalidReason),
-    String(game.winner),
   ],
   async () => {
     if (!isOnline.value) return;
     if (!online.lobbyId) return;
     if (online.applyingRemote) return;
-    // mark local changes for upload
+
+    // mark that we have local authoritative changes to publish
     online.localDirty = true;
 
     // small debounce: multiple mutations in one tick (draftPick/placeAt) -> single push
@@ -2007,25 +1846,4 @@ onBeforeUnmount(() => stopPolling());
   justify-content: flex-end;
   flex-wrap: wrap;
 }
-
-.logoImg{
-  width: 26px;
-  height: 26px;
-  object-fit: contain;
-  image-rendering: auto;
-  border-radius: 6px;
-}
-.linkBtn{
-  background: transparent;
-  border: 0;
-  padding: 0;
-  cursor: pointer;
-  color: inherit;
-  text-decoration: underline;
-  opacity: .85;
-  font-weight: 700;
-}
-.linkBtn:hover{ opacity: 1; }
-.finePrint .sep{ margin: 0 6px; opacity:.5; }
-
 </style>
