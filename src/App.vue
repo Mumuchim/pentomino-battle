@@ -1026,10 +1026,31 @@ async function pushMyState(reason = "") {
 
   // ✅ Only push gameplay state when you are allowed to act.
   // Allow a few non-turn actions (rematch responses / surrender).
-  const nonTurnAllowed = reason === "surrender" || String(reason || "").startsWith("rematch_") || reason === "rematch_request";
+  // IMPORTANT: after you make a move, the store immediately flips the turn to the opponent.
+  // That means `canAct` becomes false *right after your move*, but we still MUST push your move
+  // or the other player will never receive it.
+  const nonTurnAllowed =
+    reason === "surrender" || String(reason || "").startsWith("rematch_") || reason === "rematch_request";
+
   if (online.waitingForOpponent && !nonTurnAllowed) return;
-  if (reason === "watch" && !canAct.value) return;
-  if (!canAct.value && !nonTurnAllowed) return;
+
+  const me = myPlayer.value;
+  const lastByMe =
+    !!me &&
+    !!game.lastMove &&
+    Number(game.lastMove.player) === Number(me) &&
+    (game.lastMove.type === "draft" ||
+      game.lastMove.type === "place" ||
+      game.lastMove.type === "timeout" ||
+      game.lastMove.type === "dodged");
+
+  // `watch` pushes are debounced from reactive changes.
+  // Allow them when it's your turn OR when you just made the last move (even if turn already flipped).
+  if (reason === "watch") {
+    if (!canAct.value && !(online.localDirty && lastByMe)) return;
+  } else {
+    if (!canAct.value && !nonTurnAllowed) return;
+  }
 
   onlineSyncing.value = true;
   try {
