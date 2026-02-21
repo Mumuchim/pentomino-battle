@@ -449,7 +449,7 @@
         </section>
 
         <section class="rightPanel">
-          <Board />
+          <Board :isOnline="isOnline" :myPlayer="myPlayer" :canAct="canAct" />
           <div class="hintSmall">
             Drag a piece to the board and hover to preview. Click or drop to place.
           </div>
@@ -632,7 +632,7 @@ const online = reactive({
   lastAppliedVersion: 0,
   lastSeenUpdatedAt: null,
   applyingRemote: false,
-  localDirty: false, // set true after a local move so we can push even if turn advanced
+  localDirty: false,
 });
 
 const publicLobbies = ref([]);
@@ -831,9 +831,11 @@ function buildSyncedState(meta = {}) {
       draftTurn: game.draftTurn,
       currentPlayer: game.currentPlayer,
 
-      // pools
+      // draft + inventories
+      pool: game.pool,
+      picks: game.picks,
       remaining: game.remaining,
-      drafted: game.drafted,
+      placedCount: game.placedCount,
 
       // win
       winner: game.winner,
@@ -851,9 +853,6 @@ function applySyncedState(state) {
     const g = state.game;
 
     // patch only known fields to avoid nuking Pinia internals
-    // remote is authoritative; clear any pending local dirty flag
-    online.localDirty = false;
-
     game.$patch({
       phase: g.phase,
       boardW: g.boardW,
@@ -866,8 +865,10 @@ function applySyncedState(state) {
       draftTurn: g.draftTurn,
       currentPlayer: g.currentPlayer,
 
-      remaining: g.remaining,
-      drafted: g.drafted,
+      pool: g.pool ?? game.pool,
+      picks: g.picks ?? game.picks,
+      remaining: g.remaining ?? game.remaining,
+      placedCount: (typeof g.placedCount === "number") ? g.placedCount : game.placedCount,
 
       winner: g.winner,
     });
@@ -875,6 +876,7 @@ function applySyncedState(state) {
     // release in next tick so watchers don't instantly re-push
     setTimeout(() => {
       online.applyingRemote = false;
+      online.localDirty = false;
     }, 0);
   }
 }
@@ -918,8 +920,8 @@ async function pushMyState(reason = "") {
   if (!online.lobbyId) return;
   if (online.applyingRemote) return;
 
-  // Allow pushing after our move even if the turn has already advanced locally.
-  // Out-of-turn actions are blocked by UI (canAct) so waiting players won't create localDirty changes.
+  // Only the player whose turn can push moves (prevents overwrites),
+  // BUT allow a one-shot push right after our move even if the turn already advanced.
   if (!canAct.value && !online.localDirty) return;
 
   onlineSyncing.value = true;
@@ -1089,19 +1091,20 @@ watch(
     game.draftTurn,
     game.currentPlayer,
     game.winner,
+    game.placedCount,
     // JSON string keeps it simple + stable for small boards
     JSON.stringify(game.draftBoard),
     JSON.stringify(game.board),
+    JSON.stringify(game.pool),
+    JSON.stringify(game.picks),
     JSON.stringify(game.remaining),
-    JSON.stringify(game.drafted),
   ],
   async () => {
     if (!isOnline.value) return;
     if (!online.lobbyId) return;
     if (online.applyingRemote) return;
 
-    // We used to guard with canAct here, but that breaks sync because your move often flips the turn
-    // before the watcher runs. Instead, mark as dirty and push once; UI already blocks out-of-turn actions.
+    // mark that we have local authoritative changes to publish
     online.localDirty = true;
 
     // small debounce: multiple mutations in one tick (draftPick/placeAt) -> single push
