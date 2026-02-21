@@ -24,7 +24,8 @@
     <header class="topbar">
       <div class="brand" @click="goAuth" title="Back to Main Menu">
         <div class="logoMark">
-          <img :src="logoUrl" alt="Logo" class="logoImg floatingLogo" />
+          <img v-if="logoDataUrl" :src="logoDataUrl" alt="Logo" class="logoImg" />
+          <span v-else>⬛</span>
         </div>
         <div class="brandText">
           <div class="title">PentoBattle</div>
@@ -35,9 +36,7 @@
       <div class="right">
         <button class="btn ghost" v-if="canGoBack" @click="goBack">← Back</button>
         <button class="btn ghost" v-if="screen !== 'auth'" @click="goAuth">Main Menu</button>
-        <button class="btn" v-if="isInGame" @click="onPrimaryMatchAction">
-          {{ primaryMatchActionLabel }}
-        </button>
+        <button class="btn" v-if="isInGame" @click="onPrimaryMatchAction">{{ primaryMatchActionLabel }}</button>
       </div>
     </header>
 
@@ -89,6 +88,8 @@
           <div class="finePrint">
             Tip: You can still play Couch + Practice without login.
             <span class="sep">·</span>
+            <button class="linkBtn" @click="logoFileInput?.click()">Upload Logo</button>
+            <input ref="logoFileInput" type="file" accept="image/png" style="display:none" @change="onPickLogoFile" />
           </div>
         </div>
       </section>
@@ -133,7 +134,7 @@
               <div class="menuBtnRight">{{ loggedIn ? "▶" : "LOCKED" }}</div>
             </button>
 
-            <button class="menuBtn primary" @click="goQuick">
+            <button class="menuBtn" @click="goQuick">
               <div class="menuBtnLeft">
                 <div class="menuBtnIcon">⚡</div>
                 <div class="menuBtnText">
@@ -141,7 +142,7 @@
                   <div class="menuBtnSub">Browse public lobbies or join by code</div>
                 </div>
               </div>
-              <div class="menuBtnRight">PLAY</div>
+              <div class="menuBtnRight">▶</div>
             </button>
 
             <button class="menuBtn primary" @click="startCouchPlay">
@@ -406,11 +407,11 @@
         <section class="leftPanel">
           <div class="panelHead">
             <div class="modeRow">
-              <div class="modeTag">
-                Mode: <b>{{ modeLabel }}</b>
+              <div class="modeTag">Mode: <b>{{ modeLabel }}</b>
                 <span v-if="isOnline && myPlayer"> · You: <b>P{{ myPlayer }}</b></span>
               </div>
 
+              <!-- ✅ Turn badge (highlighted) -->
               <div
                 class="turnBadge"
                 :class="{
@@ -433,7 +434,6 @@
 
             <div v-if="isOnline" class="statusTag">
               <span><b>Ping:</b> {{ pingText }}</span>
-              <span v-if="online.code"> · <b>Code:</b> {{ online.code }}</span>
               <span v-if="onlineTurnText"> · {{ onlineTurnText }}</span>
               <span v-if="turnTimerText"> · {{ turnTimerText }}</span>
             </div>
@@ -463,7 +463,7 @@
       </section>
     </main>
 
-    <!-- ✅ Modal -->
+    <!-- ✅ Modal (illegal placement / winner / general notices) -->
     <div v-if="modal.open" class="modalOverlay" @click.self="closeModal">
       <div class="modalCard" role="dialog" aria-modal="true">
         <div class="modalTop">
@@ -481,14 +481,9 @@
         </div>
 
         <div class="modalActions">
-          <button
-            v-for="(a, i) in modal.actions"
-            :key="i"
-            class="btn"
-            :class="{ primary: a.tone === 'primary', soft: a.tone === 'soft', ghost: a.tone === 'ghost' }"
-            @click="onModalAction(a)"
-          >
-            {{ a.label }}
+          <button class="btn primary" @click="closeModal">OK</button>
+          <button v-if="modal.cta === 'reset'" class="btn" @click="resetFromModal">
+            Play Again
           </button>
         </div>
       </div>
@@ -511,7 +506,24 @@ const screen = ref("auth");
 const loggedIn = ref(false);
 const allowFlip = ref(true);
 
-const logoUrl = new URL("./assets/logo.png", import.meta.url).href;
+const logoDataUrl = ref(localStorage.getItem("pb_logo_dataurl") || "");
+const logoFileInput = ref(null);
+
+function onPickLogoFile(e) {
+  const file = e?.target?.files?.[0];
+  if (!file) return;
+  if (!file.type?.includes("png")) {
+    showModal({ title: "Logo", message: "Please upload a PNG file.", tone: "bad" });
+    return;
+  }
+  const reader = new FileReader();
+  reader.onload = () => {
+    const v = String(reader.result || "");
+    logoDataUrl.value = v;
+    try { localStorage.setItem("pb_logo_dataurl", v); } catch {}
+  };
+  reader.readAsDataURL(file);
+}
 
 const quick = reactive({
   lobbyName: "",
@@ -534,12 +546,15 @@ const canGoBack = computed(() =>
 const isOnline = computed(() => screen.value === "online");
 const myPlayer = ref(null); // 1 | 2 | null
 const onlineSyncing = ref(false);
-
 const onlineTurnText = computed(() => {
   if (!isOnline.value || !myPlayer.value) return "";
   if (game.phase === "gameover") return "";
-  if (game.phase === "draft") return game.draftTurn === myPlayer.value ? "Your turn" : `Waiting for Player ${game.draftTurn}...`;
-  if (game.phase === "place") return game.currentPlayer === myPlayer.value ? "Your turn" : `Waiting for Player ${game.currentPlayer}...`;
+  if (game.phase === "draft") {
+    return game.draftTurn === myPlayer.value ? "Your turn" : `Waiting for Player ${game.draftTurn}...`;
+  }
+  if (game.phase === "place") {
+    return game.currentPlayer === myPlayer.value ? "Your turn" : `Waiting for Player ${game.currentPlayer}...`;
+  }
   return "";
 });
 
@@ -550,39 +565,92 @@ const pingText = computed(() => {
   return `${ms}ms`;
 });
 
-const nowTick = ref(Date.now());
-
-function fmtClock(sec) {
-  const s = Math.max(0, Math.floor(Number(sec || 0)));
-  const m = Math.floor(s / 60);
-  const r = String(s % 60).padStart(2, "0");
-  return `${m}:${r}`;
-}
-
 const turnTimerText = computed(() => {
   if (!isInGame.value) return "";
   if (game.phase === "gameover") return "";
-  if (isOnline.value && !myPlayer.value) return "";
-
-  if (game.phase === "draft") {
-    if (!game.turnStartedAt) return "";
-    const limit = game.turnLimitDraftSec || 30;
-    const left = Math.max(0, limit - (nowTick.value - game.turnStartedAt) / 1000);
-    const s = Math.ceil(left);
-    return `Time: ${s}s`;
-  }
-
-  const p1 = fmtClock(game.battleClockSec?.[1] ?? 0);
-  const p2 = fmtClock(game.battleClockSec?.[2] ?? 0);
-  return `Clock P1 ${p1} · P2 ${p2}`;
+  if (!game.turnStartedAt) return "";
+  const limit = game.phase === "draft" ? (game.turnLimitDraftSec || 30) : (game.turnLimitPlaceSec || 60);
+  const left = Math.max(0, limit - (Date.now() - game.turnStartedAt) / 1000);
+  const s = Math.ceil(left);
+  return `Time: ${s}s`;
 });
 
-// Top-right button
+// Top-right button: Reset (offline) / Surrender (online)
 const primaryMatchActionLabel = computed(() => {
   if (!isInGame.value) return "";
-  if (isOnline.value) return game.phase === "gameover" ? "Play Again" : "Surrender";
-  return "Reset Match";
+  return isOnline.value ? "Surrender" : "Reset Match";
 });
+
+function onPrimaryMatchAction() {
+  if (!isInGame.value) return;
+  if (isOnline.value) {
+    if (myPlayer.value) {
+      game.surrender(myPlayer.value);
+      online.localDirty = true;
+      pushMyState("surrender");
+    }
+  } else {
+    onResetClick();
+  }
+}
+
+function winnerMessage(w) {
+  const me = myPlayer.value;
+  if (!me) return `Player ${w} wins.\nGG!`;
+  if (w === null || w === undefined) {
+    return game.matchInvalid ? `Match invalid — ${game.matchInvalidReason || "dodged"}.` : "Match ended.";
+  }
+  return w === me ? "You win!\nGG!" : "Opponent wins.\nGG!";
+}
+
+const sfxPick = new Audio();
+const sfxPlace = new Audio();
+const bgm = new Audio();
+
+function loadAudioSafe(audio, url) {
+  try {
+    audio.src = url;
+    audio.load?.();
+  } catch {
+    // ignore
+  }
+}
+
+function initAudio() {
+  // optional: place your files here (add them under src/assets/audio/*)
+  loadAudioSafe(sfxPick, new URL("./assets/audio/pick.mp3", import.meta.url).href);
+  loadAudioSafe(sfxPlace, new URL("./assets/audio/place.mp3", import.meta.url).href);
+  loadAudioSafe(bgm, new URL("./assets/audio/bgm.mp3", import.meta.url).href);
+  bgm.loop = true;
+  bgm.volume = 0.25;
+}
+
+function playSfx(a) {
+  try {
+    a.currentTime = 0;
+    a.play?.();
+  } catch {
+    // ignore autoplay restrictions
+  }
+}
+
+function tryStartBgm() {
+  try {
+    if (!bgm.src) return;
+    bgm.play?.();
+  } catch {}
+}
+
+initAudio();
+
+watch(
+  () => game.lastMove,
+  (mv, prev) => {
+    if (!mv || mv === prev) return;
+    if (mv.type === "draft") playSfx(sfxPick);
+    if (mv.type === "place") playSfx(sfxPlace);
+  }
+);
 
 const canAct = computed(() => {
   if (!isOnline.value) return true;
@@ -601,41 +669,100 @@ const modal = reactive({
   title: "Notice",
   message: "",
   tone: "info", // "info" | "bad" | "good"
-  actions: [],
+  cta: null, // null | "reset"
 });
 
 const modalLines = computed(() => String(modal.message || "").split("\n").filter(Boolean));
-const modalDotClass = computed(() => (modal.tone === "bad" ? "bad" : modal.tone === "good" ? "good" : "info"));
 
-function showModal({ title = "Notice", message = "", tone = "info", actions = null } = {}) {
+const modalDotClass = computed(() => {
+  if (modal.tone === "bad") return "bad";
+  if (modal.tone === "good") return "good";
+  return "info";
+});
+
+function showModal({ title = "Notice", message = "", tone = "info", cta = null } = {}) {
   modal.title = title;
   modal.message = message;
   modal.tone = tone;
-  modal.actions = Array.isArray(actions) && actions.length ? actions : [{ label: "OK", tone: "primary" }];
+  modal.cta = cta;
   modal.open = true;
 }
 
 function closeModal() {
   modal.open = false;
-  modal.actions = [];
 }
 
-function onModalAction(a) {
-  try {
-    if (a && typeof a.onClick === "function") return a.onClick();
-  } finally {
-    if (modal.open) closeModal();
-  }
+function resetFromModal() {
+  closeModal();
+  game.resetGame();
 }
 
 /* =========================
-   ✅ Hijack alert() -> Modal
+   ✅ Hijack alert() so Board's illegal placement alert becomes a nice modal
 ========================= */
 let originalAlert = null;
 let tickTimer = null;
 
+onMounted(() => {
+  originalAlert = window.alert;
+  window.alert = (msg) => {
+    showModal({
+      title: "Illegal Placement",
+      message: String(msg || "That placement is not allowed."),
+      tone: "bad",
+    });
+  };
+
+  // Timer watchdog (draft 30s / place 60s)
+  tickTimer = window.setInterval(() => {
+    if (!isOnline.value) return;
+    // Only one side needs to finalize; allow either client to declare.
+    const changed = game.checkAndApplyTimeout(Date.now());
+    if (changed) {
+      online.localDirty = true;
+      pushMyState("timeout");
+    }
+  }, 250);
+
+  // Start BGM on first user gesture
+  const startBgmOnce = () => {
+    tryStartBgm();
+    window.removeEventListener("pointerdown", startBgmOnce);
+    window.removeEventListener("keydown", startBgmOnce);
+  };
+  window.addEventListener("pointerdown", startBgmOnce, { once: true });
+  window.addEventListener("keydown", startBgmOnce, { once: true });
+});
+
+onBeforeUnmount(() => {
+  if (originalAlert) window.alert = originalAlert;
+  if (tickTimer) window.clearInterval(tickTimer);
+});
+
+/* =========================
+   ✅ Winner modal when phase becomes gameover
+========================= */
+watch(
+  () => game.phase,
+  (p, prev) => {
+    if (p === "gameover" && prev !== "gameover") {
+      const w = game.winner ?? "?";
+      showModal({
+        title: "Victory!",
+        message: winnerMessage(w),
+        tone: "good",
+        cta: "reset",
+      });
+    }
+  }
+);
+
 /* =========================
    QUICK MATCH — Supabase REST
+   Env:
+   - VITE_SUPABASE_URL
+   - VITE_SUPABASE_ANON_KEY
+   Table: public.pb_lobbies
 ========================= */
 const online = reactive({
   lobbyId: null,
@@ -648,9 +775,6 @@ const online = reactive({
   applyingRemote: false,
   pingMs: null,
   localDirty: false,
-  lastHostId: null,
-  lastGuestId: null,
-  waitingForOpponent: true,
 });
 
 const publicLobbies = ref([]);
@@ -706,63 +830,6 @@ function stopPolling() {
   onlineSyncing.value = false;
   if (online.pollTimer) clearInterval(online.pollTimer);
   online.pollTimer = null;
-}
-
-async function leaveOnlineLobby(reason = "left") {
-  if (!online.lobbyId) return;
-  if (!isOnline.value) return;
-
-  try {
-    const lobby = await sbSelectLobbyById(online.lobbyId);
-    if (!lobby) return;
-
-    const me = getGuestId();
-    const nextVersion = Number(lobby.version || 0) + 1;
-    const st = lobby.state || {};
-    const meta = st.meta || {};
-
-    if (online.role === "host") {
-      const nextState = {
-        ...st,
-        meta: {
-          ...meta,
-          terminateReason: "host_left",
-          terminated_at: new Date().toISOString(),
-          terminated_by: me,
-          reason,
-        },
-      };
-
-      await sbForcePatchState(online.lobbyId, {
-        status: "closed",
-        state: nextState,
-        version: nextVersion,
-        updated_at: new Date().toISOString(),
-      });
-    } else {
-      const nextState = {
-        ...st,
-        meta: {
-          ...meta,
-          notice: "guest_left",
-          notice_at: new Date().toISOString(),
-          notice_by: me,
-          reason,
-        },
-      };
-
-      await sbForcePatchState(online.lobbyId, {
-        guest_id: null,
-        guest_ready: false,
-        status: "waiting",
-        state: nextState,
-        version: nextVersion,
-        updated_at: new Date().toISOString(),
-      });
-    }
-  } catch {
-    // best-effort
-  }
 }
 
 async function sbSelectLobbyById(id) {
@@ -858,8 +925,11 @@ async function sbJoinLobby(lobbyId) {
 
 /* =========================
    ✅ ONLINE STATE SERIALIZATION
+   - Only sync "authoritative" game state (not selection UI)
 ========================= */
+
 function stableHash(str) {
+  // FNV-1a 32-bit
   let h = 0x811c9dc5;
   for (let i = 0; i < str.length; i++) {
     h ^= str.charCodeAt(i);
@@ -869,8 +939,9 @@ function stableHash(str) {
 }
 
 function computePlayerAssignment(code, hostId, guestId) {
+  // deterministic: both clients compute same mapping from lobby code
   const h = stableHash(String(code || ""));
-  const hostIsP1 = h % 2 === 0;
+  const hostIsP1 = (h % 2) === 0;
   const p1 = hostIsP1 ? hostId : guestId;
   const p2 = hostIsP1 ? guestId : hostId;
   return { hostIsP1, players: { 1: p1, 2: p2 } };
@@ -884,6 +955,8 @@ function getMyPlayerFromPlayers(players, myId) {
 }
 
 function buildSyncedState(meta = {}) {
+  // "meta" keeps players mapping + started_at etc.
+  // only include store fields that MUST match between players
   return {
     meta,
     game: {
@@ -892,30 +965,31 @@ function buildSyncedState(meta = {}) {
       boardH: game.boardH,
       allowFlip: game.allowFlip,
 
+      // core boards
       board: game.board,
       draftBoard: game.draftBoard,
 
+      // turn systems
       draftTurn: game.draftTurn,
       currentPlayer: game.currentPlayer,
 
+      // pools
       pool: game.pool,
       picks: game.picks,
       remaining: game.remaining,
       placedCount: game.placedCount,
 
+      // timers / validity
       turnStartedAt: game.turnStartedAt,
       matchInvalid: game.matchInvalid,
       matchInvalidReason: game.matchInvalidReason,
       turnLimitDraftSec: game.turnLimitDraftSec,
       turnLimitPlaceSec: game.turnLimitPlaceSec,
 
+      // win
       winner: game.winner,
 
-      rematch: game.rematch,
-      rematchDeclinedBy: game.rematchDeclinedBy,
-
-      battleClockSec: game.battleClockSec,
-      battleClockLastTickAt: game.battleClockLastTickAt,
+      // NOTE: exclude selection/rotation/flipped to avoid fighting
     },
   };
 }
@@ -926,6 +1000,8 @@ function applySyncedState(state) {
   online.applyingRemote = true;
   try {
     const g = state.game;
+
+    // patch only known fields to avoid nuking Pinia internals
     online.localDirty = false;
 
     game.$patch({
@@ -952,13 +1028,9 @@ function applySyncedState(state) {
       turnLimitPlaceSec: g.turnLimitPlaceSec,
 
       winner: g.winner,
-
-      rematch: g.rematch,
-      rematchDeclinedBy: g.rematchDeclinedBy,
-      battleClockSec: g.battleClockSec,
-      battleClockLastTickAt: g.battleClockLastTickAt,
     });
   } finally {
+    // release in next tick so watchers don't instantly re-push
     setTimeout(() => {
       online.applyingRemote = false;
     }, 0);
@@ -966,6 +1038,7 @@ function applySyncedState(state) {
 }
 
 async function sbPatchStateWithVersionGuard(lobbyId, knownVersion, patchObj) {
+  // optimistic update: only update if current version matches knownVersion
   const url = sbRestUrl(`pb_lobbies?id=eq.${encodeURIComponent(lobbyId)}&version=eq.${encodeURIComponent(knownVersion)}`);
   const res = await fetch(url, {
     method: "PATCH",
@@ -979,10 +1052,11 @@ async function sbPatchStateWithVersionGuard(lobbyId, knownVersion, patchObj) {
   }
 
   const rows = await res.json().catch(() => []);
-  return rows?.[0] || null;
+  return rows?.[0] || null; // null if 0 rows (version mismatch)
 }
 
 async function sbForcePatchState(lobbyId, patchObj) {
+  // fallback: patch without version guard (rare)
   const url = sbRestUrl(`pb_lobbies?id=eq.${encodeURIComponent(lobbyId)}`);
   const res = await fetch(url, {
     method: "PATCH",
@@ -1002,33 +1076,43 @@ async function pushMyState(reason = "") {
   if (!online.lobbyId) return;
   if (online.applyingRemote) return;
 
+  // only the player whose turn can push moves (prevents overwrites)
+  // BUT: we allow one-shot push right after a local action (localDirty)
   if (!canAct.value && !online.localDirty) return;
 
   onlineSyncing.value = true;
+
   try {
     const lobby = await sbSelectLobbyById(online.lobbyId);
     if (!lobby) return;
 
-    const meta = lobby.state?.meta ? lobby.state.meta : {};
+    const meta = (lobby.state && lobby.state.meta) ? lobby.state.meta : {};
     const snapshot = buildSyncedState(meta);
+
     const nextVersion = Number(lobby.version || 0) + 1;
 
+    // try guarded update first
     let updated = await sbPatchStateWithVersionGuard(online.lobbyId, lobby.version, {
       state: snapshot,
       version: nextVersion,
       updated_at: new Date().toISOString(),
     });
 
+    // if mismatch (0 rows), refetch once and try again
     if (!updated) {
       const fresh = await sbSelectLobbyById(online.lobbyId);
       if (!fresh) return;
 
+      // if remote already contains our intended change (rare), just accept it
+      const freshState = fresh.state || {};
+      // otherwise retry with new version
       updated = await sbPatchStateWithVersionGuard(online.lobbyId, fresh.version, {
         state: snapshot,
         version: Number(fresh.version || 0) + 1,
         updated_at: new Date().toISOString(),
       });
 
+      // final fallback: unguarded (should basically never happen if turns are respected)
       if (!updated) {
         updated = await sbForcePatchState(online.lobbyId, {
           state: snapshot,
@@ -1044,7 +1128,7 @@ async function pushMyState(reason = "") {
       online.localDirty = false;
     }
   } catch {
-    // quiet
+    // ignore transient errors
   } finally {
     onlineSyncing.value = false;
   }
@@ -1052,13 +1136,15 @@ async function pushMyState(reason = "") {
 
 function maybeSetMyPlayerFromLobby(lobby) {
   const myId = getGuestId();
-  const players = lobby?.state?.meta?.players;
+  const st = lobby?.state || {};
+  const players = st?.meta?.players;
 
   if (players) {
     myPlayer.value = getMyPlayerFromPlayers(players, myId);
     return;
   }
 
+  // if no players yet, infer from deterministic assignment
   if (lobby?.code && lobby?.host_id && lobby?.guest_id) {
     const { players: p } = computePlayerAssignment(lobby.code, lobby.host_id, lobby.guest_id);
     myPlayer.value = getMyPlayerFromPlayers(p, myId);
@@ -1069,6 +1155,8 @@ async function ensureOnlineInitialized(lobby) {
   if (!lobby) return;
 
   const myId = getGuestId();
+
+  // if state.meta.players missing, allow either client to initialize (deterministic)
   const hasPlayers = !!lobby?.state?.meta?.players;
   if (hasPlayers) return;
 
@@ -1076,6 +1164,7 @@ async function ensureOnlineInitialized(lobby) {
 
   const { players } = computePlayerAssignment(lobby.code, lobby.host_id, lobby.guest_id);
 
+  // init local fresh game BEFORE writing
   game.boardW = 10;
   game.boardH = 6;
   game.allowFlip = allowFlip.value;
@@ -1087,6 +1176,7 @@ async function ensureOnlineInitialized(lobby) {
     created_by: myId,
   });
 
+  // write it (unguarded is OK here since it’s the first init)
   const nextVersion = Number(lobby.version || 0) + 1;
   const updated = await sbForcePatchState(lobby.id, {
     state: initState,
@@ -1106,6 +1196,7 @@ function startPollingLobby(lobbyId, role) {
   online.lastAppliedVersion = 0;
   online.lastSeenUpdatedAt = null;
 
+  // go to online screen immediately
   screen.value = "online";
   game.boardW = 10;
   game.boardH = 6;
@@ -1115,59 +1206,16 @@ function startPollingLobby(lobbyId, role) {
   online.pollTimer = setInterval(async () => {
     try {
       onlineSyncing.value = true;
-
       const t0 = performance.now();
       const lobby = await sbSelectLobbyById(lobbyId);
       online.pingMs = performance.now() - t0;
-
       if (!lobby) {
         stopPolling();
         showModal({ title: "Lobby Closed", message: "The lobby no longer exists.", tone: "bad" });
         return;
       }
 
-      online.code = lobby.code || online.code;
-
-      const prevGuest = online.lastGuestId;
-      online.lastGuestId = lobby.guest_id || null;
-      online.lastHostId = lobby.host_id || null;
-
-      const terminateReason = lobby?.state?.meta?.terminateReason || null;
-      if (lobby.status === "closed" || terminateReason === "host_left") {
-        stopPolling();
-        myPlayer.value = null;
-        screen.value = "mode";
-        showModal({
-          title: "Match Terminated",
-          tone: "bad",
-          message: "Lobby creator left — terminating the game.\nReturning to main menu.",
-        });
-        return;
-      }
-
-      if (online.role === "host" && !prevGuest && lobby.guest_id) {
-        if (modal.open && String(modal.title || "").toLowerCase().includes("lobby ready")) closeModal();
-        showModal({
-          title: "Player Joined!",
-          tone: "good",
-          message: `A challenger joined your lobby.\nCode: ${lobby.code || "—"}`,
-        });
-      }
-
-      if (online.role === "host" && prevGuest && !lobby.guest_id && lobby.host_id) {
-        myPlayer.value = null;
-        game.turnStartedAt = null;
-        game.battleClockLastTickAt = null;
-        online.waitingForOpponent = true;
-        showModal({
-          title: "Opponent Left",
-          tone: "bad",
-          message: "Your opponent left.\nThis lobby will stay open and wait for a new challenger.",
-        });
-      }
-
-      online.waitingForOpponent = !(lobby.host_id && lobby.guest_id && lobby?.state?.meta?.players);
-
+      // if we just joined and host is missing etc.
       if (lobby.host_id && lobby.guest_id) {
         await ensureOnlineInitialized(lobby);
       }
@@ -1191,10 +1239,9 @@ function startPollingLobby(lobbyId, role) {
 }
 
 /* =========================
-   Auto-push on authoritative changes
+   Auto-push on local authoritative changes (online)
+   - This is what makes "P1 pick" instantly appear on P2
 ========================= */
-let pushDebounceTimer = null;
-
 watch(
   () => [
     isOnline.value,
@@ -1202,6 +1249,7 @@ watch(
     game.draftTurn,
     game.currentPlayer,
     game.winner,
+    // JSON string keeps it simple + stable for small boards
     JSON.stringify(game.draftBoard),
     JSON.stringify(game.board),
     JSON.stringify(game.pool),
@@ -1212,25 +1260,24 @@ watch(
     String(game.matchInvalid),
     String(game.matchInvalidReason),
     String(game.winner),
-    JSON.stringify(game.battleClockSec),
-    String(game.battleClockLastTickAt),
-    JSON.stringify(game.rematch),
-    String(game.rematchDeclinedBy),
   ],
-  () => {
+  async () => {
     if (!isOnline.value) return;
     if (!online.lobbyId) return;
     if (online.applyingRemote) return;
-
+    // mark local changes for upload
     online.localDirty = true;
 
+    // small debounce: multiple mutations in one tick (draftPick/placeAt) -> single push
     if (pushDebounceTimer) clearTimeout(pushDebounceTimer);
     pushDebounceTimer = setTimeout(() => pushMyState("watch"), 80);
   }
 );
 
+let pushDebounceTimer = null;
+
 /* =========================
-   ONLINE RESET / ACTIONS
+   ONLINE RESET
 ========================= */
 async function onResetClick() {
   if (!isOnline.value || !online.lobbyId) {
@@ -1238,11 +1285,13 @@ async function onResetClick() {
     return;
   }
 
+  // online: reset the shared state (anyone can, but turn guard still applies)
   try {
     const lobby = await sbSelectLobbyById(online.lobbyId);
     if (!lobby) return;
 
-    const meta = lobby.state?.meta ? lobby.state.meta : {};
+    // keep players mapping
+    const meta = (lobby.state && lobby.state.meta) ? lobby.state.meta : {};
     game.boardW = 10;
     game.boardH = 6;
     game.allowFlip = allowFlip.value;
@@ -1261,162 +1310,10 @@ async function onResetClick() {
   }
 }
 
-function winnerMessage(w) {
-  const me = myPlayer.value;
-  if (!me) return `Player ${w} wins.\nGG!`;
-  if (w === null || w === undefined) {
-    return game.matchInvalid ? `Match invalid — ${game.matchInvalidReason || "dodged"}.` : "Match ended.";
-  }
-  return w === me ? "You win!\nGG!" : "Opponent wins.\nGG!";
-}
-
-function stopAndExitToMenu(note = "") {
-  leaveOnlineLobby("exit").finally(() => {
-    stopPolling();
-    myPlayer.value = null;
-    screen.value = "mode";
-    if (note) showModal({ title: "Returned", tone: "info", message: note });
-  });
-}
-
-function requestPlayAgain() {
-  if (!isOnline.value) {
-    onResetClick();
-    return;
-  }
-  if (!myPlayer.value) return;
-
-  if (game.rematchDeclinedBy) {
-    stopAndExitToMenu("Rematch declined.");
-    return;
-  }
-
-  game.requestRematch(myPlayer.value);
-  online.localDirty = true;
-  pushMyState("rematch_request");
-
-  showModal({
-    title: "Rematch Requested",
-    tone: "info",
-    message: "Waiting for the other player to answer…",
-    actions: [
-      { label: "OK", tone: "primary" },
-      { label: "Cancel & Exit", tone: "soft", onClick: () => stopAndExitToMenu("Exited match.") },
-    ],
-  });
-}
-
-function onPrimaryMatchAction() {
-  if (!isInGame.value) return;
-
-  if (isOnline.value) {
-    if (!myPlayer.value) return;
-
-    if (game.phase === "gameover") {
-      requestPlayAgain();
-      return;
-    }
-
-    game.surrender(myPlayer.value);
-    online.localDirty = true;
-    pushMyState("surrender");
-    return;
-  }
-
-  onResetClick();
-}
-
-/* =========================
-   GAMEOVER + REMATCH UX
-========================= */
-watch(
-  () => game.phase,
-  (p, prev) => {
-    if (p !== "gameover" || prev === "gameover") return;
-
-    if (isOnline.value && myPlayer.value) {
-      const me = myPlayer.value;
-      const other = me === 1 ? 2 : 1;
-
-      if (game.lastMove?.type === "dodged") {
-        showModal({
-          title: "Auto Dodge",
-          tone: "bad",
-          message:
-            game.matchInvalidReason ||
-            `Player ${game.lastMove?.player || "?"} did not pick — automatically dodges the game.`,
-          actions: [{ label: "OK", tone: "primary" }],
-        });
-        return;
-      }
-
-      if (game.rematch?.[other] && !game.rematch?.[me] && !game.rematchDeclinedBy) {
-        showModal({
-          title: "Play Again?",
-          tone: "good",
-          message: "Opponent wants a rematch.\nDo you accept?",
-          actions: [
-            {
-              label: "YES",
-              tone: "primary",
-              onClick: () => {
-                game.requestRematch(me);
-                online.localDirty = true;
-                pushMyState("rematch_yes");
-              },
-            },
-            {
-              label: "NO",
-              tone: "soft",
-              onClick: () => {
-                game.declineRematch(me);
-                online.localDirty = true;
-                pushMyState("rematch_no");
-              },
-            },
-          ],
-        });
-        return;
-      }
-    }
-
-    const w = game.winner ?? "?";
-    const isBad = game.lastMove?.type === "timeout" || game.lastMove?.type === "surrender";
-    showModal({
-      title: "Match Over",
-      message: winnerMessage(w),
-      tone: isBad ? "bad" : "good",
-      actions: isOnline.value
-        ? [
-            { label: "Play Again", tone: "primary", onClick: requestPlayAgain },
-            { label: "Main Menu", tone: "soft", onClick: () => stopAndExitToMenu("") },
-          ]
-        : [{ label: "Play Again", tone: "primary", onClick: onResetClick }],
-    });
-  }
-);
-
-watch(
-  () => [game.phase, JSON.stringify(game.rematch), game.rematchDeclinedBy],
-  () => {
-    if (!isOnline.value) return;
-    if (game.phase !== "gameover") return;
-
-    if (game.rematchDeclinedBy) {
-      stopAndExitToMenu("Rematch declined. Game terminated.");
-      return;
-    }
-
-    if (game.rematch?.[1] && game.rematch?.[2]) {
-      closeModal();
-      onResetClick();
-    }
-  }
-);
-
 /* =========================
    Quick Match handlers
 ========================= */
+
 async function refreshPublicLobbies() {
   if (!(await ensureSupabaseReadyOrExplain())) return;
   loadingPublic.value = true;
@@ -1442,13 +1339,19 @@ async function joinPublicLobby(lobby) {
   if (!(await ensureSupabaseReadyOrExplain())) return;
   try {
     showModal({ title: "Joining...", tone: "info", message: `Joining lobby...\nCode: ${lobby?.code || "—"}` });
-    await sbJoinLobby(lobby.id);
+    const joined = await sbJoinLobby(lobby.id);
     closeModal();
-    showModal({ title: "Joined!", tone: "good", message: `Connected.\nCode: ${lobby?.code || "—"}` });
+    showModal({ title: "Joined!", tone: "good", message: `Connected.\nCode: ${joined?.code || lobby?.code || "—"}` });
+
+    // start online polling immediately
     startPollingLobby(lobby.id, "guest");
   } catch (e) {
     closeModal();
-    showModal({ title: "Join Failed", tone: "bad", message: String(e?.message || e || "Could not join lobby.") });
+    showModal({
+      title: "Join Failed",
+      tone: "bad",
+      message: String(e?.message || e || "Could not join lobby."),
+    });
   }
 }
 
@@ -1477,14 +1380,19 @@ async function joinByCode() {
       return;
     }
 
-    await sbJoinLobby(lobby.id);
+    const joined = await sbJoinLobby(lobby.id);
     closeModal();
-    showModal({ title: "Joined!", tone: "good", message: `Connected.\nCode: ${lobby.code || code}` });
+
+    showModal({ title: "Joined!", tone: "good", message: `Connected.\nCode: ${joined?.code || code}` });
 
     startPollingLobby(lobby.id, "guest");
   } catch (e) {
     closeModal();
-    showModal({ title: "Join by Code Error", tone: "bad", message: String(e?.message || e || "Something went wrong.") });
+    showModal({
+      title: "Join by Code Error",
+      tone: "bad",
+      message: String(e?.message || e || "Something went wrong."),
+    });
   }
 }
 
@@ -1492,7 +1400,11 @@ async function quickMake() {
   if (!(await ensureSupabaseReadyOrExplain())) return;
 
   try {
-    showModal({ title: "Creating Lobby...", tone: "info", message: "Setting up your room..." });
+    showModal({
+      title: "Creating Lobby...",
+      tone: "info",
+      message: "Setting up your room...",
+    });
 
     const created = await sbCreateLobby({
       isPrivate: quick.isPrivate,
@@ -1504,25 +1416,32 @@ async function quickMake() {
     if (!created?.id) throw new Error("Lobby created but no ID returned.");
 
     if (created.code) {
-      try {
-        await navigator.clipboard.writeText(created.code);
-      } catch {}
+      try { await navigator.clipboard.writeText(created.code); } catch {}
     }
 
     showModal({
       title: "Lobby Ready",
       tone: "good",
       message: `Lobby Code: ${created.code || "—"}\n\n${
-        created.is_private ? "This is PRIVATE. Only people with the code can join." : "This is PUBLIC. It will appear in matchmaking."
+        created.is_private
+          ? "This is PRIVATE. Only people with the code can join."
+          : "This is PUBLIC. It will appear in matchmaking."
       }\n\n(Code copied if your browser allowed it.)`,
     });
 
-    if (!created.is_private) await refreshPublicLobbies();
+    if (!created.is_private) {
+      await refreshPublicLobbies();
+    }
 
+    // host starts polling now; when guest joins we init + sync
     startPollingLobby(created.id, "host");
   } catch (e) {
     closeModal();
-    showModal({ title: "Create Lobby Error", tone: "bad", message: String(e?.message || e || "Something went wrong.") });
+    showModal({
+      title: "Create Lobby Error",
+      tone: "bad",
+      message: String(e?.message || e || "Something went wrong."),
+    });
   }
 }
 
@@ -1548,35 +1467,27 @@ function goBack() {
     return;
   }
 }
-
-async function goAuth() {
-  if (isOnline.value) await leaveOnlineLobby("main_menu");
+function goAuth() {
   stopPolling();
   myPlayer.value = null;
   screen.value = "auth";
 }
-
-async function goMode() {
-  if (isOnline.value) await leaveOnlineLobby("back_to_modes");
+function goMode() {
   stopPolling();
   myPlayer.value = null;
   screen.value = "mode";
 }
-
 function playAsGuest() {
   loggedIn.value = false;
   screen.value = "mode";
 }
-
 function goQuick() {
   screen.value = "quick";
 }
-
 function goRanked() {
   if (!loggedIn.value) return;
   screen.value = "ranked";
 }
-
 function startCouchPlay() {
   stopPolling();
   myPlayer.value = null;
@@ -1586,7 +1497,6 @@ function startCouchPlay() {
   game.allowFlip = allowFlip.value;
   game.resetGame();
 }
-
 function startPracticeAi() {
   stopPolling();
   myPlayer.value = null;
@@ -1596,7 +1506,6 @@ function startPracticeAi() {
   game.allowFlip = allowFlip.value;
   game.resetGame();
 }
-
 function applySettings() {
   showModal({
     title: "Settings Applied",
@@ -1606,38 +1515,7 @@ function applySettings() {
   screen.value = "mode";
 }
 
-/* =========================
-   MOUNT / UNMOUNT
-========================= */
-onMounted(() => {
-  originalAlert = window.alert;
-  window.alert = (msg) => {
-    showModal({
-      title: "Illegal Placement",
-      message: String(msg || "That placement is not allowed."),
-      tone: "bad",
-    });
-  };
-
-  tickTimer = window.setInterval(() => {
-    nowTick.value = Date.now();
-
-    if (!isOnline.value) return;
-    if (!myPlayer.value) return;
-
-    const changed = game.checkAndApplyTimeout?.(nowTick.value);
-    if (changed) {
-      online.localDirty = true;
-      pushMyState("timeout");
-    }
-  }, 250);
-});
-
-onBeforeUnmount(() => {
-  if (originalAlert) window.alert = originalAlert;
-  if (tickTimer) window.clearInterval(tickTimer);
-  stopPolling();
-});
+onBeforeUnmount(() => stopPolling());
 </script>
 
 <style scoped>
@@ -1771,21 +1649,363 @@ onBeforeUnmount(() => {
   user-select: none;
 }
 .logoMark {
-  width: 44px;
-  height: 44px;
+  width: 34px;
+  height: 34px;
+  border-radius: 10px;
   display: grid;
   place-items: center;
-  background: transparent;
-  border: none;
-  box-shadow: none;
+  background: rgba(255, 255, 255, 0.06);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  box-shadow:
+    0 0 0 1px rgba(255, 255, 255, 0.08) inset,
+    0 0 18px rgba(0, 255, 255, 0.10),
+    0 0 18px rgba(255, 0, 180, 0.08);
+}
+.brandText .title {
+  font-weight: 1000;
+  letter-spacing: 0.8px;
+  font-size: 18px;
+}
+.brandText .sub {
+  opacity: 0.75;
+  font-size: 12px;
+  margin-top: 2px;
 }
 
-.floatingLogo{
-  width: 40px;
-  height: 40px;
-  object-fit: contain;
-  filter: drop-shadow(0 8px 18px rgba(0,0,0,0.55)) drop-shadow(0 0 18px rgba(0,229,255,0.18)) drop-shadow(0 0 18px rgba(255,43,214,0.14));
+.right { display: flex; gap: 10px; flex-wrap: wrap; }
+
+.main {
+  position: relative;
+  z-index: 1;
+  flex: 1;
+  padding: 28px 18px 36px;
+  display: grid;
+  place-items: center;
+}
+
+.rgbText {
+  background: linear-gradient(90deg, #ff2bd6, #00e5ff, #7c4dff, #00ff9a);
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+  text-shadow: 0 0 18px rgba(0, 229, 255, 0.18);
+}
+
+/* =========================
+   MENU SHELL
+========================= */
+.menuShell { width: min(720px, 94vw); display: grid; gap: 14px; }
+
+.hero { padding: 18px 18px 6px; }
+.hero.compact { padding-bottom: 0; }
+.heroBadge {
+  display: inline-flex;
+  font-size: 12px;
+  font-weight: 900;
+  letter-spacing: 1px;
+  padding: 6px 10px;
+  border-radius: 999px;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  background: rgba(0, 0, 0, 0.25);
+  box-shadow: 0 0 22px rgba(255, 0, 180, 0.08);
+}
+.heroBadge.green { box-shadow: 0 0 22px rgba(0, 255, 154, 0.10); }
+.heroTitle { margin: 10px 0 6px; font-size: 46px; font-weight: 1000; letter-spacing: 0.5px; }
+.heroTitle.small { font-size: 30px; }
+.heroDesc { margin: 0; opacity: 0.82; line-height: 1.45; }
+.heroDesc.small { font-size: 13px; opacity: 0.8; }
+
+.menuCard {
+  border-radius: 18px;
+  padding: 16px;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  background: rgba(8, 8, 14, 0.62);
+  backdrop-filter: blur(12px);
+  box-shadow:
+    0 0 0 1px rgba(255, 255, 255, 0.06) inset,
+    0 12px 40px rgba(0, 0, 0, 0.45);
+}
+
+.menuTitleRow {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 12px;
+  margin-bottom: 12px;
+}
+.menuTitle {
+  font-size: 14px;
+  font-weight: 1000;
+  letter-spacing: 0.8px;
+  text-transform: uppercase;
+  opacity: 0.95;
+}
+.menuHint { font-size: 12px; opacity: 0.7; }
+
+.menuStack { display: grid; gap: 10px; }
+
+.menuBtn {
+  width: 100%;
+  border-radius: 16px;
+  padding: 14px 14px;
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  background: rgba(255, 255, 255, 0.06);
+  color: #eaeaea;
+  cursor: pointer;
+  text-align: left;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 14px;
+  transition: transform 0.12s ease, background 0.12s ease, border-color 0.12s ease;
+  box-shadow:
+    0 0 0 1px rgba(255, 255, 255, 0.05) inset,
+    0 0 22px rgba(0, 229, 255, 0.06);
+}
+.menuBtn:hover {
   transform: translateY(-1px);
+  border-color: rgba(255, 255, 255, 0.22);
+  background: rgba(255, 255, 255, 0.09);
+}
+.menuBtn.primary {
+  border-color: rgba(0, 229, 255, 0.30);
+  background: linear-gradient(180deg, rgba(0, 229, 255, 0.16), rgba(255, 43, 214, 0.10));
+  box-shadow:
+    0 0 0 1px rgba(0, 229, 255, 0.08) inset,
+    0 0 26px rgba(0, 229, 255, 0.10),
+    0 0 26px rgba(255, 43, 214, 0.08);
+}
+.menuBtn.disabled,
+.menuBtn:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+  transform: none !important;
+}
+
+.menuBtnLeft { display: flex; align-items: center; gap: 12px; min-width: 0; }
+.menuBtnIcon {
+  width: 42px;
+  height: 42px;
+  border-radius: 14px;
+  display: grid;
+  place-items: center;
+  background: rgba(0, 0, 0, 0.25);
+  border: 1px solid rgba(255, 255, 255, 0.10);
+  flex: 0 0 auto;
+  box-shadow: 0 0 18px rgba(124, 77, 255, 0.08);
+}
+.menuBtnText { min-width: 0; }
+.menuBtnTop { font-weight: 1000; letter-spacing: 0.2px; }
+.menuBtnSub {
+  margin-top: 4px;
+  font-size: 12px;
+  opacity: 0.75;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 520px;
+}
+.menuBtnRight { font-weight: 1000; opacity: 0.88; letter-spacing: 0.6px; flex: 0 0 auto; }
+
+.menuSplitRow { display: flex; gap: 10px; margin-top: 4px; }
+@media (max-width: 520px) { .menuSplitRow { flex-direction: column; } }
+
+.finePrint {
+  margin-top: 12px;
+  font-size: 12px;
+  opacity: 0.72;
+  border-top: 1px solid rgba(255, 255, 255, 0.10);
+  padding-top: 10px;
+}
+
+/* =========================
+   Shared buttons / forms
+========================= */
+.btn {
+  border: 1px solid rgba(255, 255, 255, 0.16);
+  background: rgba(255, 255, 255, 0.06);
+  color: #eaeaea;
+  padding: 9px 12px;
+  border-radius: 12px;
+  cursor: pointer;
+  font-weight: 900;
+  letter-spacing: 0.2px;
+}
+.btn:hover { background: rgba(255, 255, 255, 0.10); }
+.btn.primary { border-color: rgba(0, 229, 255, 0.28); background: rgba(0, 229, 255, 0.12); }
+.btn.ghost { background: transparent; }
+.btn.soft { width: 100%; text-align: left; background: rgba(0, 0, 0, 0.18); }
+.btn:disabled { opacity: 0.5; cursor: not-allowed; }
+
+.form { margin-top: 6px; display: grid; gap: 10px; }
+.field {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 14px;
+  padding: 12px 12px;
+  border-radius: 14px;
+  border: 1px solid rgba(255, 255, 255, 0.10);
+  background: rgba(0, 0, 0, 0.22);
+}
+.input,
+.select {
+  width: 240px;
+  max-width: 58vw;
+  padding: 9px 10px;
+  border-radius: 12px;
+  border: 1px solid rgba(255, 255, 255, 0.16);
+  background: rgba(0, 0, 0, 0.28);
+  color: #eaeaea;
+}
+.row { display: flex; gap: 10px; margin-top: 14px; flex-wrap: wrap; }
+
+.muted { opacity: 0.78; }
+
+/* =========================
+   GAME LAYOUT
+========================= */
+.gameLayout {
+  width: min(1200px, 96vw);
+  display: grid;
+  grid-template-columns: 420px 1fr;
+  gap: 16px;
+  align-items: start;
+}
+@media (max-width: 900px) { .gameLayout { grid-template-columns: 1fr; } }
+
+.leftPanel, .rightPanel { display: flex; flex-direction: column; gap: 12px; }
+
+.panelHead {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 12px 14px;
+  border-radius: 14px;
+  border: 1px solid rgba(255, 255, 255, 0.10);
+  background: rgba(10, 10, 16, 0.58);
+  backdrop-filter: blur(10px);
+}
+
+.modeRow {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 10px;
+}
+.modeTag { font-size: 13px; opacity: 0.92; }
+
+.turnBadge {
+  padding: 7px 10px;
+  border-radius: 999px;
+  font-weight: 1000;
+  font-size: 12px;
+  letter-spacing: 0.8px;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  background: rgba(0, 0, 0, 0.20);
+  opacity: 0.95;
+}
+.turnBadge.p1 {
+  border-color: rgba(0, 229, 255, 0.30);
+  box-shadow: 0 0 18px rgba(0, 229, 255, 0.14);
+}
+.turnBadge.p2 {
+  border-color: rgba(255, 64, 96, 0.32);
+  box-shadow: 0 0 18px rgba(255, 64, 96, 0.14);
+}
+.turnBadge.end {
+  border-color: rgba(255, 255, 255, 0.18);
+  box-shadow: 0 0 18px rgba(255, 255, 255, 0.10);
+}
+
+.statusTag, .keysTag { font-size: 13px; opacity: 0.92; }
+
+.panel {
+  background: rgba(10, 10, 16, 0.58);
+  border: 1px solid rgba(255, 255, 255, 0.10);
+  border-radius: 14px;
+  padding: 14px;
+  backdrop-filter: blur(10px);
+}
+.panelTitle { margin: 0 0 10px 0; font-size: 15px; font-weight: 1000; }
+.divider { height: 1px; background: rgba(255, 255, 255, 0.10); margin: 12px 0; }
+.hintSmall { opacity: 0.75; font-size: 13px; padding: 6px 2px; }
+
+/* =========================
+   MODAL
+========================= */
+.modalOverlay {
+  position: fixed;
+  inset: 0;
+  z-index: 60;
+  background: rgba(0, 0, 0, 0.62);
+  backdrop-filter: blur(10px);
+  display: grid;
+  place-items: center;
+  padding: 18px;
+}
+
+.modalCard {
+  width: min(520px, 92vw);
+  border-radius: 18px;
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  background: rgba(10, 10, 16, 0.78);
+  box-shadow:
+    0 0 0 1px rgba(255, 255, 255, 0.06) inset,
+    0 20px 80px rgba(0, 0, 0, 0.65);
+  overflow: hidden;
+}
+
+.modalTop {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+  padding: 14px 14px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.10);
+}
+
+.modalTitle {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-weight: 1000;
+  letter-spacing: 0.3px;
+}
+.modalDot {
+  width: 10px;
+  height: 10px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.35);
+  box-shadow: 0 0 18px rgba(255, 255, 255, 0.12);
+}
+.modalDot.info { background: rgba(0, 229, 255, 0.75); box-shadow: 0 0 18px rgba(0, 229, 255, 0.18); }
+.modalDot.bad { background: rgba(255, 64, 96, 0.85); box-shadow: 0 0 18px rgba(255, 64, 96, 0.18); }
+.modalDot.good { background: rgba(0, 255, 154, 0.85); box-shadow: 0 0 18px rgba(0, 255, 154, 0.18); }
+
+.modalX {
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  background: rgba(255, 255, 255, 0.06);
+  color: #eaeaea;
+  width: 34px;
+  height: 34px;
+  border-radius: 12px;
+  cursor: pointer;
+  font-weight: 900;
+}
+.modalX:hover { background: rgba(255, 255, 255, 0.10); }
+
+.modalBody { padding: 14px; }
+.modalMsg { margin: 0 0 10px 0; opacity: 0.88; line-height: 1.5; }
+.modalMsg:last-child { margin-bottom: 0; }
+
+.modalActions {
+  padding: 14px;
+  padding-top: 0;
+  display: flex;
+  gap: 10px;
+  justify-content: flex-end;
+  flex-wrap: wrap;
 }
 
 .logoImg{
@@ -1795,7 +2015,6 @@ onBeforeUnmount(() => {
   image-rendering: auto;
   border-radius: 6px;
 }
-
 .linkBtn{
   background: transparent;
   border: 0;
@@ -1809,56 +2028,4 @@ onBeforeUnmount(() => {
 .linkBtn:hover{ opacity: 1; }
 .finePrint .sep{ margin: 0 6px; opacity:.5; }
 
-/* Minimal helpers so it doesn't look unstyled if your old CSS was longer */
-.main{ position: relative; z-index: 1; padding: 18px; }
-.btn{ padding: 10px 12px; border-radius: 12px; border: 1px solid rgba(255,255,255,.12); background: rgba(255,255,255,.06); color: #eaeaea; font-weight: 800; cursor: pointer; }
-.btn.primary{ background: rgba(0,229,255,.14); border-color: rgba(0,229,255,.25); }
-.btn.soft{ background: rgba(255,255,255,.05); }
-.btn.ghost{ background: transparent; }
-.menuShell{ max-width: 860px; margin: 0 auto; display: grid; gap: 14px; }
-.menuCard{ padding: 16px; border-radius: 18px; border: 1px solid rgba(255,255,255,.10); background: rgba(10,10,16,.55); backdrop-filter: blur(10px); }
-.menuStack{ display: grid; gap: 10px; }
-.menuBtn{ width: 100%; display:flex; justify-content:space-between; align-items:center; padding: 12px 14px; border-radius: 16px; border: 1px solid rgba(255,255,255,.12); background: rgba(255,255,255,.06); color:#eaeaea; cursor:pointer; font-weight:900; }
-.menuBtn.primary{ background: rgba(0,229,255,.12); border-color: rgba(0,229,255,.20); }
-.menuBtn.disabled{ opacity:.45; cursor:not-allowed; }
-.menuBtnLeft{ display:flex; gap: 12px; align-items:center; min-width:0; }
-.menuBtnIcon{ width: 38px; height: 38px; display:grid; place-items:center; border-radius: 12px; background: rgba(255,255,255,.06); }
-.menuBtnTop{ font-size: 14px; }
-.menuBtnSub{ font-size: 12px; opacity: .75; font-weight: 700; }
-.menuTitleRow{ display:flex; justify-content:space-between; align-items:center; margin-bottom: 10px; }
-.menuTitle{ font-size: 14px; font-weight: 900; }
-.menuHint{ font-size: 12px; opacity:.7; font-weight: 700; }
-.heroTitle{ margin: 0; }
-.heroDesc{ opacity:.8; }
-.rgbText{ background: linear-gradient(90deg, rgba(0,229,255,1), rgba(255,43,214,1)); -webkit-background-clip:text; background-clip:text; color: transparent; }
-.divider{ height: 1px; background: rgba(255,255,255,.10); margin: 12px 0; }
-.field{ display:flex; gap: 12px; align-items:center; padding: 10px 12px; border-radius: 14px; border: 1px solid rgba(255,255,255,.10); background: rgba(255,255,255,.04); }
-.form{ display:grid; gap: 10px; }
-.input{ width: 100%; padding: 10px 12px; border-radius: 12px; border: 1px solid rgba(255,255,255,.12); background: rgba(0,0,0,.25); color:#eaeaea; }
-.row{ display:flex; gap: 10px; flex-wrap: wrap; margin-top: 10px; }
-.modalOverlay{ position: fixed; inset: 0; z-index: 50; background: rgba(0,0,0,.55); display:grid; place-items:center; padding: 18px; }
-.modalCard{ width: min(560px, 100%); border-radius: 18px; border: 1px solid rgba(255,255,255,.12); background: rgba(10,10,16,.80); backdrop-filter: blur(12px); padding: 14px; }
-.modalTop{ display:flex; justify-content:space-between; align-items:center; gap: 10px; }
-.modalTitle{ display:flex; align-items:center; gap: 10px; font-weight: 900; }
-.modalDot{ width: 10px; height: 10px; border-radius: 999px; background: rgba(0,229,255,.9); }
-.modalDot.bad{ background: rgba(255,64,96,.95); }
-.modalDot.good{ background: rgba(0,255,128,.95); }
-.modalX{ background: transparent; border: 0; color:#eaeaea; font-size: 18px; cursor:pointer; }
-.modalBody{ margin-top: 10px; }
-.modalMsg{ margin: 0 0 8px 0; opacity: .9; }
-.modalActions{ display:flex; gap: 10px; justify-content:flex-end; margin-top: 12px; flex-wrap: wrap; }
-
-/* You already have these elsewhere in your CSS normally */
-.gameLayout{ display:grid; grid-template-columns: 420px 1fr; gap: 14px; }
-.leftPanel,.rightPanel{ min-width:0; }
-.panelHead{ padding: 14px; border-radius: 18px; border: 1px solid rgba(255,255,255,.10); background: rgba(10,10,16,.55); backdrop-filter: blur(10px); }
-.panel{ margin-top: 12px; padding: 14px; border-radius: 18px; border: 1px solid rgba(255,255,255,.10); background: rgba(10,10,16,.55); backdrop-filter: blur(10px); }
-.panelTitle{ margin: 0 0 10px 0; }
-.hintSmall{ margin-top: 10px; opacity:.75; font-size: 12px; }
-.turnBadge{ padding: 8px 10px; border-radius: 999px; font-weight: 900; border: 1px solid rgba(255,255,255,.12); background: rgba(255,255,255,.06); }
-.turnBadge.p1{ border-color: rgba(0,229,255,.25); background: rgba(0,229,255,.10); }
-.turnBadge.p2{ border-color: rgba(255,64,96,.25); background: rgba(255,64,96,.10); }
-.turnBadge.end{ border-color: rgba(255,255,255,.18); }
-.modeRow{ display:flex; justify-content:space-between; align-items:center; gap: 10px; flex-wrap: wrap; }
-.statusTag,.keysTag{ margin-top: 10px; font-size: 12px; opacity: .85; font-weight: 700; }
 </style>
