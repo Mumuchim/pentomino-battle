@@ -33,7 +33,7 @@
       <div class="right">
         <button class="btn ghost" v-if="canGoBack" @click="goBack">← Back</button>
         <button class="btn ghost" v-if="screen !== 'auth'" @click="goAuth">Main Menu</button>
-        <button class="btn" v-if="isInGame" @click="game.resetGame()">Reset Match</button>
+        <button class="btn" v-if="isInGame" @click="onResetClick">Reset Match</button>
       </div>
     </header>
 
@@ -401,10 +401,8 @@
         <section class="leftPanel">
           <div class="panelHead">
             <div class="modeRow">
-              <div class="modeTag">
-                Mode: <b>{{ modeLabel }}</b>
-                <span v-if="isOnline && myPlayer" style="opacity:.8;"> · You: <b>P{{ myPlayer }}</b></span>
-                <span v-else-if="isOnline" style="opacity:.8;"> · Connecting…</span>
+              <div class="modeTag">Mode: <b>{{ modeLabel }}</b>
+                <span v-if="isOnline && myPlayer"> · You: <b>P{{ myPlayer }}</b></span>
               </div>
 
               <!-- ✅ Turn badge (highlighted) -->
@@ -428,12 +426,14 @@
               <span v-else-if="game.phase === 'place'"> · Turn: <b>P{{ game.currentPlayer }}</b></span>
             </div>
 
-            <div class="keysTag" v-if="game.phase === 'place'">
-              Keys: <b>Q</b> Rotate · <b>E</b> Flip
+            <div v-if="isOnline" class="statusTag">
+              <span v-if="onlineSyncing"><b>Online Sync:</b> SYNCING</span>
+              <span v-else><b>Online Sync:</b> READY</span>
+              <span v-if="onlineTurnText"> · {{ onlineTurnText }}</span>
             </div>
 
-            <div v-if="isOnline" class="keysTag" style="opacity:.8;">
-              Online Sync: <b>{{ onlineConnectedLabel }}</b>
+            <div class="keysTag" v-if="game.phase === 'place'">
+              Keys: <b>Q</b> Rotate · <b>E</b> Flip
             </div>
           </div>
 
@@ -510,13 +510,7 @@ const rankedTier = computed(() => (loggedIn.value ? "Wood" : "—"));
 
 const isInGame = computed(() => screen.value === "couch" || screen.value === "ai" || screen.value === "online");
 const modeLabel = computed(() =>
-  screen.value === "ai"
-    ? "Practice vs AI"
-    : screen.value === "couch"
-      ? "Couch Play"
-      : screen.value === "online"
-        ? "Online Match"
-        : "—"
+  screen.value === "ai" ? "Practice vs AI" : screen.value === "couch" ? "Couch Play" : screen.value === "online" ? "Online Match" : "—"
 );
 
 const canGoBack = computed(() =>
@@ -526,6 +520,19 @@ const canGoBack = computed(() =>
 // ✅ Online match
 const isOnline = computed(() => screen.value === "online");
 const myPlayer = ref(null); // 1 | 2 | null
+const onlineSyncing = ref(false);
+const onlineTurnText = computed(() => {
+  if (!isOnline.value || !myPlayer.value) return "";
+  if (game.phase === "gameover") return "";
+  if (game.phase === "draft") {
+    return game.draftTurn === myPlayer.value ? "Your turn" : `Waiting for Player ${game.draftTurn}...`;
+  }
+  if (game.phase === "place") {
+    return game.currentPlayer === myPlayer.value ? "Your turn" : `Waiting for Player ${game.currentPlayer}...`;
+  }
+  return "";
+});
+
 const canAct = computed(() => {
   if (!isOnline.value) return true;
   if (!myPlayer.value) return false;
@@ -533,13 +540,6 @@ const canAct = computed(() => {
   if (game.phase === "draft") return game.draftTurn === myPlayer.value;
   if (game.phase === "place") return game.currentPlayer === myPlayer.value;
   return false;
-});
-
-const onlineConnectedLabel = computed(() => {
-  if (!isOnline.value) return "OFF";
-  if (!online.lobbyId) return "OFF";
-  if (!myPlayer.value) return "CONNECTING";
-  return online.polling ? "SYNCING" : "CONNECTED";
 });
 
 /* =========================
@@ -629,7 +629,10 @@ const online = reactive({
   role: null, // "host" | "guest"
   polling: false,
   pollTimer: null,
-  version: 0,
+  lastAppliedVersion: 0,
+  lastSeenUpdatedAt: null,
+  applyingRemote: false,
+  localDirty: false, // set true after a local move so we can push even if turn advanced
 });
 
 const publicLobbies = ref([]);
@@ -682,6 +685,7 @@ async function ensureSupabaseReadyOrExplain() {
 
 function stopPolling() {
   online.polling = false;
+  onlineSyncing.value = false;
   if (online.pollTimer) clearInterval(online.pollTimer);
   online.pollTimer = null;
 }
@@ -706,11 +710,6 @@ async function sbSelectLobbyByCode(code) {
 }
 
 async function sbListPublicWaitingLobbies() {
-  // Visible matchmaking:
-  // status = waiting
-  // is_private = false
-  // guest_id is null
-  // order by updated_at desc
   const q = [
     "select=id,code,status,is_private,lobby_name,updated_at",
     "status=eq.waiting",
@@ -783,270 +782,373 @@ async function sbJoinLobby(lobbyId) {
 }
 
 /* =========================
-   ✅ Deterministic P1/P2 assignment (no random mismatch)
+   ✅ ONLINE STATE SERIALIZATION
+   - Only sync "authoritative" game state (not selection UI)
 ========================= */
-function fnv1a32(str) {
+
+function stableHash(str) {
+  // FNV-1a 32-bit
   let h = 0x811c9dc5;
   for (let i = 0; i < str.length; i++) {
     h ^= str.charCodeAt(i);
-    h = Math.imul(h, 0x01000193);
+    h = Math.imul(h, 0x01000193) >>> 0;
   }
   return h >>> 0;
 }
 
-function playersFromCode(code) {
-  const h = fnv1a32(String(code || ""));
-  const hostIsP1 = h % 2 === 0;
-  return hostIsP1 ? { p1: "host", p2: "guest" } : { p1: "guest", p2: "host" };
+function computePlayerAssignment(code, hostId, guestId) {
+  // deterministic: both clients compute same mapping from lobby code
+  const h = stableHash(String(code || ""));
+  const hostIsP1 = (h % 2) === 0;
+  const p1 = hostIsP1 ? hostId : guestId;
+  const p2 = hostIsP1 ? guestId : hostId;
+  return { hostIsP1, players: { 1: p1, 2: p2 } };
 }
 
-function computeMyPlayerFromPlayersMap(playersMap) {
-  const guestId = getGuestId();
-  // host/guest identity from lobby ids:
-  const isHost = online.role === "host";
-  const iAm = isHost ? "host" : "guest";
-
-  if (!playersMap?.p1 || !playersMap?.p2) return null;
-  if (playersMap.p1 === iAm) return 1;
-  if (playersMap.p2 === iAm) return 2;
-  // fallback: compare by guestId existence (safe if role not set)
-  if (playersMap.p1 === "guest" && !isHost) return 1;
-  if (playersMap.p2 === "guest" && !isHost) return 2;
-  if (playersMap.p1 === "host" && isHost) return 1;
-  if (playersMap.p2 === "host" && isHost) return 2;
+function getMyPlayerFromPlayers(players, myId) {
+  if (!players || !myId) return null;
+  if (players["1"] === myId || players[1] === myId) return 1;
+  if (players["2"] === myId || players[2] === myId) return 2;
   return null;
 }
 
-/* =========================
-   ✅ State snapshot + apply (minimal, doesn't touch theme)
-========================= */
-function deepClone(v) {
-  return JSON.parse(JSON.stringify(v));
-}
-
-function snapshotGameState(lobbyRow) {
+function buildSyncedState(meta = {}) {
+  // "meta" keeps players mapping + started_at etc.
+  // only include store fields that MUST match between players
   return {
-    meta: {
-      // players will be filled by initializer
-      players: lobbyRow?.state?.meta?.players || {},
-      allowFlip: !!game.allowFlip,
+    meta,
+    game: {
+      phase: game.phase,
       boardW: game.boardW,
       boardH: game.boardH,
-      phase: game.phase,
-      currentPlayer: game.currentPlayer,
+      allowFlip: game.allowFlip,
+
+      // core boards
+      board: game.board,
+      draftBoard: game.draftBoard,
+
+      // turn systems
       draftTurn: game.draftTurn,
-      winner: game.winner ?? null,
-      updatedBy: online.role || null,
-      updatedAt: new Date().toISOString(),
+      currentPlayer: game.currentPlayer,
+
+      // pools
+      remaining: game.remaining,
+      drafted: game.drafted,
+
+      // win
+      winner: game.winner,
+
+      // NOTE: exclude selection/rotation/flipped to avoid fighting
     },
-    board: deepClone(game.board),
-    draftBoard: deepClone(game.draftBoard),
-    remaining: deepClone(game.remaining),
   };
 }
 
-function applyGameState(state) {
-  if (!state || typeof state !== "object") return;
+function applySyncedState(state) {
+  if (!state || !state.game) return;
 
-  // board setup (10x6)
-  if (state.meta?.boardW) game.boardW = state.meta.boardW;
-  if (state.meta?.boardH) game.boardH = state.meta.boardH;
+  online.applyingRemote = true;
+  try {
+    const g = state.game;
 
-  if (typeof state.meta?.allowFlip === "boolean") game.allowFlip = state.meta.allowFlip;
+    // patch only known fields to avoid nuking Pinia internals
+    // remote is authoritative; clear any pending local dirty flag
+    online.localDirty = false;
 
-  if (state.meta?.phase) game.phase = state.meta.phase;
-  if (typeof state.meta?.currentPlayer === "number") game.currentPlayer = state.meta.currentPlayer;
-  if (typeof state.meta?.draftTurn === "number") game.draftTurn = state.meta.draftTurn;
-  if ("winner" in (state.meta || {})) game.winner = state.meta.winner;
+    game.$patch({
+      phase: g.phase,
+      boardW: g.boardW,
+      boardH: g.boardH,
+      allowFlip: g.allowFlip,
 
-  if (state.board) game.board = deepClone(state.board);
-  if (state.draftBoard) game.draftBoard = deepClone(state.draftBoard);
-  if (state.remaining) game.remaining = deepClone(state.remaining);
+      board: g.board,
+      draftBoard: g.draftBoard,
+
+      draftTurn: g.draftTurn,
+      currentPlayer: g.currentPlayer,
+
+      remaining: g.remaining,
+      drafted: g.drafted,
+
+      winner: g.winner,
+    });
+  } finally {
+    // release in next tick so watchers don't instantly re-push
+    setTimeout(() => {
+      online.applyingRemote = false;
+    }, 0);
+  }
 }
 
-/* =========================
-   ✅ PATCH lobby.state with optimistic concurrency
-========================= */
-async function sbPatchLobbyState(nextState) {
-  if (!online.lobbyId) return null;
-
-  const expected = online.version || 1;
-
-  const res = await fetch(sbRestUrl(`pb_lobbies?id=eq.${encodeURIComponent(online.lobbyId)}&version=eq.${expected}`), {
+async function sbPatchStateWithVersionGuard(lobbyId, knownVersion, patchObj) {
+  // optimistic update: only update if current version matches knownVersion
+  const url = sbRestUrl(`pb_lobbies?id=eq.${encodeURIComponent(lobbyId)}&version=eq.${encodeURIComponent(knownVersion)}`);
+  const res = await fetch(url, {
     method: "PATCH",
     headers: { ...sbHeaders(), Prefer: "return=representation" },
-    body: JSON.stringify({
-      state: nextState,
-      version: expected + 1,
-      updated_at: new Date().toISOString(),
-    }),
+    body: JSON.stringify(patchObj),
   });
 
-  if (!res.ok) return null; // someone else wrote first; that's fine
+  if (!res.ok) {
+    const txt = await res.text().catch(() => "");
+    throw new Error(`State update failed (${res.status})\n${txt}`);
+  }
+
+  const rows = await res.json().catch(() => []);
+  return rows?.[0] || null; // null if 0 rows (version mismatch)
+}
+
+async function sbForcePatchState(lobbyId, patchObj) {
+  // fallback: patch without version guard (rare)
+  const url = sbRestUrl(`pb_lobbies?id=eq.${encodeURIComponent(lobbyId)}`);
+  const res = await fetch(url, {
+    method: "PATCH",
+    headers: { ...sbHeaders(), Prefer: "return=representation" },
+    body: JSON.stringify(patchObj),
+  });
+  if (!res.ok) {
+    const txt = await res.text().catch(() => "");
+    throw new Error(`Force update failed (${res.status})\n${txt}`);
+  }
   const rows = await res.json().catch(() => []);
   return rows?.[0] || null;
 }
 
-/* =========================
-   ✅ Online Sync: wrap game actions (draftPick, placeAt) to push state
-   - only when it's your turn (canAct)
-   - selection/rotation is local-only
-========================= */
-let unpatchFns = [];
+async function pushMyState(reason = "") {
+  if (!isOnline.value) return;
+  if (!online.lobbyId) return;
+  if (online.applyingRemote) return;
 
-function patchOnlineActions() {
-  // prevent double patch
-  unpatchOnlineActions();
+  // Allow pushing after our move even if the turn has already advanced locally.
+  // Out-of-turn actions are blocked by UI (canAct) so waiting players won't create localDirty changes.
+  if (!canAct.value && !online.localDirty) return;
 
-  // Only patch methods we know exist
-  const origDraftPick = game.draftPick?.bind(game);
-  const origPlaceAt = game.placeAt?.bind(game);
+  onlineSyncing.value = true;
 
-  if (typeof origDraftPick === "function") {
-    game.draftPick = async (pieceKey) => {
-      if (isOnline.value && !canAct.value) return false;
-      const ok = origDraftPick(pieceKey);
-      if (isOnline.value && ok) {
-        const lobbyRow = await sbSelectLobbyById(online.lobbyId).catch(() => null);
-        const base = lobbyRow || { state: { meta: { players: playersFromCode(online.code) } } };
-        const st = snapshotGameState(lobbyRow);
-        st.meta.players = base.state?.meta?.players || st.meta.players;
-        const patched = await sbPatchLobbyState(st);
-        if (patched?.version) online.version = patched.version;
+  try {
+    const lobby = await sbSelectLobbyById(online.lobbyId);
+    if (!lobby) return;
+
+    const meta = (lobby.state && lobby.state.meta) ? lobby.state.meta : {};
+    const snapshot = buildSyncedState(meta);
+
+    const nextVersion = Number(lobby.version || 0) + 1;
+
+    // try guarded update first
+    let updated = await sbPatchStateWithVersionGuard(online.lobbyId, lobby.version, {
+      state: snapshot,
+      version: nextVersion,
+      updated_at: new Date().toISOString(),
+    });
+
+    // if mismatch (0 rows), refetch once and try again
+    if (!updated) {
+      const fresh = await sbSelectLobbyById(online.lobbyId);
+      if (!fresh) return;
+
+      // if remote already contains our intended change (rare), just accept it
+      const freshState = fresh.state || {};
+      // otherwise retry with new version
+      updated = await sbPatchStateWithVersionGuard(online.lobbyId, fresh.version, {
+        state: snapshot,
+        version: Number(fresh.version || 0) + 1,
+        updated_at: new Date().toISOString(),
+      });
+
+      // final fallback: unguarded (should basically never happen if turns are respected)
+      if (!updated) {
+        updated = await sbForcePatchState(online.lobbyId, {
+          state: snapshot,
+          version: Number(fresh.version || 0) + 1,
+          updated_at: new Date().toISOString(),
+        });
       }
-      return ok;
-    };
-    unpatchFns.push(() => (game.draftPick = origDraftPick));
-  }
+    }
 
-  if (typeof origPlaceAt === "function") {
-    game.placeAt = async (x, y) => {
-      if (isOnline.value && !canAct.value) return false;
-      const ok = origPlaceAt(x, y);
-      if (isOnline.value && ok) {
-        const lobbyRow = await sbSelectLobbyById(online.lobbyId).catch(() => null);
-        const st = snapshotGameState(lobbyRow);
-        // preserve players mapping
-        st.meta.players = lobbyRow?.state?.meta?.players || st.meta.players;
-        const patched = await sbPatchLobbyState(st);
-        if (patched?.version) online.version = patched.version;
-      }
-      return ok;
-    };
-    unpatchFns.push(() => (game.placeAt = origPlaceAt));
+    if (updated?.version) {
+      online.lastAppliedVersion = Math.max(online.lastAppliedVersion || 0, updated.version);
+      online.lastSeenUpdatedAt = updated.updated_at || null;
+      online.localDirty = false;
+    }
+  } catch {
+    // ignore transient errors
+  } finally {
+    onlineSyncing.value = false;
   }
 }
 
-function unpatchOnlineActions() {
-  for (const fn of unpatchFns) {
-    try { fn(); } catch {}
+function maybeSetMyPlayerFromLobby(lobby) {
+  const myId = getGuestId();
+  const st = lobby?.state || {};
+  const players = st?.meta?.players;
+
+  if (players) {
+    myPlayer.value = getMyPlayerFromPlayers(players, myId);
+    return;
   }
-  unpatchFns = [];
+
+  // if no players yet, infer from deterministic assignment
+  if (lobby?.code && lobby?.host_id && lobby?.guest_id) {
+    const { players: p } = computePlayerAssignment(lobby.code, lobby.host_id, lobby.guest_id);
+    myPlayer.value = getMyPlayerFromPlayers(p, myId);
+  }
 }
 
-watch(
-  () => isOnline.value,
-  (v) => {
-    if (v) patchOnlineActions();
-    else unpatchOnlineActions();
-  },
-  { immediate: true }
-);
+async function ensureOnlineInitialized(lobby) {
+  if (!lobby) return;
+
+  const myId = getGuestId();
+
+  // if state.meta.players missing, allow either client to initialize (deterministic)
+  const hasPlayers = !!lobby?.state?.meta?.players;
+  if (hasPlayers) return;
+
+  if (!lobby.host_id || !lobby.guest_id) return;
+
+  const { players } = computePlayerAssignment(lobby.code, lobby.host_id, lobby.guest_id);
+
+  // init local fresh game BEFORE writing
+  game.boardW = 10;
+  game.boardH = 6;
+  game.allowFlip = allowFlip.value;
+  game.resetGame();
+
+  const initState = buildSyncedState({
+    players,
+    started_at: new Date().toISOString(),
+    created_by: myId,
+  });
+
+  // write it (unguarded is OK here since it’s the first init)
+  const nextVersion = Number(lobby.version || 0) + 1;
+  const updated = await sbForcePatchState(lobby.id, {
+    state: initState,
+    version: nextVersion,
+    status: "playing",
+    updated_at: new Date().toISOString(),
+  });
+
+  online.lastAppliedVersion = updated?.version || nextVersion;
+}
 
 function startPollingLobby(lobbyId, role) {
   stopPolling();
   online.polling = true;
   online.lobbyId = lobbyId;
   online.role = role;
+  online.lastAppliedVersion = 0;
+  online.lastSeenUpdatedAt = null;
 
-  // enter online immediately (prevents "stuck on joined")
+  // go to online screen immediately
   screen.value = "online";
+  game.boardW = 10;
+  game.boardH = 6;
+  game.allowFlip = allowFlip.value;
+  game.resetGame();
 
   online.pollTimer = setInterval(async () => {
     try {
+      onlineSyncing.value = true;
       const lobby = await sbSelectLobbyById(lobbyId);
       if (!lobby) {
         stopPolling();
-        showModal({
-          title: "Lobby Closed",
-          message: "The lobby no longer exists.",
-          tone: "bad",
-        });
+        showModal({ title: "Lobby Closed", message: "The lobby no longer exists.", tone: "bad" });
         return;
       }
 
-      online.code = lobby.code || online.code;
-      online.version = lobby.version || online.version || 1;
-
-      const hasHost = !!lobby.host_id;
-      const hasGuest = !!lobby.guest_id;
-
-      // Wait for both players to exist before we start
-      if (!(hasHost && hasGuest)) return;
-
-      // ✅ If players map isn't created yet, allow either side to initialize it.
-      const hasPlayersMap = !!lobby.state?.meta?.players?.p1 && !!lobby.state?.meta?.players?.p2;
-
-      if (!hasPlayersMap) {
-        // deterministic assignment from code
-        const players = playersFromCode(lobby.code || "");
-
-        // initializer makes sure game is at known starting state
-        game.boardW = 10;
-        game.boardH = 6;
-        game.allowFlip = allowFlip.value;
-        game.resetGame();
-
-        const initState = snapshotGameState(lobby);
-        initState.meta.players = players;
-
-        const patched = await sbPatchLobbyState(initState);
-        if (patched) {
-          online.version = patched.version || online.version;
-          myPlayer.value = computeMyPlayerFromPlayersMap(players);
-
-          showModal({
-            title: "Match Started!",
-            message: `You are Player ${myPlayer.value}.\nLobby: ${lobby.code || "—"}`,
-            tone: "good",
-          });
-          setTimeout(() => closeModal(), 900);
-        }
-        return;
+      // if we just joined and host is missing etc.
+      if (lobby.host_id && lobby.guest_id) {
+        await ensureOnlineInitialized(lobby);
       }
 
-      // ✅ players map exists: compute my player once
-      const playersMap = lobby.state?.meta?.players;
-      if (!myPlayer.value) {
-        myPlayer.value = computeMyPlayerFromPlayersMap(playersMap);
+      maybeSetMyPlayerFromLobby(lobby);
 
-        showModal({
-          title: "Match Found!",
-          message: `Connected.\nYou are Player ${myPlayer.value}.\nLobby: ${lobby.code || "—"}`,
-          tone: "good",
-        });
-        setTimeout(() => closeModal(), 900);
-      }
+      const v = Number(lobby.version || 0);
+      const st = lobby.state || null;
 
-      // ✅ Apply remote state if changed
-      const remoteState = lobby.state || null;
-      const remoteVer = lobby.version || 0;
-
-      // If remote is newer than our last known write, apply it
-      if (remoteState && remoteVer >= online.version) {
-        // Keep online.version updated to remote
-        online.version = remoteVer;
-
-        // Apply only if it looks like our state shape
-        if (remoteState.board && remoteState.draftBoard && remoteState.remaining) {
-          applyGameState(remoteState);
-        }
+      if (st && v && v > (online.lastAppliedVersion || 0)) {
+        online.lastAppliedVersion = v;
+        online.lastSeenUpdatedAt = lobby.updated_at || null;
+        applySyncedState(st);
       }
     } catch {
       // keep polling quietly
+    } finally {
+      onlineSyncing.value = false;
     }
-  }, 900);
+  }, 650);
 }
+
+/* =========================
+   Auto-push on local authoritative changes (online)
+   - This is what makes "P1 pick" instantly appear on P2
+========================= */
+watch(
+  () => [
+    isOnline.value,
+    game.phase,
+    game.draftTurn,
+    game.currentPlayer,
+    game.winner,
+    // JSON string keeps it simple + stable for small boards
+    JSON.stringify(game.draftBoard),
+    JSON.stringify(game.board),
+    JSON.stringify(game.remaining),
+    JSON.stringify(game.drafted),
+  ],
+  async () => {
+    if (!isOnline.value) return;
+    if (!online.lobbyId) return;
+    if (online.applyingRemote) return;
+
+    // We used to guard with canAct here, but that breaks sync because your move often flips the turn
+    // before the watcher runs. Instead, mark as dirty and push once; UI already blocks out-of-turn actions.
+    online.localDirty = true;
+
+    // small debounce: multiple mutations in one tick (draftPick/placeAt) -> single push
+    if (pushDebounceTimer) clearTimeout(pushDebounceTimer);
+    pushDebounceTimer = setTimeout(() => pushMyState("watch"), 80);
+  }
+);
+
+let pushDebounceTimer = null;
+
+/* =========================
+   ONLINE RESET
+========================= */
+async function onResetClick() {
+  if (!isOnline.value || !online.lobbyId) {
+    game.resetGame();
+    return;
+  }
+
+  // online: reset the shared state (anyone can, but turn guard still applies)
+  try {
+    const lobby = await sbSelectLobbyById(online.lobbyId);
+    if (!lobby) return;
+
+    // keep players mapping
+    const meta = (lobby.state && lobby.state.meta) ? lobby.state.meta : {};
+    game.boardW = 10;
+    game.boardH = 6;
+    game.allowFlip = allowFlip.value;
+    game.resetGame();
+
+    const snapshot = buildSyncedState(meta);
+    const nextVersion = Number(lobby.version || 0) + 1;
+
+    await sbForcePatchState(online.lobbyId, {
+      state: snapshot,
+      version: nextVersion,
+      updated_at: new Date().toISOString(),
+    });
+  } catch {
+    game.resetGame();
+  }
+}
+
+/* =========================
+   Quick Match handlers
+========================= */
 
 async function refreshPublicLobbies() {
   if (!(await ensureSupabaseReadyOrExplain())) return;
@@ -1074,15 +1176,10 @@ async function joinPublicLobby(lobby) {
   try {
     showModal({ title: "Joining...", tone: "info", message: `Joining lobby...\nCode: ${lobby?.code || "—"}` });
     const joined = await sbJoinLobby(lobby.id);
-
-    // ✅ go to online immediately
-    screen.value = "online";
-    online.code = joined?.code || lobby?.code || online.code;
-
     closeModal();
-    showModal({ title: "Joined!", tone: "good", message: `Connecting...\nLobby: ${online.code || "—"}` });
-    setTimeout(() => closeModal(), 700);
+    showModal({ title: "Joined!", tone: "good", message: `Connected.\nCode: ${joined?.code || lobby?.code || "—"}` });
 
+    // start online polling immediately
     startPollingLobby(lobby.id, "guest");
   } catch (e) {
     closeModal();
@@ -1113,23 +1210,16 @@ async function joinByCode() {
       return;
     }
 
-    // If it's already full or has guest, block
     if (lobby.guest_id) {
       closeModal();
       showModal({ title: "Lobby Full", tone: "bad", message: "That lobby already has a guest." });
       return;
     }
 
-    // Join it
     const joined = await sbJoinLobby(lobby.id);
-
-    // ✅ go to online immediately
-    screen.value = "online";
-    online.code = joined?.code || code;
-
     closeModal();
-    showModal({ title: "Joined!", tone: "good", message: `Connecting...\nLobby: ${online.code || "—"}` });
-    setTimeout(() => closeModal(), 700);
+
+    showModal({ title: "Joined!", tone: "good", message: `Connected.\nCode: ${joined?.code || code}` });
 
     startPollingLobby(lobby.id, "guest");
   } catch (e) {
@@ -1162,9 +1252,7 @@ async function quickMake() {
     if (!created?.id) throw new Error("Lobby created but no ID returned.");
 
     if (created.code) {
-      try {
-        await navigator.clipboard.writeText(created.code);
-      } catch {}
+      try { await navigator.clipboard.writeText(created.code); } catch {}
     }
 
     showModal({
@@ -1177,16 +1265,11 @@ async function quickMake() {
       }\n\n(Code copied if your browser allowed it.)`,
     });
 
-    // If public, refresh list so it appears instantly
     if (!created.is_private) {
       await refreshPublicLobbies();
     }
 
-    // ✅ Host enters online immediately (no more waiting menu)
-    screen.value = "online";
-    online.code = created.code || online.code;
-    myPlayer.value = null;
-
+    // host starts polling now; when guest joins we init + sync
     startPollingLobby(created.id, "host");
   } catch (e) {
     closeModal();
@@ -1223,19 +1306,11 @@ function goBack() {
 function goAuth() {
   stopPolling();
   myPlayer.value = null;
-  online.lobbyId = null;
-  online.code = null;
-  online.role = null;
-  online.version = 0;
   screen.value = "auth";
 }
 function goMode() {
   stopPolling();
   myPlayer.value = null;
-  online.lobbyId = null;
-  online.code = null;
-  online.role = null;
-  online.version = 0;
   screen.value = "mode";
 }
 function playAsGuest() {
@@ -1276,10 +1351,7 @@ function applySettings() {
   screen.value = "mode";
 }
 
-onBeforeUnmount(() => {
-  stopPolling();
-  unpatchOnlineActions();
-});
+onBeforeUnmount(() => stopPolling());
 </script>
 
 <style scoped>
