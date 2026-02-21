@@ -250,7 +250,7 @@
 
           <div class="row">
             <button class="btn soft" @click="screen = 'quick'">← Back</button>
-            <button class="btn primary" disabled title="Not implemented yet">Search (soon)</button>
+            <button class="btn primary" @click="quickFind">Search</button>
           </div>
         </div>
       </section>
@@ -278,7 +278,7 @@
 
           <div class="row">
             <button class="btn soft" @click="screen = 'quick'">← Back</button>
-            <button class="btn primary" disabled title="Not implemented yet">Create (soon)</button>
+            <button class="btn primary" @click="quickMake">Create</button>
           </div>
         </div>
       </section>
@@ -469,7 +469,9 @@ const quick = reactive({
 const rankedTier = computed(() => (loggedIn.value ? "Wood" : "—"));
 
 const isInGame = computed(() => screen.value === "couch" || screen.value === "ai");
-const modeLabel = computed(() => (screen.value === "ai" ? "Practice vs AI" : screen.value === "couch" ? "Couch Play" : "—"));
+const modeLabel = computed(() =>
+  screen.value === "ai" ? "Practice vs AI" : screen.value === "couch" ? "Couch Play" : "—"
+);
 
 const canGoBack = computed(() =>
   ["mode", "quick", "quick_find", "quick_make", "settings", "credits", "ranked"].includes(screen.value)
@@ -483,7 +485,7 @@ const modal = reactive({
   title: "Notice",
   message: "",
   tone: "info", // "info" | "bad" | "good"
-  cta: null,    // null | "reset"
+  cta: null, // null | "reset"
 });
 
 const modalLines = computed(() => String(modal.message || "").split("\n").filter(Boolean));
@@ -551,6 +553,323 @@ watch(
 );
 
 /* =========================
+   QUICK MATCH (Guest) — Supabase REST (no supabase-js dependency)
+   Uses:
+   - VITE_SUPABASE_URL
+   - VITE_SUPABASE_ANON_KEY
+   Table: public.pb_lobbies
+========================= */
+const online = reactive({
+  lobbyId: null,
+  code: null,
+  role: null, // "host" | "guest"
+  polling: false,
+  pollTimer: null,
+});
+
+function getGuestId() {
+  const k = "pb_guest_id";
+  let id = localStorage.getItem(k);
+  if (!id) {
+    id = (crypto?.randomUUID?.() || `g_${Math.random().toString(16).slice(2)}_${Date.now()}`).toString();
+    localStorage.setItem(k, id);
+  }
+  return id;
+}
+
+function sbConfig() {
+  const url = import.meta.env.VITE_SUPABASE_URL;
+  const anon = import.meta.env.VITE_SUPABASE_ANON_KEY;
+  return { url, anon };
+}
+
+function sbHeaders() {
+  const { anon } = sbConfig();
+  return {
+    apikey: anon,
+    Authorization: `Bearer ${anon}`,
+    "Content-Type": "application/json",
+  };
+}
+
+function sbRestUrl(pathAndQuery) {
+  const { url } = sbConfig();
+  const base = String(url || "").replace(/\/+$/, "");
+  return `${base}/rest/v1/${pathAndQuery}`;
+}
+
+async function sbSelectLobbyById(id) {
+  const res = await fetch(
+    sbRestUrl(`pb_lobbies?id=eq.${encodeURIComponent(id)}&select=*`),
+    { headers: sbHeaders() }
+  );
+  if (!res.ok) throw new Error(`Select lobby failed (${res.status})`);
+  const rows = await res.json();
+  return rows?.[0] || null;
+}
+
+async function sbFindOpenLobby({ region = "auto", ruleset = "default" } = {}) {
+  // Match on: status='waiting', is_private=false, guest_id is null
+  // region/ruleset are optional columns; if they don't exist, no harm (Supabase will error).
+  // We'll keep it simple and only filter columns we KNOW exist from your screenshot.
+  const q = [
+    "select=*",
+    "status=eq.waiting",
+    "is_private=eq.false",
+    "guest_id=is.null",
+    "order=updated_at.asc",
+    "limit=1",
+  ].join("&");
+
+  const res = await fetch(sbRestUrl(`pb_lobbies?${q}`), { headers: sbHeaders() });
+  if (!res.ok) throw new Error(`Find open lobby failed (${res.status})`);
+  const rows = await res.json();
+  return rows?.[0] || null;
+}
+
+async function sbCreateLobby({ isPrivate = false, lobbyName = "", region = "auto" } = {}) {
+  const hostId = getGuestId();
+
+  // Generate a short join code
+  const code = `PB-${Math.random().toString(16).slice(2, 6).toUpperCase()}${Math.random()
+    .toString(16)
+    .slice(2, 6)
+    .toUpperCase()}`;
+
+  const payload = {
+    code,
+    status: "waiting",
+    is_private: !!isPrivate,
+    lobby_name: String(lobbyName || "").slice(0, 40),
+    region: String(region || "auto").slice(0, 12),
+    host_id: hostId,
+    guest_id: null,
+    host_ready: false,
+    guest_ready: false,
+    state: {},
+    version: 1,
+  };
+
+  const res = await fetch(sbRestUrl("pb_lobbies"), {
+    method: "POST",
+    headers: { ...sbHeaders(), Prefer: "return=representation" },
+    body: JSON.stringify(payload),
+  });
+
+  if (!res.ok) {
+    const txt = await res.text().catch(() => "");
+    throw new Error(`Create lobby failed (${res.status})\n${txt}`);
+  }
+
+  const rows = await res.json();
+  return rows?.[0] || null;
+}
+
+async function sbJoinLobby(lobbyId) {
+  const guestId = getGuestId();
+
+  const res = await fetch(sbRestUrl(`pb_lobbies?id=eq.${encodeURIComponent(lobbyId)}`), {
+    method: "PATCH",
+    headers: { ...sbHeaders(), Prefer: "return=representation" },
+    body: JSON.stringify({
+      guest_id: guestId,
+      status: "full",
+      updated_at: new Date().toISOString(),
+    }),
+  });
+
+  if (!res.ok) {
+    const txt = await res.text().catch(() => "");
+    throw new Error(`Join lobby failed (${res.status})\n${txt}`);
+  }
+
+  const rows = await res.json();
+  return rows?.[0] || null;
+}
+
+function stopPolling() {
+  online.polling = false;
+  if (online.pollTimer) clearInterval(online.pollTimer);
+  online.pollTimer = null;
+}
+
+function startPollingLobby(lobbyId, role) {
+  stopPolling();
+  online.polling = true;
+  online.lobbyId = lobbyId;
+  online.role = role;
+
+  online.pollTimer = setInterval(async () => {
+    try {
+      const lobby = await sbSelectLobbyById(lobbyId);
+      if (!lobby) {
+        stopPolling();
+        showModal({
+          title: "Lobby Closed",
+          message: "The lobby no longer exists.",
+          tone: "bad",
+        });
+        return;
+      }
+
+      // If both players exist, we "start"
+      const hasHost = !!lobby.host_id;
+      const hasGuest = !!lobby.guest_id;
+
+      if (hasHost && hasGuest) {
+        stopPolling();
+        showModal({
+          title: "Match Found!",
+          message: `Players connected.\n(Online sync comes next — this just confirms matchmaking works.)`,
+          tone: "good",
+        });
+        // Optional: auto-start local match UI so you feel the flow
+        // (Does NOT sync moves yet)
+        screen.value = "couch";
+        game.boardW = 10;
+        game.boardH = 6;
+        game.allowFlip = allowFlip.value;
+        game.resetGame();
+      }
+    } catch (e) {
+      // stay silent while polling (don’t spam modals)
+    }
+  }, 1200);
+}
+
+async function ensureSupabaseReadyOrExplain() {
+  const { url, anon } = sbConfig();
+  if (!url || !anon) {
+    showModal({
+      title: "Supabase Not Connected",
+      tone: "bad",
+      message:
+        "Missing .env values.\n\nAdd these to your project root .env:\nVITE_SUPABASE_URL=...\nVITE_SUPABASE_ANON_KEY=...\n\nThen restart: npm run dev",
+    });
+    return false;
+  }
+  return true;
+}
+
+async function quickFind() {
+  if (!(await ensureSupabaseReadyOrExplain())) return;
+
+  try {
+    showModal({
+      title: "Searching...",
+      tone: "info",
+      message: "Looking for an open public lobby...",
+    });
+
+    const open = await sbFindOpenLobby({ region: quick.region, ruleset: quick.ruleset });
+
+    if (open?.id) {
+      closeModal();
+      showModal({
+        title: "Lobby Found",
+        tone: "info",
+        message: `Joining lobby...\nCode: ${open.code || "—"}`,
+      });
+
+      const joined = await sbJoinLobby(open.id);
+      closeModal();
+
+      showModal({
+        title: "Joined!",
+        tone: "good",
+        message: `Connected to lobby.\nCode: ${joined?.code || open.code || "—"}`,
+      });
+
+      // Start polling (mostly instant, but safe)
+      startPollingLobby(open.id, "guest");
+      return;
+    }
+
+    // No open lobby? Create one automatically for “quick match” vibe
+    closeModal();
+    showModal({
+      title: "No Lobby Found",
+      tone: "info",
+      message: "Creating a new lobby and waiting for an opponent...",
+    });
+
+    const created = await sbCreateLobby({
+      isPrivate: false,
+      lobbyName: quick.lobbyName || "Quick Lobby",
+      region: quick.region,
+    });
+
+    closeModal();
+    if (!created?.id) throw new Error("Lobby created but no ID returned.");
+
+    // Copy code for convenience (silent fail if blocked)
+    if (created.code) {
+      try {
+        await navigator.clipboard.writeText(created.code);
+      } catch {}
+    }
+
+    showModal({
+      title: "Lobby Created",
+      tone: "good",
+      message: `Waiting for opponent...\nLobby Code: ${created.code || "—"}\n\n(Code copied if your browser allowed it.)`,
+    });
+
+    startPollingLobby(created.id, "host");
+  } catch (e) {
+    closeModal();
+    showModal({
+      title: "Quick Match Error",
+      tone: "bad",
+      message: String(e?.message || e || "Something went wrong."),
+    });
+  }
+}
+
+async function quickMake() {
+  if (!(await ensureSupabaseReadyOrExplain())) return;
+
+  try {
+    showModal({
+      title: "Creating Lobby...",
+      tone: "info",
+      message: "Setting up your room...",
+    });
+
+    const created = await sbCreateLobby({
+      isPrivate: quick.isPrivate,
+      lobbyName: quick.lobbyName || "My Lobby",
+      region: quick.region,
+    });
+
+    closeModal();
+
+    if (!created?.id) throw new Error("Lobby created but no ID returned.");
+
+    if (created.code) {
+      try {
+        await navigator.clipboard.writeText(created.code);
+      } catch {}
+    }
+
+    showModal({
+      title: "Lobby Ready",
+      tone: "good",
+      message: `Lobby Code: ${created.code || "—"}\n\nShare the code to a friend.\n(Code copied if your browser allowed it.)`,
+    });
+
+    startPollingLobby(created.id, "host");
+  } catch (e) {
+    closeModal();
+    showModal({
+      title: "Create Lobby Error",
+      tone: "bad",
+      message: String(e?.message || e || "Something went wrong."),
+    });
+  }
+}
+
+/* =========================
    NAV
 ========================= */
 function goBack() {
@@ -568,9 +887,11 @@ function goBack() {
   }
 }
 function goAuth() {
+  stopPolling();
   screen.value = "auth";
 }
 function goMode() {
+  stopPolling();
   screen.value = "mode";
 }
 function playAsGuest() {
@@ -585,6 +906,7 @@ function goRanked() {
   screen.value = "ranked";
 }
 function startCouchPlay() {
+  stopPolling();
   screen.value = "couch";
   game.boardW = 10;
   game.boardH = 6;
@@ -592,6 +914,7 @@ function startCouchPlay() {
   game.resetGame();
 }
 function startPracticeAi() {
+  stopPolling();
   screen.value = "ai";
   game.boardW = 10;
   game.boardH = 6;
@@ -606,6 +929,8 @@ function applySettings() {
   });
   screen.value = "mode";
 }
+
+onBeforeUnmount(() => stopPolling());
 </script>
 
 <style scoped>

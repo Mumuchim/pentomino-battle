@@ -144,6 +144,12 @@ export const useGameStore = defineStore("game", {
     boardW: 10,
     boardH: 6,
 
+    // ONLINE
+    mode: "couch", // "couch" | "ai" | "online"
+    matchId: null,
+    localPlayer: 1, // 1 or 2 when online
+    remoteVersion: 0,
+
     // PLACE phase board
     board: makeEmptyBoard(10, 6),
 
@@ -210,53 +216,91 @@ export const useGameStore = defineStore("game", {
       this.currentPlayer = this.draftTurn;
     },
 
-// ----- DRAFT: remove piece from puzzle and send to tray -----
-draftPick(pieceKey) {
-  if (this.phase !== "draft") return;
-  if (!this.pool.includes(pieceKey)) return;
+    setMode(mode) {
+      this.mode = mode;
+    },
+    setOnlineSession({ matchId, localPlayer }) {
+      this.mode = "online";
+      this.matchId = matchId;
+      this.localPlayer = localPlayer;
+    },
+    clearOnlineSession() {
+      this.matchId = null;
+      this.mode = "couch";
+      this.localPlayer = 1;
+      this.remoteVersion = 0;
+    },
+    applyRemoteState(remoteState, remoteVersion = 0) {
+      // keep identity/session fields; overwrite gameplay fields only
+      const keep = {
+        mode: this.mode,
+        matchId: this.matchId,
+        localPlayer: this.localPlayer,
+      };
 
-  // Add to player picks
-  this.picks[this.draftTurn].push(pieceKey);
+      // Pinia allows direct assignment
+      this.$state = {
+        ...this.$state,
+        ...remoteState,
+        ...keep,
+        remoteVersion: remoteVersion || remoteState?.remoteVersion || this.remoteVersion,
+      };
+    },
+    isMyTurn() {
+      if (this.mode !== "online") return true;
+      // during draft, currentPlayer mirrors draftTurn
+      return this.localPlayer === this.currentPlayer;
+    },
 
-  // Remove from pool
-  this.pool = this.pool.filter((k) => k !== pieceKey);
+    // ----- DRAFT: remove piece from puzzle and send to tray -----
+    draftPick(pieceKey) {
+      if (this.phase !== "draft") return;
+      if (!this.isMyTurn()) return;
+      if (!this.pool.includes(pieceKey)) return;
 
-  // ❌ REMOVE piece from board completely
-  for (let y = 0; y < this.boardH; y++) {
-    for (let x = 0; x < this.boardW; x++) {
-      const v = this.draftBoard[y][x];
-      if (v && v.pieceKey === pieceKey) {
-        this.draftBoard[y][x] = null;
+      // Add to player picks
+      this.picks[this.draftTurn].push(pieceKey);
+
+      // Remove from pool
+      this.pool = this.pool.filter((k) => k !== pieceKey);
+
+      // ❌ REMOVE piece from board completely
+      for (let y = 0; y < this.boardH; y++) {
+        for (let x = 0; x < this.boardW; x++) {
+          const v = this.draftBoard[y][x];
+          if (v && v.pieceKey === pieceKey) {
+            this.draftBoard[y][x] = null;
+          }
+        }
       }
-    }
-  }
 
-  // Switch turn
-  this.draftTurn = this.draftTurn === 1 ? 2 : 1;
-  this.currentPlayer = this.draftTurn;
+      // Switch turn
+      this.draftTurn = this.draftTurn === 1 ? 2 : 1;
+      this.currentPlayer = this.draftTurn;
 
-  // If all drafted → start placement
-  if (this.pool.length === 0) {
-    this.phase = "place";
+      // If all drafted → start placement
+      if (this.pool.length === 0) {
+        this.phase = "place";
 
-    this.board = makeEmptyBoard(this.boardW, this.boardH);
+        this.board = makeEmptyBoard(this.boardW, this.boardH);
 
-    this.remaining[1] = [...this.picks[1]];
-    this.remaining[2] = [...this.picks[2]];
+        this.remaining[1] = [...this.picks[1]];
+        this.remaining[2] = [...this.picks[2]];
 
-    this.currentPlayer = 1;
+        this.currentPlayer = 1;
 
-    this.selectedPieceKey = null;
-    this.rotation = 0;
-    this.flipped = false;
+        this.selectedPieceKey = null;
+        this.rotation = 0;
+        this.flipped = false;
 
-    this.placedCount = 0;
-  }
-},
+        this.placedCount = 0;
+      }
+    },
 
     // ----- SELECT / TRANSFORM -----
     selectPiece(pieceKey) {
       if (this.phase !== "place") return;
+      if (!this.isMyTurn()) return;
       if (!this.remaining[this.currentPlayer].includes(pieceKey)) return;
 
       this.selectedPieceKey = pieceKey;
@@ -266,11 +310,13 @@ draftPick(pieceKey) {
 
     rotateSelected() {
       if (!this.selectedPieceKey) return;
+      if (!this.isMyTurn()) return;
       this.rotation = (this.rotation + 1) % 4;
     },
 
     flipSelected() {
       if (!this.selectedPieceKey) return;
+      if (!this.isMyTurn()) return;
       if (!this.allowFlip) return;
       this.flipped = !this.flipped;
     },
@@ -280,18 +326,41 @@ draftPick(pieceKey) {
       if (this.phase !== "place") return false;
       if (!this.selectedPieceKey) return false;
 
-      const shape = this.selectedCells;
-      if (!shape.length) return false;
-
-      const abs = shape.map(([dx, dy]) => [anchorX + dx, anchorY + dy]);
+      // must be within board, empty cells, and must touch your own piece (after your first)
+      const abs = this.selectedCells.map(([dx, dy]) => [anchorX + dx, anchorY + dy]);
 
       for (const [x, y] of abs) {
         if (!inBounds(x, y, this.boardW, this.boardH)) return false;
         if (this.board[y][x] !== null) return false;
       }
 
-      if (this.placedCount === 0) return true;
+      // first placement for a player can be anywhere
+      const alreadyPlacedAny = this.board.some((row) => row.some((c) => c?.player === this.currentPlayer));
+      if (!alreadyPlacedAny) return true;
 
+      // otherwise must touch orthogonally one of your cells
+      const dirs = [
+        [1, 0],
+        [-1, 0],
+        [0, 1],
+        [0, -1],
+      ];
+      for (const [x, y] of abs) {
+        for (const [ox, oy] of dirs) {
+          const nx = x + ox,
+            ny = y + oy;
+          if (inBounds(nx, ny, this.boardW, this.boardH) && this.board[ny][nx]?.player === this.currentPlayer) {
+            return true;
+          }
+        }
+      }
+      return false;
+    },
+
+    // adjacency check for UI "attack zones"
+    touchesAnyFilled(anchorX, anchorY) {
+      if (!this.selectedPieceKey) return false;
+      const abs = this.selectedCells.map(([dx, dy]) => [anchorX + dx, anchorY + dy]);
       const dirs = [
         [1, 0],
         [-1, 0],
@@ -312,6 +381,7 @@ draftPick(pieceKey) {
 
     placeAt(anchorX, anchorY) {
       if (!this.canPlaceAt(anchorX, anchorY)) return false;
+      if (!this.isMyTurn()) return false;
 
       const abs = this.selectedCells.map(([dx, dy]) => [anchorX + dx, anchorY + dy]);
 
@@ -356,15 +426,17 @@ draftPick(pieceKey) {
       for (const pk of pieces) {
         this.selectedPieceKey = pk;
 
-        for (const f of flipOptions) {
-          this.flipped = f;
+        for (let r = 0; r < 4; r++) {
+          this.rotation = r;
 
-          for (let r = 0; r < 4; r++) {
-            this.rotation = r;
+          for (const f of flipOptions) {
+            this.flipped = f;
 
+            // try every anchor
             for (let y = 0; y < this.boardH; y++) {
               for (let x = 0; x < this.boardW; x++) {
                 if (this.canPlaceAt(x, y)) {
+                  // restore and return
                   Object.assign(this, saved);
                   return true;
                 }
