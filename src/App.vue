@@ -21,6 +21,31 @@
       aria-hidden="true"
     ></div>
 
+    <!-- ✅ Full-screen interaction lock + loading (prevents "loaded but not visible" desync clicks) -->
+    <div v-if="uiLock.active" class="loadOverlay" aria-live="polite" aria-busy="true">
+      <div class="loadCard">
+        <div class="loadTop">
+          <img :src="logoUrl" class="loadLogo" alt="" />
+          <div class="loadText">
+            <div class="loadTitle">PentoBattle</div>
+            <div class="loadSub">{{ uiLock.label }}</div>
+          </div>
+        </div>
+
+        <div
+          class="loadBar"
+          role="progressbar"
+          :aria-valuenow="Math.round(uiLock.progress * 100)"
+          aria-valuemin="0"
+          aria-valuemax="100"
+        >
+          <div class="loadBarFill" :style="{ width: Math.round(uiLock.progress * 100) + '%' }"></div>
+        </div>
+
+        <div class="loadHint">{{ uiLock.hint }}</div>
+      </div>
+    </div>
+
     <header class="topbar">
       <div class="brand" @click="goAuth" title="Back to Main Menu">
         <div class="logoMark">
@@ -465,7 +490,7 @@
 
     <!-- ✅ Modal -->
     <div v-if="modal.open" class="modalOverlay" @click.self="!modal.locked && closeModal()">
-      <div class="modalCard" role="dialog" aria-modal="true">
+      <div class="modalCard" :class="modalCardClass" role="dialog" aria-modal="true">
         <div class="modalTop">
           <div class="modalTitle">
             <span class="modalDot" :class="modalDotClass"></span>
@@ -552,6 +577,50 @@ const pingText = computed(() => {
 
 const nowTick = ref(Date.now());
 
+/* =========================
+   ✅ UI LOADING / INPUT LOCK
+   (Blocks clicks until the screen is visually ready)
+========================= */
+const uiLock = reactive({
+  active: true,
+  label: "Booting…",
+  hint: "Preparing the neon arena…",
+  progress: 0,
+  _timer: null,
+  _minUntil: 0,
+});
+
+function startUiLock({ label = "Loading…", hint = "Please wait…", minMs = 650 } = {}) {
+  uiLock.active = true;
+  uiLock.label = label;
+  uiLock.hint = hint;
+  uiLock._minUntil = Date.now() + Math.max(0, minMs);
+
+  if (uiLock._timer) clearInterval(uiLock._timer);
+  uiLock.progress = Math.min(uiLock.progress || 0, 0.15);
+  uiLock._timer = setInterval(() => {
+    uiLock.progress = Math.min(0.92, uiLock.progress + (0.92 - uiLock.progress) * 0.08 + 0.01);
+  }, 90);
+}
+
+function stopUiLock() {
+  const done = () => {
+    uiLock.progress = 1;
+    uiLock.active = false;
+    if (uiLock._timer) clearInterval(uiLock._timer);
+    uiLock._timer = null;
+  };
+  const left = uiLock._minUntil - Date.now();
+  if (left > 0) setTimeout(done, left);
+  else done();
+}
+
+function stopUiLockAfterPaint(extraMinMs = 650) {
+  // Ensure at least two frames have rendered before allowing clicks.
+  uiLock._minUntil = Math.max(uiLock._minUntil, Date.now() + Math.max(0, extraMinMs));
+  requestAnimationFrame(() => requestAnimationFrame(() => stopUiLock()));
+}
+
 function fmtClock(sec) {
   const s = Math.max(0, Math.floor(Number(sec || 0)));
   const m = Math.floor(s / 60);
@@ -593,6 +662,22 @@ const canAct = computed(() => {
   return false;
 });
 
+// ✅ Lock input briefly when entering heavy screens (prevents early clicks before UI is painted)
+watch(
+  () => screen.value,
+  (nv, ov) => {
+    if (nv === ov) return;
+    if (["online", "couch", "ai"].includes(nv)) {
+      startUiLock({ label: "Loading match…", hint: "Syncing visuals and state…", minMs: 850 });
+      stopUiLockAfterPaint(850);
+    }
+    if (["auth", "mode", "quick", "quick_find", "quick_make", "settings", "credits", "ranked"].includes(nv)) {
+      // If we navigated back to menus, ensure the lock isn't stuck.
+      if (uiLock.active && Date.now() > uiLock._minUntil) stopUiLock();
+    }
+  }
+);
+
 /* =========================
    ✅ MODAL SYSTEM
 ========================= */
@@ -600,13 +685,21 @@ const modal = reactive({
   open: false,
   title: "Notice",
   message: "",
-  tone: "info", // "info" | "bad" | "good"
+  tone: "info", // "info" | "bad" | "good" | "victory"
   actions: [],
   locked: false,
 });
 
 const modalLines = computed(() => String(modal.message || "").split("\n").filter(Boolean));
-const modalDotClass = computed(() => (modal.tone === "bad" ? "bad" : modal.tone === "good" ? "good" : "info"));
+const modalDotClass = computed(() =>
+  modal.tone === "bad" ? "bad" : modal.tone === "victory" ? "victory" : modal.tone === "good" ? "good" : "info"
+);
+
+const modalCardClass = computed(() => {
+  if (modal.tone === "victory") return "modalVictory";
+  if (modal.tone === "bad") return "modalDanger";
+  return "";
+});
 
 function showModal({ title = "Notice", message = "", tone = "info", actions = null, locked = false } = {}) {
   modal.title = title;
@@ -1154,6 +1247,9 @@ async function ensureOnlineInitialized(lobby) {
 }
 
 function startPollingLobby(lobbyId, role) {
+  // ✅ Prevent early clicks while the online screen + first poll are not fully rendered.
+  startUiLock({ label: "Connecting…", hint: "Establishing link to lobby…", minMs: 900 });
+
   stopPolling();
   online.polling = true;
   online.lobbyId = lobbyId;
@@ -1177,6 +1273,8 @@ function startPollingLobby(lobbyId, role) {
   game.boardH = 6;
   game.allowFlip = allowFlip.value;
   game.resetGame();
+
+  let firstPollDone = false;
 
   online.pollTimer = setInterval(async () => {
     try {
@@ -1296,6 +1394,14 @@ function startPollingLobby(lobbyId, role) {
         online.lastAppliedVersion = v;
         online.lastSeenUpdatedAt = lobby.updated_at || null;
         applySyncedState(st);
+      }
+
+      if (!firstPollDone) {
+        firstPollDone = true;
+        // Allow interaction after the first successful paint + poll.
+        uiLock.label = "Loaded";
+        uiLock.hint = "Entering match…";
+        stopUiLockAfterPaint(700);
       }
     } catch {
       // keep polling quietly
@@ -1575,12 +1681,19 @@ watch(
       }
     }
 
-    const w = game.winner ?? "?";
+    const w = game.winner;
+    const me = myPlayer.value;
+    const iWin = me && (w === me);
     const isBad = game.lastMove?.type === "timeout" || game.lastMove?.type === "surrender";
+
+    // ✅ Make the victory modal feel special (without changing game logic)
+    const title = iWin ? "VICTORY" : w ? "DEFEAT" : "MATCH ENDED";
+    const tone = iWin ? "victory" : isBad ? "bad" : "good";
+
     showModal({
-      title: "Match Over",
-      message: winnerMessage(w),
-      tone: isBad ? "bad" : "good",
+      title,
+      message: winnerMessage(w ?? "?"),
+      tone,
       actions: isOnline.value
         ? [
             { label: "Play Again", tone: "primary", onClick: requestPlayAgain },
@@ -1816,6 +1929,10 @@ function applySettings() {
    MOUNT / UNMOUNT
 ========================= */
 onMounted(() => {
+  // ✅ Initial boot gate — prevent accidental clicks before first paint.
+  startUiLock({ label: "Booting…", hint: "Loading UI, sounds, and neon vibes…", minMs: 750 });
+  stopUiLockAfterPaint(750);
+
   originalAlert = window.alert;
   window.alert = (msg) => {
     showModal({
@@ -1858,7 +1975,88 @@ onBeforeUnmount(() => {
   position: relative;
   overflow: hidden;
   background: #06060a;
-  font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Arial;
+  /* Pixel/retro vibe (uses installed fonts if available, falls back gracefully) */
+  font-family:
+    "Press Start 2P",
+    "Pixeloid Sans",
+    "VT323",
+    ui-monospace,
+    SFMono-Regular,
+    Menlo,
+    Monaco,
+    Consolas,
+    "Liberation Mono",
+    "Courier New",
+    monospace;
+}
+
+/* Prefer crisp edges on small text + icons */
+.app :is(.title, .sub, .menuTitle, .menuHint, .menuBtnTop, .menuBtnSub, .heroBadge) {
+  letter-spacing: 0.6px;
+}
+
+/* =========================
+   LOADING / LOCK OVERLAY
+========================= */
+.loadOverlay{
+  position: fixed;
+  inset: 0;
+  z-index: 60;
+  display: grid;
+  place-items: center;
+  padding: 18px;
+  background:
+    radial-gradient(1200px 700px at 50% 20%, rgba(0,229,255,0.10), transparent 60%),
+    radial-gradient(1000px 600px at 20% 80%, rgba(255,43,214,0.10), transparent 60%),
+    rgba(0,0,0,0.72);
+  backdrop-filter: blur(12px);
+}
+.loadCard{
+  width: min(560px, 100%);
+  border-radius: 22px;
+  border: 1px solid rgba(255,255,255,0.14);
+  background: linear-gradient(180deg, rgba(18,18,28,0.88), rgba(10,10,16,0.84));
+  box-shadow:
+    0 18px 80px rgba(0,0,0,0.65),
+    0 0 0 1px rgba(0,229,255,0.08) inset,
+    0 0 0 1px rgba(255,43,214,0.06);
+  padding: 16px;
+  animation: popIn .22s ease-out;
+}
+.loadTop{ display:flex; gap: 12px; align-items:center; }
+.loadLogo{
+  width: 54px;
+  height: 54px;
+  object-fit: contain;
+  filter:
+    drop-shadow(0 10px 22px rgba(0,0,0,0.55))
+    drop-shadow(0 0 18px rgba(0,229,255,0.16))
+    drop-shadow(0 0 18px rgba(255,43,214,0.12));
+}
+.loadTitle{ font-size: 16px; font-weight: 900; }
+.loadSub{ margin-top: 6px; font-size: 12px; opacity: 0.85; }
+.loadBar{
+  margin-top: 14px;
+  height: 12px;
+  border-radius: 999px;
+  background: rgba(255,255,255,0.06);
+  border: 1px solid rgba(255,255,255,0.12);
+  overflow: hidden;
+  box-shadow: 0 0 0 1px rgba(0,0,0,0.35) inset;
+}
+.loadBarFill{
+  height: 100%;
+  border-radius: 999px;
+  background: linear-gradient(90deg, rgba(0,229,255,0.9), rgba(255,43,214,0.9));
+  box-shadow:
+    0 0 18px rgba(0,229,255,0.22),
+    0 0 18px rgba(255,43,214,0.18);
+}
+.loadHint{ margin-top: 12px; font-size: 11px; opacity: 0.78; line-height: 1.4; }
+
+@keyframes popIn{
+  from{ transform: translateY(8px) scale(0.98); opacity: 0; }
+  to{ transform: translateY(0) scale(1); opacity: 1; }
 }
 
 /* ✅ Big screen border glow per turn */
@@ -1963,10 +2161,15 @@ onBeforeUnmount(() => {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  padding: 16px 18px;
+  padding: 14px 16px;
   border-bottom: 1px solid rgba(255, 255, 255, 0.10);
-  background: rgba(10, 10, 16, 0.55);
-  backdrop-filter: blur(10px);
+  background:
+    linear-gradient(180deg, rgba(12,12,20,0.72), rgba(10,10,16,0.46));
+  backdrop-filter: blur(12px);
+  box-shadow:
+    0 10px 40px rgba(0,0,0,0.45),
+    0 0 0 1px rgba(0,229,255,0.06) inset,
+    0 0 0 1px rgba(255,43,214,0.05);
 }
 
 .brand {
@@ -2017,15 +2220,52 @@ onBeforeUnmount(() => {
 
 /* Minimal helpers so it doesn't look unstyled if your old CSS was longer */
 .main{ position: relative; z-index: 1; padding: 18px; }
-.btn{ padding: 10px 12px; border-radius: 12px; border: 1px solid rgba(255,255,255,.12); background: rgba(255,255,255,.06); color: #eaeaea; font-weight: 800; cursor: pointer; }
-.btn.primary{ background: rgba(0,229,255,.14); border-color: rgba(0,229,255,.25); }
-.btn.soft{ background: rgba(255,255,255,.05); }
-.btn.ghost{ background: transparent; }
+
+.btn{
+  padding: 10px 12px;
+  border-radius: 14px;
+  border: 1px solid rgba(255,255,255,0.14);
+  background: rgba(255,255,255,0.06);
+  color: #eaeaea;
+  font-weight: 900;
+  cursor: pointer;
+  transition: transform .08s ease, box-shadow .18s ease, border-color .18s ease, background .18s ease, opacity .18s ease;
+  box-shadow:
+    0 8px 22px rgba(0,0,0,0.35),
+    0 0 0 1px rgba(255,255,255,0.06) inset;
+}
+.btn:hover{
+  transform: translateY(-1px);
+  border-color: rgba(255,255,255,0.20);
+  box-shadow:
+    0 10px 26px rgba(0,0,0,0.42),
+    0 0 0 1px rgba(255,255,255,0.07) inset,
+    0 0 18px rgba(0,229,255,0.10);
+}
+.btn:active{ transform: translateY(0px) scale(0.99); }
+
+.btn.primary{
+  background: linear-gradient(180deg, rgba(0,229,255,0.18), rgba(0,229,255,0.10));
+  border-color: rgba(0,229,255,0.28);
+  box-shadow:
+    0 12px 30px rgba(0,0,0,0.45),
+    0 0 0 1px rgba(0,229,255,0.10) inset,
+    0 0 22px rgba(0,229,255,0.12);
+}
+.btn.soft{
+  background: rgba(255,255,255,0.05);
+}
+.btn.ghost{
+  background: transparent;
+  box-shadow: none;
+}
 .menuShell{ max-width: 860px; margin: 0 auto; display: grid; gap: 14px; }
 .menuCard{ padding: 16px; border-radius: 18px; border: 1px solid rgba(255,255,255,.10); background: rgba(10,10,16,.55); backdrop-filter: blur(10px); }
 .menuStack{ display: grid; gap: 10px; }
-.menuBtn{ width: 100%; display:flex; justify-content:space-between; align-items:center; padding: 12px 14px; border-radius: 16px; border: 1px solid rgba(255,255,255,.12); background: rgba(255,255,255,.06); color:#eaeaea; cursor:pointer; font-weight:900; }
-.menuBtn.primary{ background: rgba(0,229,255,.12); border-color: rgba(0,229,255,.20); }
+.menuBtn{ width: 100%; display:flex; justify-content:space-between; align-items:center; padding: 12px 14px; border-radius: 18px; border: 1px solid rgba(255,255,255,.14); background: linear-gradient(180deg, rgba(255,255,255,.07), rgba(255,255,255,.05)); color:#eaeaea; cursor:pointer; font-weight:900; transition: transform .08s ease, box-shadow .18s ease, border-color .18s ease, background .18s ease; box-shadow: 0 12px 34px rgba(0,0,0,.40), 0 0 0 1px rgba(0,0,0,.25) inset; }
+.menuBtn:hover{ transform: translateY(-1px); border-color: rgba(255,255,255,.20); box-shadow: 0 14px 38px rgba(0,0,0,.46), 0 0 22px rgba(0,229,255,.10); }
+.menuBtn:active{ transform: translateY(0px) scale(0.99); }
+.menuBtn.primary{ background: linear-gradient(180deg, rgba(0,229,255,.16), rgba(0,229,255,.10)); border-color: rgba(0,229,255,.22); }
 .menuBtn.disabled{ opacity:.45; cursor:not-allowed; }
 .menuBtnLeft{ display:flex; gap: 12px; align-items:center; min-width:0; }
 .menuBtnIcon{ width: 38px; height: 38px; display:grid; place-items:center; border-radius: 12px; background: rgba(255,255,255,.06); }
@@ -2042,17 +2282,59 @@ onBeforeUnmount(() => {
 .form{ display:grid; gap: 10px; }
 .input{ width: 100%; padding: 10px 12px; border-radius: 12px; border: 1px solid rgba(255,255,255,.12); background: rgba(0,0,0,.25); color:#eaeaea; }
 .row{ display:flex; gap: 10px; flex-wrap: wrap; margin-top: 10px; }
-.modalOverlay{ position: fixed; inset: 0; z-index: 50; background: rgba(0,0,0,.55); display:grid; place-items:center; padding: 18px; }
-.modalCard{ width: min(560px, 100%); border-radius: 18px; border: 1px solid rgba(255,255,255,.12); background: rgba(10,10,16,.80); backdrop-filter: blur(12px); padding: 14px; }
+.modalOverlay{ position: fixed; inset: 0; z-index: 50; background:
+  radial-gradient(1000px 600px at 50% 20%, rgba(0,229,255,0.10), transparent 60%),
+  radial-gradient(900px 520px at 20% 85%, rgba(255,43,214,0.10), transparent 60%),
+  rgba(0,0,0,.60);
+  display:grid; place-items:center; padding: 18px; backdrop-filter: blur(10px);
+}
+.modalCard{
+  width: min(560px, 100%);
+  border-radius: 22px;
+  border: 1px solid rgba(255,255,255,0.14);
+  background: linear-gradient(180deg, rgba(18,18,28,0.90), rgba(10,10,16,0.86));
+  backdrop-filter: blur(14px);
+  padding: 14px;
+  box-shadow:
+    0 18px 80px rgba(0,0,0,0.62),
+    0 0 0 1px rgba(255,255,255,0.06) inset;
+  animation: popIn .18s ease-out;
+}
+.modalCard.modalDanger{
+  box-shadow:
+    0 18px 80px rgba(0,0,0,0.62),
+    0 0 0 1px rgba(255,64,96,0.12) inset,
+    0 0 28px rgba(255,64,96,0.10);
+}
+.modalCard.modalVictory{
+  width: min(620px, 100%);
+  border-color: rgba(0,229,255,0.24);
+  background:
+    radial-gradient(900px 260px at 50% 0%, rgba(0,229,255,0.16), transparent 70%),
+    radial-gradient(900px 260px at 50% 100%, rgba(255,43,214,0.14), transparent 70%),
+    linear-gradient(180deg, rgba(18,18,28,0.92), rgba(10,10,16,0.88));
+  box-shadow:
+    0 22px 110px rgba(0,0,0,0.70),
+    0 0 0 1px rgba(0,229,255,0.12) inset,
+    0 0 36px rgba(0,229,255,0.16),
+    0 0 32px rgba(255,43,214,0.12);
+  animation: victoryPop .24s ease-out;
+}
 .modalTop{ display:flex; justify-content:space-between; align-items:center; gap: 10px; }
 .modalTitle{ display:flex; align-items:center; gap: 10px; font-weight: 900; }
-.modalDot{ width: 10px; height: 10px; border-radius: 999px; background: rgba(0,229,255,.9); }
+.modalDot{ width: 10px; height: 10px; border-radius: 999px; background: rgba(0,229,255,.92); box-shadow: 0 0 14px rgba(0,229,255,0.18); }
 .modalDot.bad{ background: rgba(255,64,96,.95); }
 .modalDot.good{ background: rgba(0,255,128,.95); }
+.modalDot.victory{ background: linear-gradient(90deg, rgba(0,229,255,1), rgba(255,43,214,1)); box-shadow: 0 0 18px rgba(0,229,255,0.22), 0 0 18px rgba(255,43,214,0.18); }
 .modalX{ background: transparent; border: 0; color:#eaeaea; font-size: 18px; cursor:pointer; }
 .modalBody{ margin-top: 10px; }
-.modalMsg{ margin: 0 0 8px 0; opacity: .9; }
+.modalMsg{ margin: 0 0 8px 0; opacity: .92; line-height: 1.45; }
 .modalActions{ display:flex; gap: 10px; justify-content:flex-end; margin-top: 12px; flex-wrap: wrap; }
+
+@keyframes victoryPop{
+  from{ transform: translateY(10px) scale(0.97); opacity: 0; filter: saturate(1.1); }
+  to{ transform: translateY(0) scale(1); opacity: 1; filter: saturate(1.0); }
+}
 
 /* You already have these elsewhere in your CSS normally */
 .gameLayout{ display:grid; grid-template-columns: 420px 1fr; gap: 14px; }
