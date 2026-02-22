@@ -452,7 +452,7 @@ function ghostBlockStyle(b) {
 .boardWrap {
   display: flex;
   flex-direction: column;
-  gap: 10px;
+  gap: 14px;
   align-items: flex-start;
 }
 
@@ -644,6 +644,7 @@ function ghostBlockStyle(b) {
 }
 
 .legend {
+  margin-top: 14px;
   display: flex;
   gap: 14px;
   opacity: 0.92;

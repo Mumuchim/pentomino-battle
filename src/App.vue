@@ -430,14 +430,16 @@
       <section v-else class="gameLayout">
         <section class="leftPanel">
           <div class="panelHead">
-            <div class="modeRow">
-              <div class="modeTag">
-                Mode: <b>{{ modeLabel }}</b>
-                <span v-if="isOnline && myPlayer"> · You: <b>P{{ myPlayer }}</b></span>
+          <div class="infoBar">
+            <div class="infoRow">
+              <div class="infoLeft">
+                <div class="chip">Mode: <b>{{ modeLabel }}</b>
+                  <span v-if="isOnline && myPlayer"> · You: <b>P{{ myPlayer }}</b></span>
+                </div>
               </div>
 
               <div
-                class="turnBadge"
+                class="turnPill"
                 :class="{
                   p1: game.phase !== 'gameover' && game.currentPlayer === 1,
                   p2: game.phase !== 'gameover' && game.currentPlayer === 2,
@@ -450,23 +452,33 @@
               </div>
             </div>
 
-            <div class="statusTag">
-              Phase: <b>{{ game.phase }}</b>
-              <span v-if="game.phase === 'draft'"> · Draft pick: <b>P{{ game.draftTurn }}</b></span>
-              <span v-else-if="game.phase === 'place'"> · Turn: <b>P{{ game.currentPlayer }}</b></span>
+            <div class="infoRow">
+              <div class="chip">Phase: <b>{{ game.phase }}</b>
+                <span v-if="game.phase === 'draft'"> · Draft pick: <b>P{{ game.draftTurn }}</b></span>
+                <span v-else-if="game.phase === 'place'"> · Turn: <b>P{{ game.currentPlayer }}</b></span>
+              </div>
             </div>
 
-            <div v-if="isOnline" class="statusTag">
-              <span><b>Ping:</b> {{ pingText }}</span>
-              <span v-if="online.code"> · <b>Code:</b> {{ online.code }}</span>
-              <span v-if="onlineTurnText"> · {{ onlineTurnText }}</span>
-              <span v-if="turnTimerText"> · {{ turnTimerText }}</span>
+            <div v-if="isOnline" class="infoRow">
+              <div class="chip ping" :class="pingLevelClass">
+                <span class="lamp" aria-hidden="true"></span>
+                <b>Ping:</b> {{ pingText }}
+              </div>
+
+              <div v-if="online.code" class="chip code">
+                <b>Code:</b> <span class="mono">{{ online.code }}</span>
+                <button class="miniBtn" @click="copyLobbyCode" title="Copy code">Copy</button>
+              </div>
+
+              <div v-if="onlineTurnText" class="chip">{{ onlineTurnText }}</div>
+              <div v-if="turnTimerText" class="chip clock">{{ turnTimerText }}</div>
             </div>
 
-            <div class="keysTag" v-if="game.phase === 'place'">
-              Keys: <b>Q</b> Rotate · <b>E</b> Flip
+            <div class="infoRow" v-if="game.phase === 'place'">
+              <div class="chip keys">Keys: <b>Q</b> Rotate · <b>E</b> Flip</div>
             </div>
           </div>
+        </div>
 
           <DraftPanel v-if="game.phase === 'draft'" />
 
@@ -490,13 +502,28 @@
 
     <!-- ✅ Modal -->
     <div v-if="modal.open" class="modalOverlay" @click.self="!modal.locked && closeModal()">
+      <div v-if="showConfetti" class="confetti" aria-hidden="true">
+        <span
+          v-for="p in confettiPieces"
+          :key="p.id"
+          class="confettiPiece"
+          :style="{ left: p.left + '%', '--d': p.delay + 's', '--t': p.dur + 's', '--r': p.rot + 'deg', '--x': p.drift + 'px', width: p.size + 'px', height: (p.size * 0.6) + 'px' }"
+        />
+      </div>
       <div class="modalCard" :class="modalCardClass" role="dialog" aria-modal="true">
-        <div class="modalTop">
-          <div class="modalTitle">
+        <div class="modalTop" :class="{ resultTop: isResultModal }">
+          <div v-if="!isResultModal" class="modalTitle">
             <span class="modalDot" :class="modalDotClass"></span>
             {{ modal.title }}
           </div>
           <button v-if="!modal.locked" class="modalX" @click="closeModal" aria-label="Close">✕</button>
+          <div v-else class="modalXSpacer" aria-hidden="true"></div>
+        </div>
+
+        <div v-if="isResultModal" class="resultHero" :class="resultHeroClass">
+          <div class="resultTitle">{{ resultBigTitle }}</div>
+          <div v-if="resultSubTitle" class="resultSub">{{ resultSubTitle }}</div>
+          <div class="resultGlow" aria-hidden="true"></div>
         </div>
 
         <div class="modalBody">
@@ -695,11 +722,107 @@ const modalDotClass = computed(() =>
   modal.tone === "bad" ? "bad" : modal.tone === "victory" ? "victory" : modal.tone === "good" ? "good" : "info"
 );
 
-const modalCardClass = computed(() => {
-  if (modal.tone === "victory") return "modalVictory";
-  if (modal.tone === "bad") return "modalDanger";
+const modalCardClass = computed(() => ({
+  modalVictory: modal.tone === "victory",
+  modalDanger: modal.tone === "bad",
+  modalResult: isResultModal.value,
+}));
+
+// ✅ Result-style modal (Victory/Defeat) helpers + confetti
+const isResultModal = computed(() => {
+  const t = String(modal.title || "").toUpperCase().trim();
+  if (t === "VICTORY" || t === "DEFEAT") return true;
+  if (t === "MATCH ENDED") return true;
+  if (/^PLAYER\s*[12]\s+WINS$/.test(t)) return true;
+  return false;
+});
+
+const showConfetti = computed(() => modal.open && String(modal.title || '').toUpperCase().trim() === 'VICTORY');
+const confettiPieces = ref([]);
+
+function genConfetti(n = 70) {
+  const out = [];
+  for (let i = 0; i < n; i++) {
+    const left = Math.random() * 100;
+    const delay = Math.random() * 0.25;
+    const dur = 0.9 + Math.random() * 0.8;
+    const rot = Math.floor(Math.random() * 360);
+    const drift = (Math.random() * 2 - 1) * 26;
+    const size = 6 + Math.random() * 8;
+    out.push({ id: i + '-' + Date.now(), left, delay, dur, rot, drift, size });
+  }
+  confettiPieces.value = out;
+}
+
+watch(showConfetti, (v) => {
+  if (v) {
+    genConfetti(78);
+    // refresh once for longer animations
+    window.setTimeout(() => { if (showConfetti.value) genConfetti(60); }, 520);
+  } else {
+    confettiPieces.value = [];
+  }
+});
+
+const resultBigTitle = computed(() => {
+  if (!isResultModal.value) return String(modal.title || "");
+  return String(modal.title || "").toUpperCase().trim();
+});
+
+const resultSubTitle = computed(() => {
+  if (!isResultModal.value) return "";
+  const t = String(modal.title || "").toUpperCase().trim();
+  if (t === "VICTORY") return "YOU WIN";
+  if (t === "DEFEAT") return "YOU LOSE";
   return "";
 });
+
+const resultHeroClass = computed(() => {
+  const t = String(modal.title || "").toUpperCase().trim();
+  return {
+    victory: t === "VICTORY",
+    defeat: t === "DEFEAT",
+    couchP1: t === "PLAYER 1 WINS",
+    couchP2: t === "PLAYER 2 WINS",
+  };
+});
+
+
+// ✅ Ping indicator helpers
+const pingLevelClass = computed(() => {
+  const ms = Number(online.pingMs ?? NaN);
+  if (!Number.isFinite(ms)) return 'na';
+  if (ms <= 120) return 'good';
+  if (ms <= 300) return 'mid';
+  return 'bad';
+});
+
+async function copyToClipboard(text) {
+  try {
+    await navigator.clipboard.writeText(String(text || ''));
+    showModal({ title: 'Copied', tone: 'good', message: 'Copied to clipboard.' });
+  } catch {
+    // fallback
+    try {
+      const ta = document.createElement('textarea');
+      ta.value = String(text || '');
+      ta.style.position = 'fixed';
+      ta.style.left = '-9999px';
+      document.body.appendChild(ta);
+      ta.select();
+      document.execCommand('copy');
+      document.body.removeChild(ta);
+      showModal({ title: 'Copied', tone: 'good', message: 'Copied to clipboard.' });
+    } catch {
+      showModal({ title: 'Copy Failed', tone: 'bad', message: 'Could not copy. Please copy manually.' });
+    }
+  }
+}
+
+function copyLobbyCode() {
+  if (!online.code) return;
+  copyToClipboard(online.code);
+}
 
 function showModal({ title = "Notice", message = "", tone = "info", actions = null, locked = false } = {}) {
   modal.title = title;
@@ -1572,7 +1695,11 @@ async function onResetClick() {
 
 function winnerMessage(w) {
   const me = myPlayer.value;
-  if (!me) return `Player ${w} wins.\nGG!`;
+  if (!me) {
+    // Couch/AI: title already shows the winner.
+    if (!isOnline.value) return "GG!";
+    return `Player ${w} wins.\nGG!`;
+  }
   if (w === null || w === undefined) {
     return game.matchInvalid ? `Match invalid — ${game.matchInvalidReason || "dodged"}.` : "Match ended.";
   }
@@ -1588,12 +1715,30 @@ function stopAndExitToMenu(note = "") {
   });
 }
 
+async function cancelWaitingLobby() {
+  try {
+    if (online.lobbyId) {
+      const ok = await sbDeleteLobby(online.lobbyId);
+      if (!ok) await sbCloseAndNukeLobby(online.lobbyId, { terminateReason: "cancel_wait" });
+    }
+  } catch {
+    // ignore
+  } finally {
+    closeModal();
+    stopPolling();
+    myPlayer.value = null;
+    screen.value = "mode";
+  }
+}
+
 function showWaitingForOpponentModal(code) {
   showModal({
     title: "Waiting for Opponent",
     tone: "info",
     message: `Waiting for opponent…\nCode: ${code || "—"}`,
-    actions: [],
+    actions: online.role === "host"
+      ? [{ label: "Cancel Waiting", tone: "soft", onClick: cancelWaitingLobby }]
+      : [],
     locked: true,
   });
 }
@@ -1774,9 +1919,19 @@ watch(
     const iWin = me && (w === me);
     const isBad = game.lastMove?.type === "timeout" || game.lastMove?.type === "surrender";
 
-    // ✅ Make the victory modal feel special (without changing game logic)
-    const title = iWin ? "VICTORY" : w ? "DEFEAT" : "MATCH ENDED";
-    const tone = iWin ? "victory" : isBad ? "bad" : "good";
+    // ✅ Result modal copy rules:
+    // - Couch/AI: show PLAYER 1 WINS / PLAYER 2 WINS
+    // - Online: show VICTORY / DEFEAT per screen
+    let title = "MATCH ENDED";
+    let tone = "good";
+
+    if (!isOnline.value) {
+      title = w ? `PLAYER ${w} WINS` : "MATCH ENDED";
+      tone = w ? "victory" : "good";
+    } else {
+      title = iWin ? "VICTORY" : w ? "DEFEAT" : "MATCH ENDED";
+      tone = iWin ? "victory" : isBad ? "bad" : "good";
+    }
 
     showModal({
       title,
@@ -2099,6 +2254,7 @@ onBeforeUnmount(() => {
 </script>
 
 <style scoped>
+@import url('https://fonts.googleapis.com/css2?family=Orbitron:wght@600;700;800&family=Rajdhani:wght@400;500;600;700&display=swap');
 /* =========================
    RGB GAME VIBES
 ========================= */
@@ -2110,18 +2266,19 @@ onBeforeUnmount(() => {
   position: relative;
   overflow: hidden;
   background: #06060a;
-  /* Neon arcade typography */
-  font-family: "Rajdhani", ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif;
-  --c-bg: #05060b;
-  --c-panel: rgba(0,0,0,0.42);
-  --c-panel2: rgba(255,255,255,0.06);
-  --c-line: rgba(255,255,255,0.10);
-  --c-cyan: #00f3ff;
-  --c-mag: #ff00ea;
-  --c-yellow: #ffe600;
-  --c-text: rgba(255,255,255,0.92);
-  --c-muted: rgba(255,255,255,0.70);
-  --clip: polygon(12px 0, 100% 0, 100% calc(100% - 12px), calc(100% - 12px) 100%, 0 100%, 0 12px);
+  font-family: 'Rajdhani', Inter, system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif;
+}
+
+/* Ensure form controls inherit theme fonts */
+.app :deep(button, input, textarea, select){
+  font-family: inherit;
+  font-size: inherit;
+  letter-spacing: inherit;
+}
+
+/* Headings use Orbitron-like sci-fi */
+.app :is(.title, .heroTitle, .menuTitle, .menuBtnTop, .turnPill, .resultTitle){
+  font-family: 'Orbitron', 'Rajdhani', Inter, system-ui, sans-serif;
 }
 
 /* Prefer crisp edges on small text + icons */
@@ -2129,33 +2286,6 @@ onBeforeUnmount(() => {
   letter-spacing: 0.6px;
 }
 
-
-/* Typography: headings */
-.app :is(.title, .heroTitle, .menuTitle, .menuBtnTop, .primaryMatch, .brandText .title){
-  font-family: "Orbitron", "Rajdhani", ui-sans-serif, system-ui;
-  text-transform: uppercase;
-  letter-spacing: 0.12em;
-}
-.app :is(.sub, .heroDesc, .menuHint, .menuBtnSub, .finePrint, .loadSub, .loadHint){
-  font-family: "Rajdhani", ui-sans-serif, system-ui;
-  letter-spacing: 0.06em;
-}
-/* Utility: clipped neon edges */
-.app :is(.menuCard, .menuBtn, .btn, .loadCard){
-  clip-path: var(--clip);
-}
-.app :is(.btn, .menuBtn){ position: relative; }
-.app :is(.btn, .menuBtn)::before{
-  content: "";
-  position: absolute;
-  inset: 0;
-  pointer-events: none;
-  opacity: 0;
-  background: radial-gradient(900px 240px at 10% 20%, rgba(0,243,255,0.22), transparent 55%),
-              radial-gradient(900px 240px at 90% 80%, rgba(255,0,234,0.18), transparent 55%);
-  transition: opacity .18s ease;
-}
-.app :is(.btn:hover, .menuBtn:hover)::before{ opacity: 1; }
 /* =========================
    LOADING / LOCK OVERLAY
 ========================= */
@@ -2304,14 +2434,10 @@ onBeforeUnmount(() => {
   inset: 0;
   opacity: 0.07;
   background-image:
-    linear-gradient(to right, rgba(255,255,255,0.045) 1px, transparent 1px),
-    linear-gradient(to bottom, rgba(255,255,255,0.045) 1px, transparent 1px),
-    radial-gradient(circle at 20% 30%, rgba(255,255,255,0.25) 0 1px, transparent 1px),
+    radial-gradient(circle at 20% 30%, rgba(255,255,255,0.35) 0 1px, transparent 1px),
     radial-gradient(circle at 70% 60%, rgba(255,255,255,0.25) 0 1px, transparent 1px),
     radial-gradient(circle at 40% 80%, rgba(255,255,255,0.2) 0 1px, transparent 1px);
-  background-size: 44px 44px, 44px 44px, 180px 180px, 220px 220px, 260px 260px;
-  mask-image: linear-gradient(to bottom, transparent, black 18%, black 82%, transparent);
-
+  background-size: 180px 180px, 220px 220px, 260px 260px;
 }
 
 @keyframes spin { to { transform: rotate(360deg); } }
@@ -2382,17 +2508,34 @@ onBeforeUnmount(() => {
 }
 .linkBtn:hover{ opacity: 1; }
 .finePrint .sep{ margin: 0 6px; opacity:.5; }
+.finePrint{
+  margin-top: 14px;
+  padding-top: 12px;
+  border-top: 1px solid rgba(255,255,255,0.10);
+  opacity: .82;
+  font-size: 13px;
+  line-height: 1.35;
+}
 
 /* Minimal helpers so it doesn't look unstyled if your old CSS was longer */
 .main{ position: relative; z-index: 1; padding: 18px; }
 
 .btn{
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  line-height: 1.1;
+  white-space: nowrap;
+  overflow: visible;
   padding: 10px 12px;
   border-radius: 14px;
   border: 1px solid rgba(255,255,255,0.14);
   background: rgba(255,255,255,0.06);
   color: #eaeaea;
   font-weight: 900;
+  font-family: 'Orbitron', 'Rajdhani', Inter, system-ui, sans-serif;
+  letter-spacing: 0.6px;
   cursor: pointer;
   transition: transform .08s ease, box-shadow .18s ease, border-color .18s ease, background .18s ease, opacity .18s ease;
   box-shadow:
@@ -2424,10 +2567,12 @@ onBeforeUnmount(() => {
   background: transparent;
   box-shadow: none;
 }
-.menuShell{ max-width: 860px; margin: 0 auto; display: grid; gap: 14px; }
-.menuCard{ padding: 16px; border-radius: 18px; border: 1px solid rgba(255,255,255,.10); background: rgba(10,10,16,.55); backdrop-filter: blur(10px); }
+.menuShell{ max-width: 640px; margin: 0 auto; display: grid; gap: 14px; padding: 6px 0 16px; }
+.menuCard{ padding: 18px; border-radius: 20px; border: 1px solid rgba(255,255,255,.10); background: rgba(10,10,16,.55); backdrop-filter: blur(10px); }
 .menuStack{ display: grid; gap: 10px; }
-.menuBtn{ width: 100%; display:flex; justify-content:space-between; align-items:center; padding: 12px 14px; border-radius: 18px; border: 1px solid rgba(255,255,255,.14); background: linear-gradient(180deg, rgba(255,255,255,.07), rgba(255,255,255,.05)); color:#eaeaea; cursor:pointer; font-weight:900; transition: transform .08s ease, box-shadow .18s ease, border-color .18s ease, background .18s ease; box-shadow: 0 12px 34px rgba(0,0,0,.40), 0 0 0 1px rgba(0,0,0,.25) inset; }
+.menuBtn{ width: 100%; display:flex;
+  line-height: 1.15;
+  overflow: visible; justify-content:space-between; align-items:center; padding: 12px 14px; border-radius: 18px; border: 1px solid rgba(255,255,255,.14); background: linear-gradient(180deg, rgba(255,255,255,.07), rgba(255,255,255,.05)); color:#eaeaea; cursor:pointer; font-weight:900; transition: transform .08s ease, box-shadow .18s ease, border-color .18s ease, background .18s ease; box-shadow: 0 12px 34px rgba(0,0,0,.40), 0 0 0 1px rgba(0,0,0,.25) inset; }
 .menuBtn:hover{ transform: translateY(-1px); border-color: rgba(255,255,255,.20); box-shadow: 0 14px 38px rgba(0,0,0,.46), 0 0 22px rgba(0,229,255,.10); }
 .menuBtn:active{ transform: translateY(0px) scale(0.99); }
 .menuBtn.primary{ background: linear-gradient(180deg, rgba(0,229,255,.16), rgba(0,229,255,.10)); border-color: rgba(0,229,255,.22); }
@@ -2453,6 +2598,108 @@ onBeforeUnmount(() => {
   rgba(0,0,0,.60);
   display:grid; place-items:center; padding: 18px; backdrop-filter: blur(10px);
 }
+
+.resultHero{
+  position: relative;
+  margin-top: 8px;
+  padding: 18px 14px 14px;
+  border-radius: 18px;
+  border: 1px solid rgba(255,255,255,0.10);
+  background:
+    radial-gradient(900px 280px at 50% 0%, rgba(0,229,255,0.14), transparent 70%),
+    radial-gradient(900px 280px at 50% 100%, rgba(255,43,214,0.12), transparent 70%),
+    rgba(255,255,255,0.03);
+  overflow: hidden;
+  text-align: center;
+}
+.resultHero::after{
+  content:"";
+  position:absolute;
+  inset:-2px;
+  background: linear-gradient(90deg, rgba(0,229,255,0.0), rgba(0,229,255,0.20), rgba(255,43,214,0.18), rgba(255,43,214,0.0));
+  filter: blur(18px);
+  opacity: .8;
+  pointer-events:none;
+}
+.resultHero.victory{ border-color: rgba(0,229,255,0.22); }
+.resultHero.defeat{ border-color: rgba(255,64,96,0.22); }
+.resultHero.couchP1{ border-color: rgba(0,229,255,0.22); }
+.resultHero.couchP2{ border-color: rgba(255,43,214,0.22); }
+
+.resultTitle{
+  font-size: 44px;
+  line-height: 1;
+  margin: 2px 0 6px;
+  font-weight: 800;
+  text-transform: uppercase;
+  background: linear-gradient(90deg, rgba(0,229,255,1), rgba(255,43,214,1));
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+  text-shadow: 0 18px 60px rgba(0,0,0,0.65);
+}
+.resultHero.defeat .resultTitle{
+  background: linear-gradient(90deg, rgba(255,64,96,1), rgba(255,215,0,0.9));
+  -webkit-background-clip: text;
+  background-clip: text;
+}
+.resultSub{
+  font-size: 14px;
+  letter-spacing: 2px;
+  opacity: .85;
+  font-weight: 800;
+}
+.resultGlow{
+  position:absolute;
+  left:50%;
+  top: 50%;
+  width: 520px;
+  height: 220px;
+  transform: translate(-50%,-50%);
+  background: radial-gradient(circle at 50% 50%, rgba(0,229,255,0.18), transparent 60%);
+  filter: blur(22px);
+  opacity: .75;
+  pointer-events:none;
+}
+.resultHero.defeat .resultGlow{
+  background: radial-gradient(circle at 50% 50%, rgba(255,64,96,0.16), transparent 60%);
+}
+
+.modalTop.resultTop{
+  justify-content: flex-end;
+  margin-bottom: 6px;
+}
+.modalXSpacer{ width: 18px; height: 18px; }
+
+.modalCard.modalResult{
+  width: min(720px, 100%);
+  padding: 18px 18px 16px;
+}
+
+.confetti{
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  overflow: hidden;
+  z-index: 51;
+}
+.confettiPiece{
+  position: absolute;
+  top: -20px;
+  border-radius: 3px;
+  background: linear-gradient(90deg, rgba(0,229,255,1), rgba(255,43,214,1));
+  opacity: 0.95;
+  transform: translateX(0) rotate(var(--r));
+  animation: confettiFall var(--t) ease-in forwards;
+  animation-delay: var(--d);
+  box-shadow: 0 10px 30px rgba(0,0,0,0.40);
+}
+@keyframes confettiFall{
+  0%{ transform: translateX(0) translateY(0) rotate(var(--r)); opacity: 0; }
+  8%{ opacity: 1; }
+  100%{ transform: translateX(var(--x)) translateY(105vh) rotate(calc(var(--r) + 420deg)); opacity: 0; }
+}
+
 .modalCard{
   width: min(560px, 100%);
   border-radius: 22px;
@@ -2515,22 +2762,3 @@ onBeforeUnmount(() => {
 .modeRow{ display:flex; justify-content:space-between; align-items:center; gap: 10px; flex-wrap: wrap; }
 .statusTag,.keysTag{ margin-top: 10px; font-size: 12px; opacity: .85; font-weight: 700; }
 </style>
-
-/* --- UI THEME OVERRIDES (Replit reference) --- */
-.btn{ border-radius: 0; }
-.btn.ghost{ background: rgba(255,255,255,0.04); border-color: rgba(255,255,255,0.16); }
-.btn.ghost:hover{ background: rgba(255,255,255,0.08); border-color: rgba(0,243,255,0.35); }
-.btn:not(.ghost){ background: rgba(0,243,255,0.12); border-color: rgba(0,243,255,0.55); color: rgba(0,243,255,0.95);
-  box-shadow: 0 0 14px rgba(0,243,255,0.18), inset 0 0 14px rgba(0,243,255,0.12); }
-.btn:not(.ghost):hover{ background: rgba(0,243,255,0.18);
-  box-shadow: 0 0 18px rgba(0,243,255,0.26), inset 0 0 18px rgba(0,243,255,0.14); }
-.menuCard{ background: rgba(0,0,0,0.38); border: 1px solid rgba(0,243,255,0.22);
-  box-shadow: 0 0 0 1px rgba(0,243,255,0.08) inset, 0 18px 80px rgba(0,0,0,0.55);
-  backdrop-filter: blur(10px); }
-.menuBtn.primary{ background: rgba(0,243,255,0.10); border-color: rgba(0,243,255,0.40); }
-.menuBtn.primary:hover{ border-color: rgba(0,243,255,0.75); }
-.menuBtn:not(.primary):not(.disabled){ background: rgba(255,255,255,0.05); border-color: rgba(255,255,255,0.14); }
-.menuBtn:not(.primary):not(.disabled):hover{ border-color: rgba(0,243,255,0.30); }
-.heroBadge{ background: rgba(0,243,255,0.10); border-color: rgba(0,243,255,0.35); color: rgba(0,243,255,0.95); }
-.heroBadge.green{ background: rgba(0,255,170,0.10); border-color: rgba(0,255,170,0.40); color: rgba(0,255,170,0.95); }
-.rgbText{ text-shadow: 0 0 14px rgba(0,243,255,0.22), 0 0 22px rgba(255,0,234,0.12); }
