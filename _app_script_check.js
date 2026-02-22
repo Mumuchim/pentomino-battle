@@ -72,7 +72,8 @@ const nowTick = ref(Date.now());
    (Blocks clicks until the screen is visually ready)
 ========================= */
 const uiLock = reactive({
-  active: true,
+  // Default to OFF so a failed/unmounted boot won't leave a permanent black screen.
+  active: false,
   label: "Booting…",
   hint: "Preparing the neon arena…",
   progress: 0,
@@ -108,7 +109,14 @@ function stopUiLock() {
 function stopUiLockAfterPaint(extraMinMs = 650) {
   // Ensure at least two frames have rendered before allowing clicks.
   uiLock._minUntil = Math.max(uiLock._minUntil, Date.now() + Math.max(0, extraMinMs));
-  requestAnimationFrame(() => requestAnimationFrame(() => stopUiLock()));
+  // Some browsers/tabs can stall rAF (background tab, throttling). Add a hard fallback.
+  const hardStop = setTimeout(() => stopUiLock(), extraMinMs + 2200);
+  requestAnimationFrame(() =>
+    requestAnimationFrame(() => {
+      clearTimeout(hardStop);
+      stopUiLock();
+    })
+  );
 }
 
 function fmtClock(sec) {
@@ -118,28 +126,22 @@ function fmtClock(sec) {
   return `${m}:${r}`;
 }
 
-const timerHud = computed(() => {
-  if (!isInGame.value) return null;
-  if (game.phase === "gameover") return null;
-  if (isOnline.value && !myPlayer.value) return null;
+const turnTimerText = computed(() => {
+  if (!isInGame.value) return "";
+  if (game.phase === "gameover") return "";
+  if (isOnline.value && !myPlayer.value) return "";
 
-  // Draft timer (countdown)
   if (game.phase === "draft") {
-    if (!game.turnStartedAt) return null;
+    if (!game.turnStartedAt) return "";
     const limit = game.turnLimitDraftSec || 30;
     const left = Math.max(0, limit - (nowTick.value - game.turnStartedAt) / 1000);
     const s = Math.ceil(left);
-    return { kind: "draft", value: `${s}s` };
+    return `Time: ${s}s`;
   }
 
-  // Battle clock (interchanges depending on whose turn it is)
-  if (game.phase === "place") {
-    const p = game.currentPlayer === 2 ? 2 : 1;
-    const v = fmtClock(game.battleClockSec?.[p] ?? 0);
-    return { kind: "clock", player: p, value: v };
-  }
-
-  return null;
+  const p1 = fmtClock(game.battleClockSec?.[1] ?? 0);
+  const p2 = fmtClock(game.battleClockSec?.[2] ?? 0);
+  return `Clock P1 ${p1} · P2 ${p2}`;
 });
 
 // Top-right button

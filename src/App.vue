@@ -46,6 +46,14 @@
       </div>
     </div>
 
+    <!-- 📱 Landscape lock overlay (optional) -->
+    <div v-if="landscapeLockActive" class="rotateOverlay" aria-live="polite" aria-busy="true">
+      <div class="rotateCard">
+        <div class="rotateTitle">Rotate your device</div>
+        <div class="rotateSub">This match is locked to <b>landscape</b>.</div>
+      </div>
+    </div>
+
     <header class="topbar">
       <div class="brand" @click="goAuth" title="Back to Main Menu">
         <div class="logoMark">
@@ -391,6 +399,28 @@
               <span>Allow Flip (Mirror)</span>
               <input type="checkbox" v-model="allowFlip" />
             </label>
+
+            <div class="divider"></div>
+
+            <label class="field">
+              <span>Enable Drag Placement</span>
+              <input type="checkbox" v-model="game.ui.enableDragPlace" />
+            </label>
+
+            <label class="field">
+              <span>Enable Click Placement</span>
+              <input type="checkbox" v-model="game.ui.enableClickPlace" />
+            </label>
+
+            <label class="field">
+              <span>Enable Hover Preview</span>
+              <input type="checkbox" v-model="game.ui.enableHoverPreview" />
+            </label>
+
+            <label class="field">
+              <span>Landscape Only (Mobile)</span>
+              <input type="checkbox" v-model="game.ui.lockLandscape" />
+            </label>
           </div>
 
           <div class="row">
@@ -588,6 +618,22 @@ const game = useGameStore();
 const screen = ref("auth");
 const loggedIn = ref(false);
 const allowFlip = ref(true);
+
+// Cross-platform: optional landscape lock for mobile
+const isPortrait = ref(false);
+function computeIsPortrait() {
+  if (typeof window === "undefined") return false;
+  // Prefer matchMedia when available
+  try {
+    if (window.matchMedia) {
+      isPortrait.value = window.matchMedia("(orientation: portrait)").matches;
+      return;
+    }
+  } catch {}
+  isPortrait.value = window.innerHeight > window.innerWidth;
+}
+const landscapeLockActive = computed(() => isInGame.value && !!game.ui?.lockLandscape && isPortrait.value);
+
 
 const logoUrl = new URL("./assets/logo.png", import.meta.url).href;
 
@@ -1248,21 +1294,23 @@ async function sbCloseAndNukeLobby(id, metaPatch = {}) {
 /* =========================
    ✅ ONLINE STATE SERIALIZATION
 ========================= */
-function stableHash(str) {
-  let h = 0x811c9dc5;
-  for (let i = 0; i < str.length; i++) {
-    h ^= str.charCodeAt(i);
-    h = Math.imul(h, 0x01000193) >>> 0;
-  }
-  return h >>> 0;
-}
-
-function computePlayerAssignment(code, hostId, guestId) {
-  const h = stableHash(String(code || ""));
-  const hostIsP1 = h % 2 === 0;
+function makeRandomPlayers(hostId, guestId) {
+  // Random per round (written into state.meta.players so both clients agree)
+  const hostIsP1 = Math.random() < 0.5;
   const p1 = hostIsP1 ? hostId : guestId;
   const p2 = hostIsP1 ? guestId : hostId;
   return { hostIsP1, players: { 1: p1, 2: p2 } };
+}
+
+function makeRoundSeed() {
+  try {
+    // Prefer crypto when available
+    const a = new Uint32Array(2);
+    crypto.getRandomValues(a);
+    return `${a[0].toString(16)}${a[1].toString(16)}_${Date.now().toString(16)}`;
+  } catch {
+    return `${Math.random().toString(16).slice(2)}_${Date.now().toString(16)}`;
+  }
 }
 
 function getMyPlayerFromPlayers(players, myId) {
@@ -1488,43 +1536,49 @@ function maybeSetMyPlayerFromLobby(lobby) {
     return;
   }
 
-  if (lobby?.code && lobby?.host_id && lobby?.guest_id) {
-    const { players: p } = computePlayerAssignment(lobby.code, lobby.host_id, lobby.guest_id);
-    myPlayer.value = getMyPlayerFromPlayers(p, myId);
-  }
 }
 
 async function ensureOnlineInitialized(lobby) {
   if (!lobby) return;
 
-  const myId = getGuestId();
   const hasPlayers = !!lobby?.state?.meta?.players;
   if (hasPlayers) return;
-
   if (!lobby.host_id || !lobby.guest_id) return;
 
-  const { players } = computePlayerAssignment(lobby.code, lobby.host_id, lobby.guest_id);
+  // Randomize player numbers for THIS round, then write it once into meta.
+  const { players } = makeRandomPlayers(lobby.host_id, lobby.guest_id);
 
   game.boardW = 10;
   game.boardH = 6;
   game.allowFlip = allowFlip.value;
   game.resetGame();
 
+  const prevMeta = lobby.state?.meta ? lobby.state.meta : {};
+  const nextRound = Number(prevMeta.round || 0) + 1;
+
   const initState = buildSyncedState({
+    ...prevMeta,
     players,
+    round: nextRound,
+    roundSeed: makeRoundSeed(),
     started_at: new Date().toISOString(),
-    created_by: myId,
   });
 
   const nextVersion = Number(lobby.version || 0) + 1;
-  const updated = await sbForcePatchState(lobby.id, {
-    state: initState,
-    version: nextVersion,
-    status: "playing",
-    updated_at: new Date().toISOString(),
-  });
 
-  online.lastAppliedVersion = updated?.version || nextVersion;
+  try {
+    // Prefer guarded patch to avoid race if both clients try to init at once.
+    const updated = await sbPatchStateWithVersionGuard(lobby.id, lobby.version, {
+      state: initState,
+      version: nextVersion,
+      status: "playing",
+      updated_at: new Date().toISOString(),
+    });
+
+    online.lastAppliedVersion = updated?.version || nextVersion;
+  } catch {
+    // If it failed, assume the other side initialized it.
+  }
 }
 
 function startPollingLobby(lobbyId, role) {
@@ -1572,6 +1626,22 @@ function startPollingLobby(lobbyId, role) {
       }
 
       online.code = lobby.code || online.code;
+
+      // ✅ If someone joined an expired/abandoned room, cancel cleanly.
+      if (isLobbyExpired(lobby)) {
+        stopPolling();
+        myPlayer.value = null;
+        screen.value = "mode";
+        showModal({
+          title: "Expired Lobby",
+          tone: "bad",
+          message: online.role === "guest"
+            ? "You joined an expired lobby.\nPlease create or join a fresh lobby."
+            : "This lobby expired.\nPlease create a fresh lobby.",
+          actions: [{ label: "OK", tone: "primary" }],
+        });
+        return;
+      }
 
       // Keep / show the waiting modal (host only) — but don't interrupt other modals.
       if (online.role === "host" && online.waitingForOpponent && online.code) {
@@ -1671,6 +1741,27 @@ function startPollingLobby(lobbyId, role) {
         game.battleClockLastTickAt = null;
         online.waitingForOpponent = true;
         online.hostWaitStartedAt = Date.now();
+
+        // ✅ Reset round assignment so the next challenger gets a fresh random P1/P2.
+        (async () => {
+          try {
+            const meta = lobby.state?.meta ? lobby.state.meta : {};
+            game.boardW = 10;
+            game.boardH = 6;
+            game.allowFlip = allowFlip.value;
+            game.resetGame();
+            const snapshot = buildSyncedState({ ...meta, players: null, started_at: null, roundSeed: null });
+            const nextVersion = Number(lobby.version || 0) + 1;
+            await sbForcePatchState(lobby.id, {
+              state: snapshot,
+              version: nextVersion,
+              status: "waiting",
+              updated_at: new Date().toISOString(),
+            });
+          } catch {
+            // ignore
+          }
+        })();
         showModal({
           title: "Opponent Left",
           tone: "bad",
@@ -1772,17 +1863,44 @@ async function onResetClick() {
     return;
   }
 
+  // Prefer a single author for round resets to avoid version fights.
+  // Host resets the round; guest simply waits for the new state.
+  if (online.role !== "host") {
+    game.resetGame();
+    return;
+  }
+
   try {
     const lobby = await sbSelectLobbyById(online.lobbyId);
     if (!lobby) return;
 
+    if (!lobby.host_id || !lobby.guest_id) {
+      showModal({
+        title: "Rematch Failed",
+        tone: "bad",
+        message: "Opponent is no longer in the lobby.",
+        actions: [{ label: "OK", tone: "primary", onClick: () => stopAndExitToMenu("Opponent left.") }],
+      });
+      return;
+    }
+
     const meta = lobby.state?.meta ? lobby.state.meta : {};
+    const nextRound = Number(meta.round || 0) + 1;
+
+    const { players } = makeRandomPlayers(lobby.host_id, lobby.guest_id);
+
     game.boardW = 10;
     game.boardH = 6;
     game.allowFlip = allowFlip.value;
     game.resetGame();
 
-    const snapshot = buildSyncedState(meta);
+    const snapshot = buildSyncedState({
+      ...meta,
+      players,
+      round: nextRound,
+      roundSeed: makeRoundSeed(),
+      started_at: new Date().toISOString(),
+    });
     const nextVersion = Number(lobby.version || 0) + 1;
 
     await sbForcePatchState(online.lobbyId, {
@@ -1797,14 +1915,19 @@ async function onResetClick() {
 
 function winnerMessage(w) {
   const me = myPlayer.value;
+
   if (!me) {
     // Couch/AI: title already shows the winner.
     if (!isOnline.value) return "GG!";
     return `Player ${w} wins.\nGG!`;
   }
+
   if (w === null || w === undefined) {
-    return game.matchInvalid ? `Match invalid — ${game.matchInvalidReason || "dodged"}.` : "Match ended.";
+    return game.matchInvalid
+      ? `Match invalid — ${game.matchInvalidReason || "dodged"}.`
+      : "Match ended.";
   }
+
   return w === me ? "You win!\nGG!" : "Opponent wins.\nGG!";
 }
 
@@ -2311,7 +2434,8 @@ function startPracticeAi() {
 function applySettings() {
   showModal({
     title: "Settings Applied",
-    message: `Allow Flip: ${allowFlip.value ? "ON" : "OFF"}`,
+    message: `Allow Flip: ${allowFlip.value ? "ON" : "OFF"}
+Drag: ${game.ui.enableDragPlace ? "ON" : "OFF"} · Click: ${game.ui.enableClickPlace ? "ON" : "OFF"} · Hover: ${game.ui.enableHoverPreview ? "ON" : "OFF"}`,
     tone: "info",
   });
   screen.value = "mode";
@@ -2323,6 +2447,10 @@ function applySettings() {
 onMounted(() => {
   // ✅ Initial boot gate — prevent accidental clicks before first paint.
   startUiLock({ label: "Booting…", hint: "Loading UI, sounds, and neon vibes…", minMs: 750 });
+
+  computeIsPortrait();
+  window.addEventListener("resize", computeIsPortrait, { passive: true });
+  window.addEventListener("orientationchange", computeIsPortrait, { passive: true });
   stopUiLockAfterPaint(750);
 
   originalAlert = window.alert;
@@ -2351,6 +2479,8 @@ onMounted(() => {
 onBeforeUnmount(() => {
   if (originalAlert) window.alert = originalAlert;
   if (tickTimer) window.clearInterval(tickTimer);
+  try { window.removeEventListener("resize", computeIsPortrait); } catch {}
+  try { window.removeEventListener("orientationchange", computeIsPortrait); } catch {}
   stopPolling();
 });
 </script>
@@ -2446,6 +2576,31 @@ onBeforeUnmount(() => {
     0 0 18px rgba(255,43,214,0.18);
 }
 .loadHint{ margin-top: 12px; font-size: 11px; opacity: 0.78; line-height: 1.4; }
+
+.rotateOverlay{
+  position: fixed;
+  inset: 0;
+  z-index: 65;
+  display: grid;
+  place-items: center;
+  padding: 18px;
+  background: rgba(0,0,0,0.78);
+  backdrop-filter: blur(10px);
+}
+.rotateCard{
+  width: min(420px, 92vw);
+  border-radius: 18px;
+  border: 1px solid rgba(255,255,255,0.12);
+  background:
+    radial-gradient(800px 320px at 50% 0%, rgba(0,229,255,0.16), transparent 70%),
+    radial-gradient(800px 320px at 50% 100%, rgba(255,43,214,0.14), transparent 70%),
+    rgba(255,255,255,0.04);
+  box-shadow: 0 20px 70px rgba(0,0,0,0.65);
+  padding: 16px 16px 14px;
+  text-align: center;
+}
+.rotateTitle{ font-weight: 1000; letter-spacing: 1.2px; text-transform: uppercase; font-size: 16px; }
+.rotateSub{ margin-top: 6px; opacity: 0.85; font-weight: 700; }
 
 @keyframes popIn{
   from{ transform: translateY(8px) scale(0.98); opacity: 0; }
@@ -2770,6 +2925,22 @@ onBeforeUnmount(() => {
   -webkit-background-clip: text;
   background-clip: text;
 }
+
+/* Couch results: solid winner colors (no gradient) */
+.resultHero.couchP1 .resultTitle{
+  background: none;
+  -webkit-background-clip: initial;
+  background-clip: initial;
+  color: rgba(0,229,255,1);
+  -webkit-text-fill-color: rgba(0,229,255,1);
+}
+.resultHero.couchP2 .resultTitle{
+  background: none;
+  -webkit-background-clip: initial;
+  background-clip: initial;
+  color: rgba(255,64,96,1);
+  -webkit-text-fill-color: rgba(255,64,96,1);
+}
 .resultSub{
   font-size: 14px;
   letter-spacing: 2px;
@@ -2877,6 +3048,17 @@ onBeforeUnmount(() => {
 
 /* You already have these elsewhere in your CSS normally */
 .gameLayout{ display:grid; grid-template-columns: 420px 1fr; gap: 14px; }
+@media (max-width: 980px){
+  .gameLayout{ grid-template-columns: 1fr; }
+  .leftPanel{ order: 2; }
+  .rightPanel{ order: 1; }
+  .rightPanel{ display:flex; flex-direction: column; align-items: stretch; }
+  .leftPanel{ display:flex; flex-direction: column; gap: 12px; }
+}
+@media (max-width: 520px){
+  .panelHead, .panel{ border-radius: 16px; }
+}
+
 .leftPanel,.rightPanel{ min-width:0; }
 .panelHead{ padding: 14px; border-radius: 18px; border: 1px solid rgba(255,255,255,.10); background: rgba(10,10,16,.55); backdrop-filter: blur(10px); }
 .hudPanel{ padding: 16px; }

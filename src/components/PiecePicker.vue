@@ -23,6 +23,7 @@
             :class="btnClass(1, k)"
             :disabled="!canSelect(1)"
             @click="onPick(1, k)"
+            @pointerdown="onPiecePointerDown(1, k, $event)"
             :title="canSelect(1) ? 'Select piece' : 'Enemy piece (visible only)'"
           >
             <PiecePreview :pieceKey="k" :cell="20" />
@@ -56,6 +57,7 @@
             :class="btnClass(2, k)"
             :disabled="!canSelect(2)"
             @click="onPick(2, k)"
+            @pointerdown="onPiecePointerDown(2, k, $event)"
             :title="canSelect(2) ? 'Select piece' : 'Enemy piece (visible only)'"
           >
             <PiecePreview :pieceKey="k" :cell="20" />
@@ -71,7 +73,9 @@
 </template>
 
 <script setup>
+import { onBeforeUnmount, ref } from "vue";
 import { useGameStore } from "../store/game";
+import { playBuzz } from "../lib/sfx";
 import PiecePreview from "./PiecePreview.vue";
 
 const props = defineProps({
@@ -103,6 +107,96 @@ function btnClass(player, key) {
     selected,
   };
 }
+
+const dragPending = ref(null);
+
+function cleanupPointerListeners() {
+  try { window.removeEventListener("pointermove", onPiecePointerMove); } catch {}
+  try { window.removeEventListener("pointerup", onPiecePointerUp); } catch {}
+  try { window.removeEventListener("pointercancel", onPiecePointerUp); } catch {}
+}
+
+function onPiecePointerDown(player, key, e) {
+  if (!game.ui?.enableDragPlace) return;
+  if (!canSelect(player)) return;
+
+  // Don't start drag immediately — wait until the pointer actually moves a bit (keeps click behavior intact).
+  dragPending.value = {
+    player,
+    key,
+    pointerId: e.pointerId,
+    startX: e.clientX,
+    startY: e.clientY,
+    started: false,
+  };
+
+  cleanupPointerListeners();
+  window.addEventListener("pointermove", onPiecePointerMove, { passive: false });
+  window.addEventListener("pointerup", onPiecePointerUp, { passive: false });
+  window.addEventListener("pointercancel", onPiecePointerUp, { passive: false });
+}
+
+function onPiecePointerMove(e) {
+  const p = dragPending.value;
+  if (!p) return;
+  if (p.pointerId != null && e.pointerId !== p.pointerId) return;
+
+  const dx = e.clientX - p.startX;
+  const dy = e.clientY - p.startY;
+  const dist = Math.hypot(dx, dy);
+
+  if (!p.started) {
+    if (dist < 6) return;
+    // Start the drag
+    const ok = game.beginDrag(p.key, p.startX, p.startY);
+    if (!ok) {
+      dragPending.value = null;
+      cleanupPointerListeners();
+      return;
+    }
+    p.started = true;
+  }
+
+  // Update drag position
+  e.preventDefault();
+  game.updateDrag(e.clientX, e.clientY);
+}
+
+function onPiecePointerUp(e) {
+  const p = dragPending.value;
+  dragPending.value = null;
+  cleanupPointerListeners();
+
+  if (!p) return;
+
+  // If drag never started, let the normal click handler do its thing.
+  if (!p.started) return;
+
+  // Finish drag (place if valid)
+  game.updateDrag(e.clientX, e.clientY);
+
+  if (props.isOnline && !props.canAct) {
+    game.clearSelection();
+    return;
+  }
+
+  const t = game.drag?.target;
+  if (t && t.inside) {
+    const ok = game.placeAt(t.x, t.y);
+    if (!ok) {
+      playBuzz();
+      game.clearSelection();
+    }
+  } else {
+    // Dropped outside board: snap back to panel (clear selection)
+    game.clearSelection();
+  }
+}
+
+onBeforeUnmount(() => {
+  cleanupPointerListeners();
+});
+
 </script>
 
 <style scoped>
@@ -181,6 +275,9 @@ function btnClass(player, key) {
   transform: translateY(-1px);
   filter: brightness(1.06);
 }
+
+.chipBtn.mine { cursor: grab; }
+.chipBtn.mine:active { cursor: grabbing; }
 
 .chipBtn.selected {
   outline: 2px solid rgba(0, 255, 170, 0.55);
