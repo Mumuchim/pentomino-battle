@@ -2110,19 +2110,18 @@ onBeforeUnmount(() => {
   position: relative;
   overflow: hidden;
   background: #06060a;
-  /* Pixel/retro vibe (uses installed fonts if available, falls back gracefully) */
-  font-family:
-    "Press Start 2P",
-    "Pixeloid Sans",
-    "VT323",
-    ui-monospace,
-    SFMono-Regular,
-    Menlo,
-    Monaco,
-    Consolas,
-    "Liberation Mono",
-    "Courier New",
-    monospace;
+  /* Neon arcade typography */
+  font-family: "Rajdhani", ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif;
+  --c-bg: #05060b;
+  --c-panel: rgba(0,0,0,0.42);
+  --c-panel2: rgba(255,255,255,0.06);
+  --c-line: rgba(255,255,255,0.10);
+  --c-cyan: #00f3ff;
+  --c-mag: #ff00ea;
+  --c-yellow: #ffe600;
+  --c-text: rgba(255,255,255,0.92);
+  --c-muted: rgba(255,255,255,0.70);
+  --clip: polygon(12px 0, 100% 0, 100% calc(100% - 12px), calc(100% - 12px) 100%, 0 100%, 0 12px);
 }
 
 /* Prefer crisp edges on small text + icons */
@@ -2130,6 +2129,33 @@ onBeforeUnmount(() => {
   letter-spacing: 0.6px;
 }
 
+
+/* Typography: headings */
+.app :is(.title, .heroTitle, .menuTitle, .menuBtnTop, .primaryMatch, .brandText .title){
+  font-family: "Orbitron", "Rajdhani", ui-sans-serif, system-ui;
+  text-transform: uppercase;
+  letter-spacing: 0.12em;
+}
+.app :is(.sub, .heroDesc, .menuHint, .menuBtnSub, .finePrint, .loadSub, .loadHint){
+  font-family: "Rajdhani", ui-sans-serif, system-ui;
+  letter-spacing: 0.06em;
+}
+/* Utility: clipped neon edges */
+.app :is(.menuCard, .menuBtn, .btn, .loadCard){
+  clip-path: var(--clip);
+}
+.app :is(.btn, .menuBtn){ position: relative; }
+.app :is(.btn, .menuBtn)::before{
+  content: "";
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  opacity: 0;
+  background: radial-gradient(900px 240px at 10% 20%, rgba(0,243,255,0.22), transparent 55%),
+              radial-gradient(900px 240px at 90% 80%, rgba(255,0,234,0.18), transparent 55%);
+  transition: opacity .18s ease;
+}
+.app :is(.btn:hover, .menuBtn:hover)::before{ opacity: 1; }
 /* =========================
    LOADING / LOCK OVERLAY
 ========================= */
@@ -2278,10 +2304,14 @@ onBeforeUnmount(() => {
   inset: 0;
   opacity: 0.07;
   background-image:
-    radial-gradient(circle at 20% 30%, rgba(255,255,255,0.35) 0 1px, transparent 1px),
+    linear-gradient(to right, rgba(255,255,255,0.045) 1px, transparent 1px),
+    linear-gradient(to bottom, rgba(255,255,255,0.045) 1px, transparent 1px),
+    radial-gradient(circle at 20% 30%, rgba(255,255,255,0.25) 0 1px, transparent 1px),
     radial-gradient(circle at 70% 60%, rgba(255,255,255,0.25) 0 1px, transparent 1px),
     radial-gradient(circle at 40% 80%, rgba(255,255,255,0.2) 0 1px, transparent 1px);
-  background-size: 180px 180px, 220px 220px, 260px 260px;
+  background-size: 44px 44px, 44px 44px, 180px 180px, 220px 220px, 260px 260px;
+  mask-image: linear-gradient(to bottom, transparent, black 18%, black 82%, transparent);
+
 }
 
 @keyframes spin { to { transform: rotate(360deg); } }
@@ -2485,3 +2515,22 @@ onBeforeUnmount(() => {
 .modeRow{ display:flex; justify-content:space-between; align-items:center; gap: 10px; flex-wrap: wrap; }
 .statusTag,.keysTag{ margin-top: 10px; font-size: 12px; opacity: .85; font-weight: 700; }
 </style>
+
+/* --- UI THEME OVERRIDES (Replit reference) --- */
+.btn{ border-radius: 0; }
+.btn.ghost{ background: rgba(255,255,255,0.04); border-color: rgba(255,255,255,0.16); }
+.btn.ghost:hover{ background: rgba(255,255,255,0.08); border-color: rgba(0,243,255,0.35); }
+.btn:not(.ghost){ background: rgba(0,243,255,0.12); border-color: rgba(0,243,255,0.55); color: rgba(0,243,255,0.95);
+  box-shadow: 0 0 14px rgba(0,243,255,0.18), inset 0 0 14px rgba(0,243,255,0.12); }
+.btn:not(.ghost):hover{ background: rgba(0,243,255,0.18);
+  box-shadow: 0 0 18px rgba(0,243,255,0.26), inset 0 0 18px rgba(0,243,255,0.14); }
+.menuCard{ background: rgba(0,0,0,0.38); border: 1px solid rgba(0,243,255,0.22);
+  box-shadow: 0 0 0 1px rgba(0,243,255,0.08) inset, 0 18px 80px rgba(0,0,0,0.55);
+  backdrop-filter: blur(10px); }
+.menuBtn.primary{ background: rgba(0,243,255,0.10); border-color: rgba(0,243,255,0.40); }
+.menuBtn.primary:hover{ border-color: rgba(0,243,255,0.75); }
+.menuBtn:not(.primary):not(.disabled){ background: rgba(255,255,255,0.05); border-color: rgba(255,255,255,0.14); }
+.menuBtn:not(.primary):not(.disabled):hover{ border-color: rgba(0,243,255,0.30); }
+.heroBadge{ background: rgba(0,243,255,0.10); border-color: rgba(0,243,255,0.35); color: rgba(0,243,255,0.95); }
+.heroBadge.green{ background: rgba(0,255,170,0.10); border-color: rgba(0,255,170,0.40); color: rgba(0,255,170,0.95); }
+.rgbText{ text-shadow: 0 0 14px rgba(0,243,255,0.22), 0 0 22px rgba(255,0,234,0.12); }
