@@ -477,9 +477,25 @@
                 <span class="statValue">{{ onlineTurnText }}</span>
               </div>
 
-              <div v-if="turnTimerText" class="hudStat timer">
-                <span class="statLabel">TIME</span>
-                <span class="statValue">{{ turnTimerText }}</span>
+              <div
+                v-if="timerHud"
+                class="hudStat timer"
+                :class="{
+                  p1: timerHud.kind === 'clock' && timerHud.player === 1,
+                  p2: timerHud.kind === 'clock' && timerHud.player === 2,
+                }"
+              >
+                <template v-if="timerHud.kind === 'draft'">
+                  <span class="statLabel">TIME</span>
+                  <span class="statValue">{{ timerHud.value }}</span>
+                </template>
+                <template v-else>
+                  <span class="statLabel">CLOCK</span>
+                  <span class="clockBadge" :class="{ p1: timerHud.player === 1, p2: timerHud.player === 2 }">
+                    P{{ timerHud.player }}
+                  </span>
+                  <span class="statValue clockValue">{{ timerHud.value }}</span>
+                </template>
               </div>
             </div>
 
@@ -677,22 +693,28 @@ function fmtClock(sec) {
   return `${m}:${r}`;
 }
 
-const turnTimerText = computed(() => {
-  if (!isInGame.value) return "";
-  if (game.phase === "gameover") return "";
-  if (isOnline.value && !myPlayer.value) return "";
+const timerHud = computed(() => {
+  if (!isInGame.value) return null;
+  if (game.phase === "gameover") return null;
+  if (isOnline.value && !myPlayer.value) return null;
 
+  // Draft timer (countdown)
   if (game.phase === "draft") {
-    if (!game.turnStartedAt) return "";
+    if (!game.turnStartedAt) return null;
     const limit = game.turnLimitDraftSec || 30;
     const left = Math.max(0, limit - (nowTick.value - game.turnStartedAt) / 1000);
     const s = Math.ceil(left);
-    return `Time: ${s}s`;
+    return { kind: "draft", value: `${s}s` };
   }
 
-  const p1 = fmtClock(game.battleClockSec?.[1] ?? 0);
-  const p2 = fmtClock(game.battleClockSec?.[2] ?? 0);
-  return `Clock P1 ${p1} · P2 ${p2}`;
+  // Battle clock (interchanges depending on whose turn it is)
+  if (game.phase === "place") {
+    const p = game.currentPlayer === 2 ? 2 : 1;
+    const v = fmtClock(game.battleClockSec?.[p] ?? 0);
+    return { kind: "clock", player: p, value: v };
+  }
+
+  return null;
 });
 
 // Top-right button
@@ -2886,11 +2908,20 @@ onBeforeUnmount(() => {
 .hudStat.ping.bad .pingDot{ background: rgba(255,64,96,0.92); box-shadow: 0 0 14px rgba(255,64,96,0.18); }
 .hudStat.ping.na .pingDot{ opacity: .55; }
 
-.hudStat.code{ gap: 12px; }
-.hudStat.code .statValue{ font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, 'Liberation Mono', 'Courier New', monospace; letter-spacing: 0.6px; }
-.copyBtn{ margin-left: auto; display:inline-flex; align-items:center; justify-content:center; padding: 8px 12px; border-radius: 14px; border: 1px solid rgba(255,255,255,0.14); background: rgba(0,0,0,0.24); color: #eaeaea; font-weight: 900; cursor: pointer; }
+.hudStat.code{ gap: 12px; flex-wrap: wrap; align-items: center; }
+.hudStat.code .statLabel{ margin-right: 4px; }
+.hudStat.code .statValue{ font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, 'Liberation Mono', 'Courier New', monospace; letter-spacing: 0.6px; flex: 1 1 auto; min-width: 140px; }
+.copyBtn{ margin-left: auto; display:inline-flex; align-items:center; justify-content:center; padding: 8px 12px; border-radius: 14px; border: 1px solid rgba(255,255,255,0.14); background: rgba(0,0,0,0.24); color: #eaeaea; font-weight: 900; cursor: pointer; flex: 0 0 auto; white-space: nowrap; }
 .copyBtn:hover{ background: rgba(255,255,255,0.08); }
 .copyBtn:active{ transform: translateY(0px) scale(0.99); }
+
+.hudStat.timer{ gap: 10px; }
+.clockBadge{ display:inline-flex; align-items:center; justify-content:center; padding: 4px 10px; border-radius: 999px; font-weight: 900; font-size: 12px; border: 1px solid rgba(255,255,255,0.14); background: rgba(255,255,255,0.06); }
+.clockBadge.p1{ border-color: rgba(0,229,255,.28); background: rgba(0,229,255,.10); }
+.clockBadge.p2{ border-color: rgba(255,64,96,.28); background: rgba(255,64,96,.10); }
+.clockValue{ font-size: 16px; letter-spacing: 0.3px; }
+.hudStat.timer.p1{ border-color: rgba(0,229,255,.22); box-shadow: 0 10px 26px rgba(0,0,0,0.32), 0 0 0 1px rgba(0,229,255,0.10) inset; }
+.hudStat.timer.p2{ border-color: rgba(255,64,96,.22); box-shadow: 0 10px 26px rgba(0,0,0,0.32), 0 0 0 1px rgba(255,64,96,0.10) inset; }
 
 .hudKeys{ margin-top: 12px; padding-top: 10px; border-top: 1px solid rgba(255,255,255,0.10); display:flex; justify-content:space-between; align-items:center; gap: 10px; flex-wrap: wrap; }
 .hudKeysLine{ font-size: 13px; font-weight: 800; opacity: .9; }

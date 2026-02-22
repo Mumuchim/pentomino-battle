@@ -118,22 +118,28 @@ function fmtClock(sec) {
   return `${m}:${r}`;
 }
 
-const turnTimerText = computed(() => {
-  if (!isInGame.value) return "";
-  if (game.phase === "gameover") return "";
-  if (isOnline.value && !myPlayer.value) return "";
+const timerHud = computed(() => {
+  if (!isInGame.value) return null;
+  if (game.phase === "gameover") return null;
+  if (isOnline.value && !myPlayer.value) return null;
 
+  // Draft timer (countdown)
   if (game.phase === "draft") {
-    if (!game.turnStartedAt) return "";
+    if (!game.turnStartedAt) return null;
     const limit = game.turnLimitDraftSec || 30;
     const left = Math.max(0, limit - (nowTick.value - game.turnStartedAt) / 1000);
     const s = Math.ceil(left);
-    return `Time: ${s}s`;
+    return { kind: "draft", value: `${s}s` };
   }
 
-  const p1 = fmtClock(game.battleClockSec?.[1] ?? 0);
-  const p2 = fmtClock(game.battleClockSec?.[2] ?? 0);
-  return `Clock P1 ${p1} · P2 ${p2}`;
+  // Battle clock (interchanges depending on whose turn it is)
+  if (game.phase === "place") {
+    const p = game.currentPlayer === 2 ? 2 : 1;
+    const v = fmtClock(game.battleClockSec?.[p] ?? 0);
+    return { kind: "clock", player: p, value: v };
+  }
+
+  return null;
 });
 
 // Top-right button
