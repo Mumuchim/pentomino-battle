@@ -733,13 +733,13 @@ const canGoBack = computed(() =>
 // TETR-like chrome (menus only)
 const isMenuScreen = computed(() => !isInGame.value);
 const topPageTitle = computed(() => {
-  if (screen.value === "auth") return "HOME";
-  if (screen.value === "mode") return "HOME";
+  if (screen.value === "auth") return "WELCOME"; // Welcome page
+  if (screen.value === "mode") return "MENU";    // After Play as Guest
   if (screen.value === "lobby") return "LOBBY";
   if (screen.value === "ranked") return "RANKED";
   if (screen.value === "settings") return "CONFIG";
   if (screen.value === "credits") return "ABOUT";
-  return "HOME";
+  return "MENU";
 });
 const showTetrChrome = computed(() => isMenuScreen.value && ["auth","mode","lobby","ranked","settings","credits"].includes(screen.value));
 const showBottomBar = computed(() => showTetrChrome.value);
@@ -3104,6 +3104,9 @@ onBeforeUnmount(() => {
 /* Minimal helpers so it doesn't look unstyled if your old CSS was longer */
 .main{ position: relative; z-index: 1; padding: 18px; }
 
+/* Minor UI: menus had too much gap below the top bar */
+.topbar.tetrBar ~ .main{ padding-top: 8px; }
+
 /* Only add bottom padding when the fixed bottom bar is visible */
 .app.hasBottomBar .main{
   padding-bottom: 84px;
@@ -3471,7 +3474,7 @@ onBeforeUnmount(() => {
   /* Keep all menu content visible (no scrolling) */
   width: min(1020px, calc(100vw - 40px));
   margin: 0 20px 0 auto; /* push the menu block to the right like the reference */
-  padding: 6px 0 14px;
+  padding: 0 0 14px;
   /* Let the browser handle scrolling (prevents double scrollbars) */
 /* topbar (~72px) + breathing room */
   display: flex;
@@ -3983,10 +3986,19 @@ onBeforeUnmount(() => {
 }
 
 .tetrBackRow{
+  /* IMPORTANT: The back button must NOT push the menu down when it appears.
+     Keep it visually below the top bar, but take it out of document flow. */
+  position: absolute;
+  left: 0;
+  top: 70px; /* sits right under the TETR top bar */
+  width: 100%;
+
   padding: 10px 18px 0;
   display: flex;
   justify-content: flex-start;
-  pointer-events: auto;
+
+  z-index: 3;
+  pointer-events: none;
 }
 .tetrBackBtn{
   border-radius: 12px;
@@ -3999,6 +4011,7 @@ onBeforeUnmount(() => {
   color: #eaeaea;
   box-shadow: 0 10px 26px rgba(0,0,0,0.32), 0 0 0 1px rgba(0,0,0,0.25) inset;
   cursor: pointer;
+  pointer-events: auto;
 }
 .tetrBackBtn:hover{ background: rgba(255,255,255,0.10); transform: translateY(-1px); }
 
