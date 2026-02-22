@@ -483,6 +483,7 @@
                 :class="{
                   p1: timerHud.kind === 'clock' && timerHud.player === 1,
                   p2: timerHud.kind === 'clock' && timerHud.player === 2,
+                  urgent: timerHud.kind === 'draft' && timerHud.seconds <= 10,
                 }"
               >
                 <template v-if="timerHud.kind === 'draft'">
@@ -628,8 +629,8 @@ const onlineSyncing = ref(false);
 const onlineTurnText = computed(() => {
   if (!isOnline.value || !myPlayer.value) return "";
   if (game.phase === "gameover") return "";
-  if (game.phase === "draft") return game.draftTurn === myPlayer.value ? "Your turn" : `Waiting for Player ${game.draftTurn}...`;
-  if (game.phase === "place") return game.currentPlayer === myPlayer.value ? "Your turn" : `Waiting for Player ${game.currentPlayer}...`;
+  if (game.phase === "draft") return game.draftTurn === myPlayer.value ? "Your turn" : `Waiting for P${game.draftTurn}...`;
+  if (game.phase === "place") return game.currentPlayer === myPlayer.value ? "Your turn" : `Waiting for P${game.currentPlayer}...`;
   return "";
 });
 
@@ -704,7 +705,7 @@ const timerHud = computed(() => {
     const limit = game.turnLimitDraftSec || 30;
     const left = Math.max(0, limit - (nowTick.value - game.turnStartedAt) / 1000);
     const s = Math.ceil(left);
-    return { kind: "draft", value: `${s}s` };
+    return { kind: "draft", seconds: s, value: `${s}s` };
   }
 
   // Battle clock (interchanges depending on whose turn it is)
@@ -2897,6 +2898,7 @@ onBeforeUnmount(() => {
 .statLabel{ font-size: 11px; opacity: .72; font-weight: 900; letter-spacing: 1.2px; }
 .statValue{ font-size: 14px; font-weight: 900; }
 .hudStat.turn .statValue{ font-weight: 800; }
+.hudStat.turn .statValue{ white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
 .hudStat.timer .statValue{ font-variant-numeric: tabular-nums; }
 
 .pingDot{ width: 10px; height: 10px; border-radius: 999px; background: rgba(150,150,150,0.9); box-shadow: 0 0 12px rgba(255,255,255,0.10); }
@@ -2908,10 +2910,14 @@ onBeforeUnmount(() => {
 .hudStat.ping.bad .pingDot{ background: rgba(255,64,96,0.92); box-shadow: 0 0 14px rgba(255,64,96,0.18); }
 .hudStat.ping.na .pingDot{ opacity: .55; }
 
-.hudStat.code{ gap: 12px; flex-wrap: wrap; align-items: center; }
-.hudStat.code .statLabel{ margin-right: 4px; }
-.hudStat.code .statValue{ font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, 'Liberation Mono', 'Courier New', monospace; letter-spacing: 0.6px; flex: 1 1 auto; min-width: 140px; }
-.copyBtn{ margin-left: auto; display:inline-flex; align-items:center; justify-content:center; padding: 8px 12px; border-radius: 14px; border: 1px solid rgba(255,255,255,0.14); background: rgba(0,0,0,0.24); color: #eaeaea; font-weight: 900; cursor: pointer; flex: 0 0 auto; white-space: nowrap; }
+.hudStat.ping{ padding: 8px 10px; }
+
+/* CODE tile: single-line HUD row (prevents tall empty ping row) */
+.hudStat.code{ padding: 8px 10px; display: grid; grid-template-columns: auto 1fr auto; align-items: center; gap: 10px; }
+.hudStat.code .statLabel{ margin-right: 2px; }
+.hudStat.code .statValue{ font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, 'Liberation Mono', 'Courier New', monospace; letter-spacing: 0.6px; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+.copyBtn{ margin-left: 0; display:inline-flex; align-items:center; justify-content:center; padding: 6px 10px; border-radius: 12px; border: 1px solid rgba(255,255,255,0.14); background: rgba(0,0,0,0.24); color: #eaeaea; font-weight: 900; font-size: 12px; cursor: pointer; flex: 0 0 auto; white-space: nowrap; }
 .copyBtn:hover{ background: rgba(255,255,255,0.08); }
 .copyBtn:active{ transform: translateY(0px) scale(0.99); }
 
@@ -2922,6 +2928,12 @@ onBeforeUnmount(() => {
 .clockValue{ font-size: 16px; letter-spacing: 0.3px; }
 .hudStat.timer.p1{ border-color: rgba(0,229,255,.22); box-shadow: 0 10px 26px rgba(0,0,0,0.32), 0 0 0 1px rgba(0,229,255,0.10) inset; }
 .hudStat.timer.p2{ border-color: rgba(255,64,96,.22); box-shadow: 0 10px 26px rgba(0,0,0,0.32), 0 0 0 1px rgba(255,64,96,0.10) inset; }
+
+@keyframes timeUrgentBlink{
+  0%, 100%{ border-color: rgba(255,64,96,.35); box-shadow: 0 10px 26px rgba(0,0,0,0.32), 0 0 0 1px rgba(255,64,96,0.12) inset, 0 0 18px rgba(255,64,96,0.10); }
+  50%{ border-color: rgba(255,64,96,.70); box-shadow: 0 10px 26px rgba(0,0,0,0.32), 0 0 0 1px rgba(255,64,96,0.22) inset, 0 0 26px rgba(255,64,96,0.18); }
+}
+.hudStat.timer.urgent{ animation: timeUrgentBlink 0.85s ease-in-out infinite; }
 
 .hudKeys{ margin-top: 12px; padding-top: 10px; border-top: 1px solid rgba(255,255,255,0.10); display:flex; justify-content:space-between; align-items:center; gap: 10px; flex-wrap: wrap; }
 .hudKeysLine{ font-size: 13px; font-weight: 800; opacity: .9; }
