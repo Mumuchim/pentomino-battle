@@ -202,6 +202,15 @@ export const useGameStore = defineStore("game", {
     matchInvalidReason: null,
     turnLimitDraftSec: 30,
     turnLimitPlaceSec: 60,
+
+    // Battle clock (place phase): 2 minutes per player, counts down only on that player's turn
+    battleClockSec: { 1: 120, 2: 120 },
+    battleClockLastTickAt: null,
+
+    // Rematch handshake (online)
+    rematch: { 1: false, 2: false },
+    rematchDeclinedBy: null,
+
   }),
 
   getters: {
@@ -242,6 +251,11 @@ export const useGameStore = defineStore("game", {
       this.matchInvalid = false;
       this.matchInvalidReason = null;
 
+      this.battleClockSec = { 1: 120, 2: 120 };
+      this.battleClockLastTickAt = null;
+      this.rematch = { 1: false, 2: false };
+      this.rematchDeclinedBy = null;
+
       // ✅ rebuild solved draft puzzle (randomized)
       this.draftBoard = computeDraftTiling(this.boardW, this.boardH, this.allowFlip, true)
         .map(row => row.map(cell => (cell ? { pieceKey: cell.pieceKey } : null)));
@@ -281,6 +295,12 @@ export const useGameStore = defineStore("game", {
         this.phase = "place";
 
         // placement board starts empty
+
+        // reset battle clocks (2 mins per player)
+        this.battleClockSec = { 1: 120, 2: 120 };
+        this.battleClockLastTickAt = Date.now();
+
+        // placement board starts empty
         this.board = makeEmptyBoard(this.boardW, this.boardH);
 
         // inventories become remaining pieces
@@ -290,6 +310,7 @@ export const useGameStore = defineStore("game", {
         // placement starts with P1
         this.currentPlayer = 1;
         this.turnStartedAt = Date.now();
+        this.battleClockLastTickAt = Date.now();
 
         // clear selection
         this.selectedPieceKey = null;
@@ -382,6 +403,7 @@ export const useGameStore = defineStore("game", {
       // next player
       this.currentPlayer = this.currentPlayer === 1 ? 2 : 1;
       this.turnStartedAt = Date.now();
+      this.battleClockLastTickAt = Date.now();
 
       // clear selection
       this.selectedPieceKey = null;
@@ -437,37 +459,80 @@ export const useGameStore = defineStore("game", {
     },
 
 
-    // ----- TIMEOUTS / SURRENDER -----
+    
+    // ----- BATTLE CLOCK (PLACE PHASE) -----
+    tickBattleClock(now = Date.now()) {
+      if (this.phase !== "place") return false;
+      if (this.phase === "gameover") return false;
+
+      // Only tick when a turn is actually running
+      if (!this.turnStartedAt) return false;
+
+      if (!this.battleClockLastTickAt) {
+        this.battleClockLastTickAt = now;
+        return false;
+      }
+
+      const dt = Math.max(0, (now - this.battleClockLastTickAt) / 1000);
+      if (dt <= 0) return false;
+
+      const p = this.currentPlayer;
+      const next = Math.max(0, (this.battleClockSec?.[p] ?? 0) - dt);
+      this.battleClockSec = { ...this.battleClockSec, [p]: next };
+      this.battleClockLastTickAt = now;
+
+      if (next > 0) return false;
+
+      // Time's up for current player
+      const loser = p;
+      const winner = loser === 1 ? 2 : 1;
+      this.phase = "gameover";
+      this.winner = winner;
+      this.lastMove = { type: "timeout", player: loser };
+      return true;
+    },
+
+    // ----- REMATCH (ONLINE) -----
+    requestRematch(player) {
+      if (this.phase !== "gameover") return false;
+      if (!player) return false;
+      this.rematch = { ...this.rematch, [player]: true };
+      return true;
+    },
+
+    declineRematch(player) {
+      if (this.phase !== "gameover") return false;
+      if (!player) return false;
+      this.rematchDeclinedBy = player;
+      return true;
+    },
+// ----- TIMEOUTS / SURRENDER -----
     getTurnLimitSec() {
       return this.phase === "draft" ? this.turnLimitDraftSec : this.turnLimitPlaceSec;
     },
 
     checkAndApplyTimeout(now = Date.now()) {
       if (this.phase === "gameover") return false;
-      if (!this.turnStartedAt) return false;
 
-      const limitSec = this.getTurnLimitSec();
-      const elapsedSec = (now - this.turnStartedAt) / 1000;
-
-      if (elapsedSec < limitSec) return false;
-
+      // Draft: per-turn (single) timer
       if (this.phase === "draft") {
+        if (!this.turnStartedAt) return false;
+        const limitSec = this.turnLimitDraftSec || 30;
+        const elapsedSec = (now - this.turnStartedAt) / 1000;
+        if (elapsedSec < limitSec) return false;
+
         // Draft pick took too long -> invalid match (dodged)
+        const dodger = this.currentPlayer;
         this.matchInvalid = true;
-        this.matchInvalidReason = "match dodged";
+        this.matchInvalidReason = `Player ${dodger} did not pick — automatically dodges the game.`;
         this.phase = "gameover";
         this.winner = null;
-        this.lastMove = { type: "dodged", player: this.currentPlayer };
+        this.lastMove = { type: "dodged", player: dodger };
         return true;
       }
 
-      // Place phase timeout -> current player loses
-      const loser = this.currentPlayer;
-      const winner = loser === 1 ? 2 : 1;
-      this.phase = "gameover";
-      this.winner = winner;
-      this.lastMove = { type: "timeout", player: loser };
-      return true;
+      // Place: chess-style clock (2 mins each, only current player ticks)
+      return this.tickBattleClock(now);
     },
 
     surrender(player) {

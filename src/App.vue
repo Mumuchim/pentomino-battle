@@ -169,7 +169,7 @@
               <div class="menuBtnRight">PLAY</div>
             </button>
 
-            <button class="menuBtn primary" @click="startCouchPlay">
+            <button class="menuBtn alt" @click="startCouchPlay">
               <div class="menuBtnLeft">
                 <div class="menuBtnIcon">🛋️</div>
                 <div class="menuBtnText">
@@ -180,15 +180,15 @@
               <div class="menuBtnRight">PLAY</div>
             </button>
 
-            <button class="menuBtn" @click="startPracticeAi">
+            <button class="menuBtn disabled" disabled title="Practice vs. AI is locked for now">
               <div class="menuBtnLeft">
-                <div class="menuBtnIcon">🤖</div>
+                <div class="menuBtnIcon">🔒</div>
                 <div class="menuBtnText">
                   <div class="menuBtnTop">Practice vs. AI</div>
-                  <div class="menuBtnSub">Uses local flow for now</div>
+                  <div class="menuBtnSub">Locked for now</div>
                 </div>
               </div>
-              <div class="menuBtnRight">▶</div>
+              <div class="menuBtnRight">LOCKED</div>
             </button>
 
             <div class="menuSplitRow">
@@ -228,7 +228,7 @@
               <div class="menuBtnRight">▶</div>
             </button>
 
-            <button class="menuBtn" @click="screen = 'quick_make'">
+            <button class="menuBtn alt" @click="screen = 'quick_make'">
               <div class="menuBtnLeft">
                 <div class="menuBtnIcon">➕</div>
                 <div class="menuBtnText">
@@ -516,7 +516,7 @@
             <span class="modalDot" :class="modalDotClass"></span>
             {{ modal.title }}
           </div>
-          <button v-if="!modal.locked" class="modalX" @click="closeModal" aria-label="Close">✕</button>
+          <button v-if="showModalX" class="modalX" @click="closeModal" aria-label="Close">✕</button>
           <div v-else class="modalXSpacer" aria-hidden="true"></div>
         </div>
 
@@ -727,6 +727,17 @@ const modalCardClass = computed(() => ({
   modalDanger: modal.tone === "bad",
   modalResult: isResultModal.value,
 }));
+
+// Hide the X when it would do the exact same thing as the only action button.
+const showModalX = computed(() => {
+  if (modal.locked) return false;
+  const acts = Array.isArray(modal.actions) ? modal.actions : [];
+  if (acts.length === 1) {
+    const lbl = String(acts[0]?.label || "").trim().toLowerCase();
+    if (lbl === "ok" || lbl === "close") return false;
+  }
+  return true;
+});
 
 // ✅ Result-style modal (Victory/Defeat) helpers + confetti
 const isResultModal = computed(() => {
@@ -1216,24 +1227,38 @@ function getMyPlayerFromPlayers(players, myId) {
   return null;
 }
 
+function deepClone(obj) {
+  // State is JSON-safe (plain objects/arrays), so JSON clone is fine and avoids reference races.
+  try {
+    return JSON.parse(JSON.stringify(obj));
+  } catch {
+    return obj;
+  }
+}
+
 function buildSyncedState(meta = {}) {
+  // Heartbeat lives in state.meta so we can detect silent tab closes.
+  const hb = { ...(meta.heartbeat || {}) };
+  if (online?.role) hb[online.role] = Date.now();
+  const metaWithHb = { ...meta, heartbeat: hb };
+
   return {
-    meta,
+    meta: metaWithHb,
     game: {
       phase: game.phase,
       boardW: game.boardW,
       boardH: game.boardH,
       allowFlip: game.allowFlip,
 
-      board: game.board,
-      draftBoard: game.draftBoard,
+      board: deepClone(game.board),
+      draftBoard: deepClone(game.draftBoard),
 
       draftTurn: game.draftTurn,
       currentPlayer: game.currentPlayer,
 
-      pool: game.pool,
-      picks: game.picks,
-      remaining: game.remaining,
+      pool: deepClone(game.pool),
+      picks: deepClone(game.picks),
+      remaining: deepClone(game.remaining),
       placedCount: game.placedCount,
 
       turnStartedAt: game.turnStartedAt,
@@ -1244,10 +1269,10 @@ function buildSyncedState(meta = {}) {
 
       winner: game.winner,
 
-      rematch: game.rematch,
+      rematch: deepClone(game.rematch),
       rematchDeclinedBy: game.rematchDeclinedBy,
 
-      battleClockSec: game.battleClockSec,
+      battleClockSec: deepClone(game.battleClockSec),
       battleClockLastTickAt: game.battleClockLastTickAt,
     },
   };
@@ -1527,6 +1552,38 @@ function startPollingLobby(lobbyId, role) {
           message: "Lobby creator left — terminating the game.\nReturning to main menu.",
         });
         return;
+      }
+
+      // ✅ Presence heartbeat: handle silent tab closes (especially important on gameover/rematch).
+      try {
+        const hb = lobby?.state?.meta?.heartbeat || {};
+        const oppRole = online.role === "host" ? "guest" : "host";
+        const oppTs = Number(hb?.[oppRole] || 0);
+        const staleMs = oppTs ? Date.now() - oppTs : 0;
+        const bothPresent = !!(lobby.host_id && lobby.guest_id);
+
+        const staleHard = bothPresent && staleMs > 45_000;
+        const staleOnGameOver = bothPresent && game.phase === "gameover" && staleMs > 25_000;
+
+        if ((staleHard || staleOnGameOver) && oppRole === "host") {
+          // If the host disappeared, end the match and leave.
+          try {
+            await sbCloseAndNukeLobby(lobbyId, { terminateReason: "host_timeout", reason: "heartbeat" });
+          } catch {
+            // ignore
+          }
+          stopPolling();
+          myPlayer.value = null;
+          screen.value = "mode";
+          showModal({
+            title: "Match Terminated",
+            tone: "bad",
+            message: "Lobby creator disconnected — terminating the game.\nReturning to main menu.",
+          });
+          return;
+        }
+      } catch {
+        // ignore
       }
 
       if (online.role === "host" && !prevGuest && lobby.guest_id) {
@@ -2470,6 +2527,13 @@ onBeforeUnmount(() => {
   cursor: pointer;
   user-select: none;
 }
+
+.topbar .right{
+  display:flex;
+  align-items:center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
 .logoMark {
   width: 44px;
   height: 44px;
@@ -2570,12 +2634,15 @@ onBeforeUnmount(() => {
 .menuShell{ max-width: 640px; margin: 0 auto; display: grid; gap: 14px; padding: 6px 0 16px; }
 .menuCard{ padding: 18px; border-radius: 20px; border: 1px solid rgba(255,255,255,.10); background: rgba(10,10,16,.55); backdrop-filter: blur(10px); }
 .menuStack{ display: grid; gap: 10px; }
+.menuSplitRow{ display:flex; gap: 10px; flex-wrap: wrap; margin-top: 2px; }
 .menuBtn{ width: 100%; display:flex;
   line-height: 1.15;
   overflow: visible; justify-content:space-between; align-items:center; padding: 12px 14px; border-radius: 18px; border: 1px solid rgba(255,255,255,.14); background: linear-gradient(180deg, rgba(255,255,255,.07), rgba(255,255,255,.05)); color:#eaeaea; cursor:pointer; font-weight:900; transition: transform .08s ease, box-shadow .18s ease, border-color .18s ease, background .18s ease; box-shadow: 0 12px 34px rgba(0,0,0,.40), 0 0 0 1px rgba(0,0,0,.25) inset; }
 .menuBtn:hover{ transform: translateY(-1px); border-color: rgba(255,255,255,.20); box-shadow: 0 14px 38px rgba(0,0,0,.46), 0 0 22px rgba(0,229,255,.10); }
 .menuBtn:active{ transform: translateY(0px) scale(0.99); }
 .menuBtn.primary{ background: linear-gradient(180deg, rgba(0,229,255,.16), rgba(0,229,255,.10)); border-color: rgba(0,229,255,.22); }
+.menuBtn.alt{ background: linear-gradient(180deg, rgba(255,43,214,.16), rgba(255,64,96,.10)); border-color: rgba(255,43,214,.22); }
+.menuBtn.alt:hover{ box-shadow: 0 14px 38px rgba(0,0,0,.46), 0 0 22px rgba(255,43,214,.12); }
 .menuBtn.disabled{ opacity:.45; cursor:not-allowed; }
 .menuBtnLeft{ display:flex; gap: 12px; align-items:center; min-width:0; }
 .menuBtnIcon{ width: 38px; height: 38px; display:grid; place-items:center; border-radius: 12px; background: rgba(255,255,255,.06); }
@@ -2588,6 +2655,21 @@ onBeforeUnmount(() => {
 .heroDesc{ opacity:.8; }
 .rgbText{ background: linear-gradient(90deg, rgba(0,229,255,1), rgba(255,43,214,1)); -webkit-background-clip:text; background-clip:text; color: transparent; }
 .divider{ height: 1px; background: rgba(255,255,255,.10); margin: 12px 0; }
+.chip{ display:inline-flex; align-items:center; gap: 8px; }
+.chip.code{ gap: 10px; }
+.miniBtn{
+  display:inline-flex;
+  align-items:center;
+  justify-content:center;
+  padding: 7px 10px;
+  border-radius: 12px;
+  border: 1px solid rgba(255,255,255,0.14);
+  background: rgba(0,0,0,0.22);
+  color: #eaeaea;
+  font-weight: 900;
+  cursor: pointer;
+}
+.miniBtn:hover{ background: rgba(255,255,255,0.08); }
 .field{ display:flex; gap: 12px; align-items:center; padding: 10px 12px; border-radius: 14px; border: 1px solid rgba(255,255,255,.10); background: rgba(255,255,255,.04); }
 .form{ display:grid; gap: 10px; }
 .input{ width: 100%; padding: 10px 12px; border-radius: 12px; border: 1px solid rgba(255,255,255,.12); background: rgba(0,0,0,.25); color:#eaeaea; }

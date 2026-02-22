@@ -21,11 +21,35 @@
       aria-hidden="true"
     ></div>
 
+    <!-- ✅ Full-screen interaction lock + loading (prevents "loaded but not visible" desync clicks) -->
+    <div v-if="uiLock.active" class="loadOverlay" aria-live="polite" aria-busy="true">
+      <div class="loadCard">
+        <div class="loadTop">
+          <img :src="logoUrl" class="loadLogo" alt="" />
+          <div class="loadText">
+            <div class="loadTitle">PentoBattle</div>
+            <div class="loadSub">{{ uiLock.label }}</div>
+          </div>
+        </div>
+
+        <div
+          class="loadBar"
+          role="progressbar"
+          :aria-valuenow="Math.round(uiLock.progress * 100)"
+          aria-valuemin="0"
+          aria-valuemax="100"
+        >
+          <div class="loadBarFill" :style="{ width: Math.round(uiLock.progress * 100) + '%' }"></div>
+        </div>
+
+        <div class="loadHint">{{ uiLock.hint }}</div>
+      </div>
+    </div>
+
     <header class="topbar">
       <div class="brand" @click="goAuth" title="Back to Main Menu">
         <div class="logoMark">
-          <img v-if="logoDataUrl" :src="logoDataUrl" alt="Logo" class="logoImg" />
-          <span v-else>⬛</span>
+          <img :src="logoUrl" alt="Logo" class="logoImg floatingLogo" />
         </div>
         <div class="brandText">
           <div class="title">PentoBattle</div>
@@ -36,7 +60,9 @@
       <div class="right">
         <button class="btn ghost" v-if="canGoBack" @click="goBack">← Back</button>
         <button class="btn ghost" v-if="screen !== 'auth'" @click="goAuth">Main Menu</button>
-        <button class="btn" v-if="isInGame" @click="onPrimaryMatchAction">{{ primaryMatchActionLabel }}</button>
+        <button class="btn" v-if="isInGame" @click="onPrimaryMatchAction">
+          {{ primaryMatchActionLabel }}
+        </button>
       </div>
     </header>
 
@@ -88,8 +114,6 @@
           <div class="finePrint">
             Tip: You can still play Couch + Practice without login.
             <span class="sep">·</span>
-            <button class="linkBtn" @click="logoFileInput?.click()">Upload Logo</button>
-            <input ref="logoFileInput" type="file" accept="image/png" style="display:none" @change="onPickLogoFile" />
           </div>
         </div>
       </section>
@@ -134,7 +158,7 @@
               <div class="menuBtnRight">{{ loggedIn ? "▶" : "LOCKED" }}</div>
             </button>
 
-            <button class="menuBtn" @click="goQuick">
+            <button class="menuBtn primary" @click="goQuick">
               <div class="menuBtnLeft">
                 <div class="menuBtnIcon">⚡</div>
                 <div class="menuBtnText">
@@ -142,7 +166,7 @@
                   <div class="menuBtnSub">Browse public lobbies or join by code</div>
                 </div>
               </div>
-              <div class="menuBtnRight">▶</div>
+              <div class="menuBtnRight">PLAY</div>
             </button>
 
             <button class="menuBtn primary" @click="startCouchPlay">
@@ -278,7 +302,7 @@
                   {{ l.lobby_name || "Public Lobby" }}
                 </div>
                 <div style="opacity:.75;font-size:12px;">
-                  Code: <b>{{ l.code || "—" }}</b> · Status: <b>{{ l.status || "waiting" }}</b>
+                  Code: <b>{{ l.code || "—" }}</b> · Players: <b>{{ lobbyCountLabel(l) }}</b> · Status: <b>{{ l.status || "waiting" }}</b>
                 </div>
               </div>
 
@@ -406,14 +430,16 @@
       <section v-else class="gameLayout">
         <section class="leftPanel">
           <div class="panelHead">
-            <div class="modeRow">
-              <div class="modeTag">Mode: <b>{{ modeLabel }}</b>
-                <span v-if="isOnline && myPlayer"> · You: <b>P{{ myPlayer }}</b></span>
+          <div class="infoBar">
+            <div class="infoRow">
+              <div class="infoLeft">
+                <div class="chip">Mode: <b>{{ modeLabel }}</b>
+                  <span v-if="isOnline && myPlayer"> · You: <b>P{{ myPlayer }}</b></span>
+                </div>
               </div>
 
-              <!-- ✅ Turn badge (highlighted) -->
               <div
-                class="turnBadge"
+                class="turnPill"
                 :class="{
                   p1: game.phase !== 'gameover' && game.currentPlayer === 1,
                   p2: game.phase !== 'gameover' && game.currentPlayer === 2,
@@ -426,22 +452,33 @@
               </div>
             </div>
 
-            <div class="statusTag">
-              Phase: <b>{{ game.phase }}</b>
-              <span v-if="game.phase === 'draft'"> · Draft pick: <b>P{{ game.draftTurn }}</b></span>
-              <span v-else-if="game.phase === 'place'"> · Turn: <b>P{{ game.currentPlayer }}</b></span>
+            <div class="infoRow">
+              <div class="chip">Phase: <b>{{ game.phase }}</b>
+                <span v-if="game.phase === 'draft'"> · Draft pick: <b>P{{ game.draftTurn }}</b></span>
+                <span v-else-if="game.phase === 'place'"> · Turn: <b>P{{ game.currentPlayer }}</b></span>
+              </div>
             </div>
 
-            <div v-if="isOnline" class="statusTag">
-              <span><b>Ping:</b> {{ pingText }}</span>
-              <span v-if="onlineTurnText"> · {{ onlineTurnText }}</span>
-              <span v-if="turnTimerText"> · {{ turnTimerText }}</span>
+            <div v-if="isOnline" class="infoRow">
+              <div class="chip ping" :class="pingLevelClass">
+                <span class="lamp" aria-hidden="true"></span>
+                <b>Ping:</b> {{ pingText }}
+              </div>
+
+              <div v-if="online.code" class="chip code">
+                <b>Code:</b> <span class="mono">{{ online.code }}</span>
+                <button class="miniBtn" @click="copyLobbyCode" title="Copy code">Copy</button>
+              </div>
+
+              <div v-if="onlineTurnText" class="chip">{{ onlineTurnText }}</div>
+              <div v-if="turnTimerText" class="chip clock">{{ turnTimerText }}</div>
             </div>
 
-            <div class="keysTag" v-if="game.phase === 'place'">
-              Keys: <b>Q</b> Rotate · <b>E</b> Flip
+            <div class="infoRow" v-if="game.phase === 'place'">
+              <div class="chip keys">Keys: <b>Q</b> Rotate · <b>E</b> Flip</div>
             </div>
           </div>
+        </div>
 
           <DraftPanel v-if="game.phase === 'draft'" />
 
@@ -455,7 +492,7 @@
         </section>
 
         <section class="rightPanel">
-          <Board />
+          <Board :isOnline="isOnline" :myPlayer="myPlayer" :canAct="canAct" />
           <div class="hintSmall">
             Drag a piece to the board and hover to preview. Click or drop to place.
           </div>
@@ -463,15 +500,30 @@
       </section>
     </main>
 
-    <!-- ✅ Modal (illegal placement / winner / general notices) -->
-    <div v-if="modal.open" class="modalOverlay" @click.self="closeModal">
-      <div class="modalCard" role="dialog" aria-modal="true">
-        <div class="modalTop">
-          <div class="modalTitle">
+    <!-- ✅ Modal -->
+    <div v-if="modal.open" class="modalOverlay" @click.self="!modal.locked && closeModal()">
+      <div v-if="showConfetti" class="confetti" aria-hidden="true">
+        <span
+          v-for="p in confettiPieces"
+          :key="p.id"
+          class="confettiPiece"
+          :style="{ left: p.left + '%', '--d': p.delay + 's', '--t': p.dur + 's', '--r': p.rot + 'deg', '--x': p.drift + 'px', width: p.size + 'px', height: (p.size * 0.6) + 'px' }"
+        />
+      </div>
+      <div class="modalCard" :class="modalCardClass" role="dialog" aria-modal="true">
+        <div class="modalTop" :class="{ resultTop: isResultModal }">
+          <div v-if="!isResultModal" class="modalTitle">
             <span class="modalDot" :class="modalDotClass"></span>
             {{ modal.title }}
           </div>
-          <button class="modalX" @click="closeModal" aria-label="Close">✕</button>
+          <button v-if="!modal.locked" class="modalX" @click="closeModal" aria-label="Close">✕</button>
+          <div v-else class="modalXSpacer" aria-hidden="true"></div>
+        </div>
+
+        <div v-if="isResultModal" class="resultHero" :class="resultHeroClass">
+          <div class="resultTitle">{{ resultBigTitle }}</div>
+          <div v-if="resultSubTitle" class="resultSub">{{ resultSubTitle }}</div>
+          <div class="resultGlow" aria-hidden="true"></div>
         </div>
 
         <div class="modalBody">
@@ -481,9 +533,14 @@
         </div>
 
         <div class="modalActions">
-          <button class="btn primary" @click="closeModal">OK</button>
-          <button v-if="modal.cta === 'reset'" class="btn" @click="resetFromModal">
-            Play Again
+          <button
+            v-for="(a, i) in modal.actions"
+            :key="i"
+            class="btn"
+            :class="{ primary: a.tone === 'primary', soft: a.tone === 'soft', ghost: a.tone === 'ghost' }"
+            @click="onModalAction(a)"
+          >
+            {{ a.label }}
           </button>
         </div>
       </div>
@@ -506,24 +563,7 @@ const screen = ref("auth");
 const loggedIn = ref(false);
 const allowFlip = ref(true);
 
-const logoDataUrl = ref(localStorage.getItem("pb_logo_dataurl") || "");
-const logoFileInput = ref(null);
-
-function onPickLogoFile(e) {
-  const file = e?.target?.files?.[0];
-  if (!file) return;
-  if (!file.type?.includes("png")) {
-    showModal({ title: "Logo", message: "Please upload a PNG file.", tone: "bad" });
-    return;
-  }
-  const reader = new FileReader();
-  reader.onload = () => {
-    const v = String(reader.result || "");
-    logoDataUrl.value = v;
-    try { localStorage.setItem("pb_logo_dataurl", v); } catch {}
-  };
-  reader.readAsDataURL(file);
-}
+const logoUrl = new URL("./assets/logo.png", import.meta.url).href;
 
 const quick = reactive({
   lobbyName: "",
@@ -546,15 +586,12 @@ const canGoBack = computed(() =>
 const isOnline = computed(() => screen.value === "online");
 const myPlayer = ref(null); // 1 | 2 | null
 const onlineSyncing = ref(false);
+
 const onlineTurnText = computed(() => {
   if (!isOnline.value || !myPlayer.value) return "";
   if (game.phase === "gameover") return "";
-  if (game.phase === "draft") {
-    return game.draftTurn === myPlayer.value ? "Your turn" : `Waiting for Player ${game.draftTurn}...`;
-  }
-  if (game.phase === "place") {
-    return game.currentPlayer === myPlayer.value ? "Your turn" : `Waiting for Player ${game.currentPlayer}...`;
-  }
+  if (game.phase === "draft") return game.draftTurn === myPlayer.value ? "Your turn" : `Waiting for Player ${game.draftTurn}...`;
+  if (game.phase === "place") return game.currentPlayer === myPlayer.value ? "Your turn" : `Waiting for Player ${game.currentPlayer}...`;
   return "";
 });
 
@@ -565,92 +602,83 @@ const pingText = computed(() => {
   return `${ms}ms`;
 });
 
+const nowTick = ref(Date.now());
+
+/* =========================
+   ✅ UI LOADING / INPUT LOCK
+   (Blocks clicks until the screen is visually ready)
+========================= */
+const uiLock = reactive({
+  active: true,
+  label: "Booting…",
+  hint: "Preparing the neon arena…",
+  progress: 0,
+  _timer: null,
+  _minUntil: 0,
+});
+
+function startUiLock({ label = "Loading…", hint = "Please wait…", minMs = 650 } = {}) {
+  uiLock.active = true;
+  uiLock.label = label;
+  uiLock.hint = hint;
+  uiLock._minUntil = Date.now() + Math.max(0, minMs);
+
+  if (uiLock._timer) clearInterval(uiLock._timer);
+  uiLock.progress = Math.min(uiLock.progress || 0, 0.15);
+  uiLock._timer = setInterval(() => {
+    uiLock.progress = Math.min(0.92, uiLock.progress + (0.92 - uiLock.progress) * 0.08 + 0.01);
+  }, 90);
+}
+
+function stopUiLock() {
+  const done = () => {
+    uiLock.progress = 1;
+    uiLock.active = false;
+    if (uiLock._timer) clearInterval(uiLock._timer);
+    uiLock._timer = null;
+  };
+  const left = uiLock._minUntil - Date.now();
+  if (left > 0) setTimeout(done, left);
+  else done();
+}
+
+function stopUiLockAfterPaint(extraMinMs = 650) {
+  // Ensure at least two frames have rendered before allowing clicks.
+  uiLock._minUntil = Math.max(uiLock._minUntil, Date.now() + Math.max(0, extraMinMs));
+  requestAnimationFrame(() => requestAnimationFrame(() => stopUiLock()));
+}
+
+function fmtClock(sec) {
+  const s = Math.max(0, Math.floor(Number(sec || 0)));
+  const m = Math.floor(s / 60);
+  const r = String(s % 60).padStart(2, "0");
+  return `${m}:${r}`;
+}
+
 const turnTimerText = computed(() => {
   if (!isInGame.value) return "";
   if (game.phase === "gameover") return "";
-  if (!game.turnStartedAt) return "";
-  const limit = game.phase === "draft" ? (game.turnLimitDraftSec || 30) : (game.turnLimitPlaceSec || 60);
-  const left = Math.max(0, limit - (Date.now() - game.turnStartedAt) / 1000);
-  const s = Math.ceil(left);
-  return `Time: ${s}s`;
+  if (isOnline.value && !myPlayer.value) return "";
+
+  if (game.phase === "draft") {
+    if (!game.turnStartedAt) return "";
+    const limit = game.turnLimitDraftSec || 30;
+    const left = Math.max(0, limit - (nowTick.value - game.turnStartedAt) / 1000);
+    const s = Math.ceil(left);
+    return `Time: ${s}s`;
+  }
+
+  const p1 = fmtClock(game.battleClockSec?.[1] ?? 0);
+  const p2 = fmtClock(game.battleClockSec?.[2] ?? 0);
+  return `Clock P1 ${p1} · P2 ${p2}`;
 });
 
-// Top-right button: Reset (offline) / Surrender (online)
+// Top-right button
 const primaryMatchActionLabel = computed(() => {
   if (!isInGame.value) return "";
-  return isOnline.value ? "Surrender" : "Reset Match";
+  if (isOnline.value) return game.phase === "gameover" ? "Play Again" : "Surrender";
+  return "Reset Match";
 });
-
-function onPrimaryMatchAction() {
-  if (!isInGame.value) return;
-  if (isOnline.value) {
-    if (myPlayer.value) {
-      game.surrender(myPlayer.value);
-      online.localDirty = true;
-      pushMyState("surrender");
-    }
-  } else {
-    onResetClick();
-  }
-}
-
-function winnerMessage(w) {
-  const me = myPlayer.value;
-  if (!me) return `Player ${w} wins.\nGG!`;
-  if (w === null || w === undefined) {
-    return game.matchInvalid ? `Match invalid — ${game.matchInvalidReason || "dodged"}.` : "Match ended.";
-  }
-  return w === me ? "You win!\nGG!" : "Opponent wins.\nGG!";
-}
-
-const sfxPick = new Audio();
-const sfxPlace = new Audio();
-const bgm = new Audio();
-
-function loadAudioSafe(audio, url) {
-  try {
-    audio.src = url;
-    audio.load?.();
-  } catch {
-    // ignore
-  }
-}
-
-function initAudio() {
-  // optional: place your files here (add them under src/assets/audio/*)
-  loadAudioSafe(sfxPick, new URL("./assets/audio/pick.mp3", import.meta.url).href);
-  loadAudioSafe(sfxPlace, new URL("./assets/audio/place.mp3", import.meta.url).href);
-  loadAudioSafe(bgm, new URL("./assets/audio/bgm.mp3", import.meta.url).href);
-  bgm.loop = true;
-  bgm.volume = 0.25;
-}
-
-function playSfx(a) {
-  try {
-    a.currentTime = 0;
-    a.play?.();
-  } catch {
-    // ignore autoplay restrictions
-  }
-}
-
-function tryStartBgm() {
-  try {
-    if (!bgm.src) return;
-    bgm.play?.();
-  } catch {}
-}
-
-initAudio();
-
-watch(
-  () => game.lastMove,
-  (mv, prev) => {
-    if (!mv || mv === prev) return;
-    if (mv.type === "draft") playSfx(sfxPick);
-    if (mv.type === "place") playSfx(sfxPlace);
-  }
-);
 
 const canAct = computed(() => {
   if (!isOnline.value) return true;
@@ -661,6 +689,22 @@ const canAct = computed(() => {
   return false;
 });
 
+// ✅ Lock input briefly when entering heavy screens (prevents early clicks before UI is painted)
+watch(
+  () => screen.value,
+  (nv, ov) => {
+    if (nv === ov) return;
+    if (["online", "couch", "ai"].includes(nv)) {
+      startUiLock({ label: "Loading match…", hint: "Syncing visuals and state…", minMs: 850 });
+      stopUiLockAfterPaint(850);
+    }
+    if (["auth", "mode", "quick", "quick_find", "quick_make", "settings", "credits", "ranked"].includes(nv)) {
+      // If we navigated back to menus, ensure the lock isn't stuck.
+      if (uiLock.active && Date.now() > uiLock._minUntil) stopUiLock();
+    }
+  }
+);
+
 /* =========================
    ✅ MODAL SYSTEM
 ========================= */
@@ -668,101 +712,152 @@ const modal = reactive({
   open: false,
   title: "Notice",
   message: "",
-  tone: "info", // "info" | "bad" | "good"
-  cta: null, // null | "reset"
+  tone: "info", // "info" | "bad" | "good" | "victory"
+  actions: [],
+  locked: false,
 });
 
 const modalLines = computed(() => String(modal.message || "").split("\n").filter(Boolean));
+const modalDotClass = computed(() =>
+  modal.tone === "bad" ? "bad" : modal.tone === "victory" ? "victory" : modal.tone === "good" ? "good" : "info"
+);
 
-const modalDotClass = computed(() => {
-  if (modal.tone === "bad") return "bad";
-  if (modal.tone === "good") return "good";
-  return "info";
+const modalCardClass = computed(() => ({
+  modalVictory: modal.tone === "victory",
+  modalDanger: modal.tone === "bad",
+  modalResult: isResultModal.value,
+}));
+
+// ✅ Result-style modal (Victory/Defeat) helpers + confetti
+const isResultModal = computed(() => {
+  const t = String(modal.title || "").toUpperCase().trim();
+  if (t === "VICTORY" || t === "DEFEAT") return true;
+  if (t === "MATCH ENDED") return true;
+  if (/^PLAYER\s*[12]\s+WINS$/.test(t)) return true;
+  return false;
 });
 
-function showModal({ title = "Notice", message = "", tone = "info", cta = null } = {}) {
+const showConfetti = computed(() => modal.open && String(modal.title || '').toUpperCase().trim() === 'VICTORY');
+const confettiPieces = ref([]);
+
+function genConfetti(n = 70) {
+  const out = [];
+  for (let i = 0; i < n; i++) {
+    const left = Math.random() * 100;
+    const delay = Math.random() * 0.25;
+    const dur = 0.9 + Math.random() * 0.8;
+    const rot = Math.floor(Math.random() * 360);
+    const drift = (Math.random() * 2 - 1) * 26;
+    const size = 6 + Math.random() * 8;
+    out.push({ id: i + '-' + Date.now(), left, delay, dur, rot, drift, size });
+  }
+  confettiPieces.value = out;
+}
+
+watch(showConfetti, (v) => {
+  if (v) {
+    genConfetti(78);
+    // refresh once for longer animations
+    window.setTimeout(() => { if (showConfetti.value) genConfetti(60); }, 520);
+  } else {
+    confettiPieces.value = [];
+  }
+});
+
+const resultBigTitle = computed(() => {
+  if (!isResultModal.value) return String(modal.title || "");
+  return String(modal.title || "").toUpperCase().trim();
+});
+
+const resultSubTitle = computed(() => {
+  if (!isResultModal.value) return "";
+  const t = String(modal.title || "").toUpperCase().trim();
+  if (t === "VICTORY") return "YOU WIN";
+  if (t === "DEFEAT") return "YOU LOSE";
+  return "";
+});
+
+const resultHeroClass = computed(() => {
+  const t = String(modal.title || "").toUpperCase().trim();
+  return {
+    victory: t === "VICTORY",
+    defeat: t === "DEFEAT",
+    couchP1: t === "PLAYER 1 WINS",
+    couchP2: t === "PLAYER 2 WINS",
+  };
+});
+
+
+// ✅ Ping indicator helpers
+const pingLevelClass = computed(() => {
+  const ms = Number(online.pingMs ?? NaN);
+  if (!Number.isFinite(ms)) return 'na';
+  if (ms <= 120) return 'good';
+  if (ms <= 300) return 'mid';
+  return 'bad';
+});
+
+async function copyToClipboard(text) {
+  try {
+    await navigator.clipboard.writeText(String(text || ''));
+    showModal({ title: 'Copied', tone: 'good', message: 'Copied to clipboard.' });
+  } catch {
+    // fallback
+    try {
+      const ta = document.createElement('textarea');
+      ta.value = String(text || '');
+      ta.style.position = 'fixed';
+      ta.style.left = '-9999px';
+      document.body.appendChild(ta);
+      ta.select();
+      document.execCommand('copy');
+      document.body.removeChild(ta);
+      showModal({ title: 'Copied', tone: 'good', message: 'Copied to clipboard.' });
+    } catch {
+      showModal({ title: 'Copy Failed', tone: 'bad', message: 'Could not copy. Please copy manually.' });
+    }
+  }
+}
+
+function copyLobbyCode() {
+  if (!online.code) return;
+  copyToClipboard(online.code);
+}
+
+function showModal({ title = "Notice", message = "", tone = "info", actions = null, locked = false } = {}) {
   modal.title = title;
   modal.message = message;
   modal.tone = tone;
-  modal.cta = cta;
+  // If actions is explicitly provided as an array (even empty), respect it.
+  // If actions is null/undefined, default to a single OK button.
+  if (Array.isArray(actions)) modal.actions = actions;
+  else modal.actions = [{ label: "OK", tone: "primary" }];
+  modal.locked = !!locked;
   modal.open = true;
 }
 
 function closeModal() {
   modal.open = false;
+  modal.actions = [];
+  modal.locked = false;
 }
 
-function resetFromModal() {
-  closeModal();
-  game.resetGame();
+function onModalAction(a) {
+  try {
+    if (a && typeof a.onClick === "function") return a.onClick();
+  } finally {
+    if (modal.open) closeModal();
+  }
 }
 
 /* =========================
-   ✅ Hijack alert() so Board's illegal placement alert becomes a nice modal
+   ✅ Hijack alert() -> Modal
 ========================= */
 let originalAlert = null;
 let tickTimer = null;
 
-onMounted(() => {
-  originalAlert = window.alert;
-  window.alert = (msg) => {
-    showModal({
-      title: "Illegal Placement",
-      message: String(msg || "That placement is not allowed."),
-      tone: "bad",
-    });
-  };
-
-  // Timer watchdog (draft 30s / place 60s)
-  tickTimer = window.setInterval(() => {
-    if (!isOnline.value) return;
-    // Only one side needs to finalize; allow either client to declare.
-    const changed = game.checkAndApplyTimeout(Date.now());
-    if (changed) {
-      online.localDirty = true;
-      pushMyState("timeout");
-    }
-  }, 250);
-
-  // Start BGM on first user gesture
-  const startBgmOnce = () => {
-    tryStartBgm();
-    window.removeEventListener("pointerdown", startBgmOnce);
-    window.removeEventListener("keydown", startBgmOnce);
-  };
-  window.addEventListener("pointerdown", startBgmOnce, { once: true });
-  window.addEventListener("keydown", startBgmOnce, { once: true });
-});
-
-onBeforeUnmount(() => {
-  if (originalAlert) window.alert = originalAlert;
-  if (tickTimer) window.clearInterval(tickTimer);
-});
-
-/* =========================
-   ✅ Winner modal when phase becomes gameover
-========================= */
-watch(
-  () => game.phase,
-  (p, prev) => {
-    if (p === "gameover" && prev !== "gameover") {
-      const w = game.winner ?? "?";
-      showModal({
-        title: "Victory!",
-        message: winnerMessage(w),
-        tone: "good",
-        cta: "reset",
-      });
-    }
-  }
-);
-
 /* =========================
    QUICK MATCH — Supabase REST
-   Env:
-   - VITE_SUPABASE_URL
-   - VITE_SUPABASE_ANON_KEY
-   Table: public.pb_lobbies
 ========================= */
 const online = reactive({
   lobbyId: null,
@@ -775,6 +870,10 @@ const online = reactive({
   applyingRemote: false,
   pingMs: null,
   localDirty: false,
+  lastHostId: null,
+  lastGuestId: null,
+  waitingForOpponent: true,
+  hostWaitStartedAt: null,
 });
 
 const publicLobbies = ref([]);
@@ -832,6 +931,91 @@ function stopPolling() {
   online.pollTimer = null;
 }
 
+async function leaveOnlineLobby(reason = "left") {
+  if (!online.lobbyId) return;
+  if (!isOnline.value) return;
+
+  try {
+    const lobby = await sbSelectLobbyById(online.lobbyId);
+    if (!lobby) return;
+
+    const me = getGuestId();
+    const nextVersion = Number(lobby.version || 0) + 1;
+    const st = lobby.state || {};
+    const meta = st.meta || {};
+
+    const isPublicQuick = lobby.is_private === false;
+    const matchEndedLocally = game.phase === "gameover";
+
+    if (online.role === "host") {
+      const nextState = {
+        ...st,
+        meta: {
+          ...meta,
+          terminateReason: "host_left",
+          terminated_at: new Date().toISOString(),
+          terminated_by: me,
+          reason,
+        },
+      };
+
+      // ✅ Prefer DELETE so we don't leave dead lobbies behind.
+      // If RLS blocks delete, we close+invalidate so nobody can join.
+      try {
+        const ok = await sbDeleteLobby(online.lobbyId);
+        if (!ok) {
+          await sbForcePatchState(online.lobbyId, {
+            status: "closed",
+            state: nextState,
+            version: nextVersion,
+            updated_at: new Date().toISOString(),
+          });
+        }
+      } catch {
+        await sbForcePatchState(online.lobbyId, {
+          status: "closed",
+          state: nextState,
+          version: nextVersion,
+          updated_at: new Date().toISOString(),
+        });
+      }
+    } else {
+      const nextState = {
+        ...st,
+        meta: {
+          ...meta,
+          notice: "guest_left",
+          notice_at: new Date().toISOString(),
+          notice_by: me,
+          reason,
+        },
+      };
+
+      await sbForcePatchState(online.lobbyId, {
+        guest_id: null,
+        guest_ready: false,
+        status: "waiting",
+        state: nextState,
+        version: nextVersion,
+        updated_at: new Date().toISOString(),
+      });
+
+      // ✅ If this was a public quick-match lobby and the match already ended,
+      // clear it from DB so history doesn't pile up.
+      if (isPublicQuick && matchEndedLocally) {
+        try {
+          const ok = await sbDeleteLobby(online.lobbyId);
+          if (!ok) await sbCloseAndNukeLobby(online.lobbyId, { terminateReason: "ended", reason: "quick_cleanup" });
+        } catch {
+          // ignore
+        }
+      }
+    }
+  } catch {
+    // best-effort
+  }
+}
+
 async function sbSelectLobbyById(id) {
   const res = await fetch(sbRestUrl(`pb_lobbies?id=eq.${encodeURIComponent(id)}&select=*`), {
     headers: sbHeaders(),
@@ -853,7 +1037,8 @@ async function sbSelectLobbyByCode(code) {
 
 async function sbListPublicWaitingLobbies() {
   const q = [
-    "select=id,code,status,is_private,lobby_name,updated_at",
+    // include host/guest so we can show 1/2 or 2/2 and clean up 0/2 rows
+    "select=id,code,status,is_private,lobby_name,updated_at,host_id,guest_id,state",
     "status=eq.waiting",
     "is_private=eq.false",
     "guest_id=is.null",
@@ -904,7 +1089,9 @@ async function sbCreateLobby({ isPrivate = false, lobbyName = "" } = {}) {
 async function sbJoinLobby(lobbyId) {
   const guestId = getGuestId();
 
-  const res = await fetch(sbRestUrl(`pb_lobbies?id=eq.${encodeURIComponent(lobbyId)}`), {
+  // ✅ Guard join so you can't join closed/full/expired lobbies.
+  // This PATCH will only succeed if the lobby is still waiting and has no guest.
+  const res = await fetch(sbRestUrl(`pb_lobbies?id=eq.${encodeURIComponent(lobbyId)}&guest_id=is.null&status=eq.waiting`), {
     method: "PATCH",
     headers: { ...sbHeaders(), Prefer: "return=representation" },
     body: JSON.stringify({
@@ -924,12 +1111,88 @@ async function sbJoinLobby(lobbyId) {
 }
 
 /* =========================
-   ✅ ONLINE STATE SERIALIZATION
-   - Only sync "authoritative" game state (not selection UI)
+   ✅ Lobby hygiene helpers
 ========================= */
+const LOBBY_WAITING_TTL_MS = 5 * 60 * 1000; // 5 minutes (prevents joining very old / abandoned rooms)
 
+function lobbyPlayerCount(lobby) {
+  return (lobby?.host_id ? 1 : 0) + (lobby?.guest_id ? 1 : 0);
+}
+
+function lobbyCountLabel(lobby) {
+  return `${lobbyPlayerCount(lobby)}/2`;
+}
+
+function parseIsoMs(iso) {
+  const t = Date.parse(String(iso || ""));
+  return Number.isFinite(t) ? t : 0;
+}
+
+function isLobbyExpired(lobby) {
+  if (!lobby) return true;
+  if (String(lobby.status || "").toLowerCase() === "closed") return true;
+
+  const pc = lobbyPlayerCount(lobby);
+  if (pc === 0) return true;
+
+  const st = lobby?.state || {};
+  const meta = st?.meta || {};
+  if (meta?.terminateReason === "expired") return true;
+
+  // If it's waiting with no guest and hasn't been touched in a while, treat as abandoned.
+  const upd = parseIsoMs(lobby.updated_at);
+  if (String(lobby.status || "").toLowerCase() === "waiting" && !lobby.guest_id) {
+    if (upd && Date.now() - upd > LOBBY_WAITING_TTL_MS) return true;
+  }
+  return false;
+}
+
+async function cleanupLobbyIfNeeded(lobby, { reason = "cleanup" } = {}) {
+  if (!lobby?.id) return;
+
+  const pc = lobbyPlayerCount(lobby);
+  if (pc === 0) {
+    try {
+      const ok = await sbDeleteLobby(lobby.id);
+      if (!ok) await sbCloseAndNukeLobby(lobby.id, { terminateReason: "empty", reason });
+    } catch {}
+    return;
+  }
+
+  if (isLobbyExpired(lobby)) {
+    try {
+      const ok = await sbDeleteLobby(lobby.id);
+      if (!ok) await sbCloseAndNukeLobby(lobby.id, { terminateReason: "expired", reason });
+    } catch {}
+  }
+}
+
+
+async function sbDeleteLobby(id) {
+  // best-effort delete. If RLS blocks DELETE, fallback to closing.
+  const res = await fetch(sbRestUrl(`pb_lobbies?id=eq.${encodeURIComponent(id)}`), {
+    method: "DELETE",
+    headers: sbHeaders(),
+  });
+  if (res.ok) return true;
+  return false;
+}
+
+async function sbCloseAndNukeLobby(id, metaPatch = {}) {
+  // Fallback when DELETE is not allowed.
+  const nowIso = new Date().toISOString();
+  const lobby = await sbSelectLobbyById(id);
+  const st = lobby?.state || {};
+  const meta = st.meta || {};
+  const nextState = { ...st, meta: { ...meta, ...metaPatch, closed_at: nowIso } };
+  const nextVersion = Number(lobby?.version || 0) + 1;
+  await sbForcePatchState(id, { status: "closed", state: nextState, version: nextVersion, updated_at: nowIso });
+}
+
+/* =========================
+   ✅ ONLINE STATE SERIALIZATION
+========================= */
 function stableHash(str) {
-  // FNV-1a 32-bit
   let h = 0x811c9dc5;
   for (let i = 0; i < str.length; i++) {
     h ^= str.charCodeAt(i);
@@ -939,9 +1202,8 @@ function stableHash(str) {
 }
 
 function computePlayerAssignment(code, hostId, guestId) {
-  // deterministic: both clients compute same mapping from lobby code
   const h = stableHash(String(code || ""));
-  const hostIsP1 = (h % 2) === 0;
+  const hostIsP1 = h % 2 === 0;
   const p1 = hostIsP1 ? hostId : guestId;
   const p2 = hostIsP1 ? guestId : hostId;
   return { hostIsP1, players: { 1: p1, 2: p2 } };
@@ -955,8 +1217,6 @@ function getMyPlayerFromPlayers(players, myId) {
 }
 
 function buildSyncedState(meta = {}) {
-  // "meta" keeps players mapping + started_at etc.
-  // only include store fields that MUST match between players
   return {
     meta,
     game: {
@@ -965,31 +1225,30 @@ function buildSyncedState(meta = {}) {
       boardH: game.boardH,
       allowFlip: game.allowFlip,
 
-      // core boards
       board: game.board,
       draftBoard: game.draftBoard,
 
-      // turn systems
       draftTurn: game.draftTurn,
       currentPlayer: game.currentPlayer,
 
-      // pools
       pool: game.pool,
       picks: game.picks,
       remaining: game.remaining,
       placedCount: game.placedCount,
 
-      // timers / validity
       turnStartedAt: game.turnStartedAt,
       matchInvalid: game.matchInvalid,
       matchInvalidReason: game.matchInvalidReason,
       turnLimitDraftSec: game.turnLimitDraftSec,
       turnLimitPlaceSec: game.turnLimitPlaceSec,
 
-      // win
       winner: game.winner,
 
-      // NOTE: exclude selection/rotation/flipped to avoid fighting
+      rematch: game.rematch,
+      rematchDeclinedBy: game.rematchDeclinedBy,
+
+      battleClockSec: game.battleClockSec,
+      battleClockLastTickAt: game.battleClockLastTickAt,
     },
   };
 }
@@ -1000,8 +1259,6 @@ function applySyncedState(state) {
   online.applyingRemote = true;
   try {
     const g = state.game;
-
-    // patch only known fields to avoid nuking Pinia internals
     online.localDirty = false;
 
     game.$patch({
@@ -1028,9 +1285,13 @@ function applySyncedState(state) {
       turnLimitPlaceSec: g.turnLimitPlaceSec,
 
       winner: g.winner,
+
+      rematch: g.rematch,
+      rematchDeclinedBy: g.rematchDeclinedBy,
+      battleClockSec: g.battleClockSec,
+      battleClockLastTickAt: g.battleClockLastTickAt,
     });
   } finally {
-    // release in next tick so watchers don't instantly re-push
     setTimeout(() => {
       online.applyingRemote = false;
     }, 0);
@@ -1038,7 +1299,6 @@ function applySyncedState(state) {
 }
 
 async function sbPatchStateWithVersionGuard(lobbyId, knownVersion, patchObj) {
-  // optimistic update: only update if current version matches knownVersion
   const url = sbRestUrl(`pb_lobbies?id=eq.${encodeURIComponent(lobbyId)}&version=eq.${encodeURIComponent(knownVersion)}`);
   const res = await fetch(url, {
     method: "PATCH",
@@ -1052,11 +1312,10 @@ async function sbPatchStateWithVersionGuard(lobbyId, knownVersion, patchObj) {
   }
 
   const rows = await res.json().catch(() => []);
-  return rows?.[0] || null; // null if 0 rows (version mismatch)
+  return rows?.[0] || null;
 }
 
 async function sbForcePatchState(lobbyId, patchObj) {
-  // fallback: patch without version guard (rare)
   const url = sbRestUrl(`pb_lobbies?id=eq.${encodeURIComponent(lobbyId)}`);
   const res = await fetch(url, {
     method: "PATCH",
@@ -1076,43 +1335,59 @@ async function pushMyState(reason = "") {
   if (!online.lobbyId) return;
   if (online.applyingRemote) return;
 
-  // only the player whose turn can push moves (prevents overwrites)
-  // BUT: we allow one-shot push right after a local action (localDirty)
-  if (!canAct.value && !online.localDirty) return;
+  // ✅ Only push gameplay state when you are allowed to act.
+  // Allow a few non-turn actions (rematch responses / surrender).
+  // IMPORTANT: after you make a move, the store immediately flips the turn to the opponent.
+  // That means `canAct` becomes false *right after your move*, but we still MUST push your move
+  // or the other player will never receive it.
+  const nonTurnAllowed =
+    reason === "surrender" || String(reason || "").startsWith("rematch_") || reason === "rematch_request";
+
+  if (online.waitingForOpponent && !nonTurnAllowed) return;
+
+  const me = myPlayer.value;
+  const lastByMe =
+    !!me &&
+    !!game.lastMove &&
+    Number(game.lastMove.player) === Number(me) &&
+    (game.lastMove.type === "draft" ||
+      game.lastMove.type === "place" ||
+      game.lastMove.type === "timeout" ||
+      game.lastMove.type === "dodged");
+
+  // `watch` pushes are debounced from reactive changes.
+  // Allow them when it's your turn OR when you just made the last move (even if turn already flipped).
+  if (reason === "watch") {
+    if (!canAct.value && !(online.localDirty && lastByMe)) return;
+  } else {
+    if (!canAct.value && !nonTurnAllowed) return;
+  }
 
   onlineSyncing.value = true;
-
   try {
     const lobby = await sbSelectLobbyById(online.lobbyId);
     if (!lobby) return;
 
-    const meta = (lobby.state && lobby.state.meta) ? lobby.state.meta : {};
+    const meta = lobby.state?.meta ? lobby.state.meta : {};
     const snapshot = buildSyncedState(meta);
-
     const nextVersion = Number(lobby.version || 0) + 1;
 
-    // try guarded update first
     let updated = await sbPatchStateWithVersionGuard(online.lobbyId, lobby.version, {
       state: snapshot,
       version: nextVersion,
       updated_at: new Date().toISOString(),
     });
 
-    // if mismatch (0 rows), refetch once and try again
     if (!updated) {
       const fresh = await sbSelectLobbyById(online.lobbyId);
       if (!fresh) return;
 
-      // if remote already contains our intended change (rare), just accept it
-      const freshState = fresh.state || {};
-      // otherwise retry with new version
       updated = await sbPatchStateWithVersionGuard(online.lobbyId, fresh.version, {
         state: snapshot,
         version: Number(fresh.version || 0) + 1,
         updated_at: new Date().toISOString(),
       });
 
-      // final fallback: unguarded (should basically never happen if turns are respected)
       if (!updated) {
         updated = await sbForcePatchState(online.lobbyId, {
           state: snapshot,
@@ -1128,7 +1403,7 @@ async function pushMyState(reason = "") {
       online.localDirty = false;
     }
   } catch {
-    // ignore transient errors
+    // quiet
   } finally {
     onlineSyncing.value = false;
   }
@@ -1136,15 +1411,13 @@ async function pushMyState(reason = "") {
 
 function maybeSetMyPlayerFromLobby(lobby) {
   const myId = getGuestId();
-  const st = lobby?.state || {};
-  const players = st?.meta?.players;
+  const players = lobby?.state?.meta?.players;
 
   if (players) {
     myPlayer.value = getMyPlayerFromPlayers(players, myId);
     return;
   }
 
-  // if no players yet, infer from deterministic assignment
   if (lobby?.code && lobby?.host_id && lobby?.guest_id) {
     const { players: p } = computePlayerAssignment(lobby.code, lobby.host_id, lobby.guest_id);
     myPlayer.value = getMyPlayerFromPlayers(p, myId);
@@ -1155,8 +1428,6 @@ async function ensureOnlineInitialized(lobby) {
   if (!lobby) return;
 
   const myId = getGuestId();
-
-  // if state.meta.players missing, allow either client to initialize (deterministic)
   const hasPlayers = !!lobby?.state?.meta?.players;
   if (hasPlayers) return;
 
@@ -1164,7 +1435,6 @@ async function ensureOnlineInitialized(lobby) {
 
   const { players } = computePlayerAssignment(lobby.code, lobby.host_id, lobby.guest_id);
 
-  // init local fresh game BEFORE writing
   game.boardW = 10;
   game.boardH = 6;
   game.allowFlip = allowFlip.value;
@@ -1176,7 +1446,6 @@ async function ensureOnlineInitialized(lobby) {
     created_by: myId,
   });
 
-  // write it (unguarded is OK here since it’s the first init)
   const nextVersion = Number(lobby.version || 0) + 1;
   const updated = await sbForcePatchState(lobby.id, {
     state: initState,
@@ -1189,6 +1458,9 @@ async function ensureOnlineInitialized(lobby) {
 }
 
 function startPollingLobby(lobbyId, role) {
+  // ✅ Prevent early clicks while the online screen + first poll are not fully rendered.
+  startUiLock({ label: "Connecting…", hint: "Establishing link to lobby…", minMs: 900 });
+
   stopPolling();
   online.polling = true;
   online.lobbyId = lobbyId;
@@ -1196,26 +1468,130 @@ function startPollingLobby(lobbyId, role) {
   online.lastAppliedVersion = 0;
   online.lastSeenUpdatedAt = null;
 
-  // go to online screen immediately
+
+  // ✅ Reset per-lobby trackers (prevents false 'opponent left' on fresh lobbies)
+  online.lastHostId = null;
+  online.lastGuestId = null;
+  online.waitingForOpponent = true;
+  online.code = null;
+  online.pingMs = null;
+  online.localDirty = false;
+  online.hostWaitStartedAt = role === "host" ? Date.now() : null;
+  myPlayer.value = null;
+
   screen.value = "online";
   game.boardW = 10;
   game.boardH = 6;
   game.allowFlip = allowFlip.value;
   game.resetGame();
 
+  let firstPollDone = false;
+
   online.pollTimer = setInterval(async () => {
     try {
       onlineSyncing.value = true;
+
       const t0 = performance.now();
       const lobby = await sbSelectLobbyById(lobbyId);
       online.pingMs = performance.now() - t0;
+
       if (!lobby) {
         stopPolling();
         showModal({ title: "Lobby Closed", message: "The lobby no longer exists.", tone: "bad" });
         return;
       }
 
-      // if we just joined and host is missing etc.
+      online.code = lobby.code || online.code;
+
+      // Keep / show the waiting modal (host only) — but don't interrupt other modals.
+      if (online.role === "host" && online.waitingForOpponent && online.code) {
+        if (!modal.open) {
+          showWaitingForOpponentModal(online.code);
+        } else if (modal.title === "Waiting for Opponent") {
+          modal.message = `Waiting for opponent…\nCode: ${online.code || "—"}`;
+        }
+      }
+
+      const prevGuest = online.lastGuestId;
+      online.lastGuestId = lobby.guest_id || null;
+      online.lastHostId = lobby.host_id || null;
+
+      const terminateReason = lobby?.state?.meta?.terminateReason || null;
+      if (lobby.status === "closed" || terminateReason === "host_left") {
+        stopPolling();
+        myPlayer.value = null;
+        screen.value = "mode";
+        showModal({
+          title: "Match Terminated",
+          tone: "bad",
+          message: "Lobby creator left — terminating the game.\nReturning to main menu.",
+        });
+        return;
+      }
+
+      if (online.role === "host" && !prevGuest && lobby.guest_id) {
+        if (modal.open && String(modal.title || "").toLowerCase().includes("lobby ready")) closeModal();
+        if (modal.open && modal.title === "Waiting for Opponent") closeModal();
+        showModal({
+          title: "Player Joined!",
+          tone: "good",
+          message: `A challenger joined your lobby.\nCode: ${lobby.code || "—"}`,
+        });
+      }
+
+      // ✅ Host waiting timer: 60s to get a challenger.
+      if (online.role === "host" && !lobby.guest_id && lobby.host_id) {
+        if (!online.hostWaitStartedAt) online.hostWaitStartedAt = Date.now();
+        const waitedMs = Date.now() - online.hostWaitStartedAt;
+        if (waitedMs >= 60_000) {
+          // Expire room creation.
+          try {
+            if (online.lobbyId) {
+              const ok = await sbDeleteLobby(online.lobbyId);
+              if (!ok) await sbCloseAndNukeLobby(online.lobbyId, { terminateReason: "expired" });
+            }
+          } catch {
+            // ignore
+          } finally {
+            stopPolling();
+            myPlayer.value = null;
+            screen.value = "mode";
+            closeModal();
+            showModal({ title: "Room Creation Expired", tone: "bad", message: "No one joined within 60 seconds." });
+          }
+          return;
+        }
+      }
+
+      if (online.role === "host" && prevGuest && !lobby.guest_id && lobby.host_id) {
+        myPlayer.value = null;
+        game.turnStartedAt = null;
+        game.battleClockLastTickAt = null;
+        online.waitingForOpponent = true;
+        online.hostWaitStartedAt = Date.now();
+        showModal({
+          title: "Opponent Left",
+          tone: "bad",
+          message: "Your opponent left.\nThis lobby will stay open and wait for a new challenger.",
+          actions: [
+            {
+              label: "OK",
+              tone: "primary",
+              onClick: () => {
+                showWaitingForOpponentModal(lobby.code || online.code);
+              },
+            },
+          ],
+        });
+      }
+
+      online.waitingForOpponent = !(lobby.host_id && lobby.guest_id && lobby?.state?.meta?.players);
+
+      // If the match is ready, ensure the waiting modal is gone.
+      if (!online.waitingForOpponent && modal.open && modal.title === "Waiting for Opponent") {
+        closeModal();
+      }
+
       if (lobby.host_id && lobby.guest_id) {
         await ensureOnlineInitialized(lobby);
       }
@@ -1230,6 +1606,14 @@ function startPollingLobby(lobbyId, role) {
         online.lastSeenUpdatedAt = lobby.updated_at || null;
         applySyncedState(st);
       }
+
+      if (!firstPollDone) {
+        firstPollDone = true;
+        // Allow interaction after the first successful paint + poll.
+        uiLock.label = "Loaded";
+        uiLock.hint = "Entering match…";
+        stopUiLockAfterPaint(700);
+      }
     } catch {
       // keep polling quietly
     } finally {
@@ -1239,9 +1623,10 @@ function startPollingLobby(lobbyId, role) {
 }
 
 /* =========================
-   Auto-push on local authoritative changes (online)
-   - This is what makes "P1 pick" instantly appear on P2
+   Auto-push on authoritative changes
 ========================= */
+let pushDebounceTimer = null;
+
 watch(
   () => [
     isOnline.value,
@@ -1249,7 +1634,6 @@ watch(
     game.draftTurn,
     game.currentPlayer,
     game.winner,
-    // JSON string keeps it simple + stable for small boards
     JSON.stringify(game.draftBoard),
     JSON.stringify(game.board),
     JSON.stringify(game.pool),
@@ -1260,24 +1644,25 @@ watch(
     String(game.matchInvalid),
     String(game.matchInvalidReason),
     String(game.winner),
+    JSON.stringify(game.battleClockSec),
+    String(game.battleClockLastTickAt),
+    JSON.stringify(game.rematch),
+    String(game.rematchDeclinedBy),
   ],
-  async () => {
+  () => {
     if (!isOnline.value) return;
     if (!online.lobbyId) return;
     if (online.applyingRemote) return;
-    // mark local changes for upload
+
     online.localDirty = true;
 
-    // small debounce: multiple mutations in one tick (draftPick/placeAt) -> single push
     if (pushDebounceTimer) clearTimeout(pushDebounceTimer);
     pushDebounceTimer = setTimeout(() => pushMyState("watch"), 80);
   }
 );
 
-let pushDebounceTimer = null;
-
 /* =========================
-   ONLINE RESET
+   ONLINE RESET / ACTIONS
 ========================= */
 async function onResetClick() {
   if (!isOnline.value || !online.lobbyId) {
@@ -1285,13 +1670,11 @@ async function onResetClick() {
     return;
   }
 
-  // online: reset the shared state (anyone can, but turn guard still applies)
   try {
     const lobby = await sbSelectLobbyById(online.lobbyId);
     if (!lobby) return;
 
-    // keep players mapping
-    const meta = (lobby.state && lobby.state.meta) ? lobby.state.meta : {};
+    const meta = lobby.state?.meta ? lobby.state.meta : {};
     game.boardW = 10;
     game.boardH = 6;
     game.allowFlip = allowFlip.value;
@@ -1310,16 +1693,303 @@ async function onResetClick() {
   }
 }
 
+function winnerMessage(w) {
+  const me = myPlayer.value;
+  if (!me) {
+    // Couch/AI: title already shows the winner.
+    if (!isOnline.value) return "GG!";
+    return `Player ${w} wins.\nGG!`;
+  }
+  if (w === null || w === undefined) {
+    return game.matchInvalid ? `Match invalid — ${game.matchInvalidReason || "dodged"}.` : "Match ended.";
+  }
+  return w === me ? "You win!\nGG!" : "Opponent wins.\nGG!";
+}
+
+function stopAndExitToMenu(note = "") {
+  leaveOnlineLobby("exit").finally(() => {
+    stopPolling();
+    myPlayer.value = null;
+    screen.value = "mode";
+    if (note) showModal({ title: "Returned", tone: "info", message: note });
+  });
+}
+
+async function cancelWaitingLobby() {
+  try {
+    if (online.lobbyId) {
+      const ok = await sbDeleteLobby(online.lobbyId);
+      if (!ok) await sbCloseAndNukeLobby(online.lobbyId, { terminateReason: "cancel_wait" });
+    }
+  } catch {
+    // ignore
+  } finally {
+    closeModal();
+    stopPolling();
+    myPlayer.value = null;
+    screen.value = "mode";
+  }
+}
+
+function showWaitingForOpponentModal(code) {
+  showModal({
+    title: "Waiting for Opponent",
+    tone: "info",
+    message: `Waiting for opponent…\nCode: ${code || "—"}`,
+    actions: online.role === "host"
+      ? [{ label: "Cancel Waiting", tone: "soft", onClick: cancelWaitingLobby }]
+      : [],
+    locked: true,
+  });
+}
+
+function requestPlayAgain() {
+  if (!isOnline.value) {
+    onResetClick();
+    return;
+  }
+  if (!myPlayer.value) return;
+
+  const me = myPlayer.value;
+  const other = me === 1 ? 2 : 1;
+
+  if (game.rematchDeclinedBy) {
+    stopAndExitToMenu("Rematch declined.");
+    return;
+  }
+
+  // If opponent already requested, your click acts as ACCEPT.
+  if (game.rematch?.[other] && !game.rematch?.[me]) {
+    game.requestRematch(me);
+    online.localDirty = true;
+    pushMyState("rematch_yes");
+    return;
+  }
+
+  // Already requested.
+  if (game.rematch?.[me]) {
+    showModal({
+      title: "Rematch Requested",
+      tone: "info",
+      message: "Waiting for the other player to answer…",
+      actions: [
+        { label: "OK", tone: "primary" },
+        { label: "Cancel & Exit", tone: "soft", onClick: () => stopAndExitToMenu("Exited match.") },
+      ],
+    });
+    return;
+  }
+
+  game.requestRematch(me);
+  online.localDirty = true;
+  pushMyState("rematch_request");
+
+  showModal({
+    title: "Rematch Requested",
+    tone: "info",
+    message: "Waiting for the other player to answer…",
+    actions: [
+      { label: "OK", tone: "primary" },
+      { label: "Cancel & Exit", tone: "soft", onClick: () => stopAndExitToMenu("Exited match.") },
+    ],
+  });
+}
+
+function onPrimaryMatchAction() {
+  if (!isInGame.value) return;
+
+  if (isOnline.value) {
+    if (!myPlayer.value) return;
+
+    if (game.phase === "gameover") {
+      requestPlayAgain();
+      return;
+    }
+
+    game.surrender(myPlayer.value);
+    online.localDirty = true;
+    pushMyState("surrender");
+    return;
+  }
+
+  onResetClick();
+}
+
+/* =========================
+   GAMEOVER + REMATCH UX
+========================= */
+
+function ensureRematchPrompt() {
+  if (!isOnline.value) return;
+  if (game.phase !== "gameover") return;
+  if (!myPlayer.value) return;
+
+  const me = myPlayer.value;
+  const other = me === 1 ? 2 : 1;
+
+  if (game.rematchDeclinedBy) return;
+
+  // If opponent requested and you haven't responded, force the Accept/Decline prompt.
+  if (game.rematch?.[other] && !game.rematch?.[me]) {
+    // Avoid spamming the same modal every poll.
+    if (modal.open && modal.title === "Play Again?") return;
+
+    showModal({
+      title: "Play Again?",
+      tone: "good",
+      message: "Opponent wants a rematch.\nDo you accept?",
+      actions: [
+        {
+          label: "ACCEPT",
+          tone: "primary",
+          onClick: () => {
+            game.requestRematch(me);
+            online.localDirty = true;
+            pushMyState("rematch_yes");
+          },
+        },
+        {
+          label: "DECLINE",
+          tone: "soft",
+          onClick: () => {
+            game.declineRematch(me);
+            online.localDirty = true;
+            pushMyState("rematch_no");
+          },
+        },
+      ],
+    });
+  }
+}
+
+watch(
+  () => game.phase,
+  (p, prev) => {
+    if (p !== "gameover" || prev === "gameover") return;
+
+    if (isOnline.value && myPlayer.value) {
+      const me = myPlayer.value;
+      const other = me === 1 ? 2 : 1;
+
+      if (game.lastMove?.type === "dodged") {
+        // ✅ Auto dodge ends the session for BOTH players and removes the lobby.
+        const msg =
+          game.matchInvalidReason ||
+          `Player ${game.lastMove?.player || "?"} did not pick — automatically dodges the game.`;
+
+        showModal({
+  title: "Auto Dodge",
+  tone: "bad",
+  message: msg + "\n\nReturning to main menu…",
+  actions: [{ label: "OK", tone: "primary" }],
+});
+
+        // terminate + cleanup in the background (best-effort)
+        (async () => {
+          try {
+            if (online.lobbyId) {
+              const ok = await sbDeleteLobby(online.lobbyId);
+              if (!ok) {
+                await sbCloseAndNukeLobby(online.lobbyId, {
+                  terminateReason: "auto_dodge",
+                  matchInvalidReason: msg,
+                });
+              }
+            }
+          } catch {
+            // ignore
+          } finally {
+            stopPolling();
+            myPlayer.value = null;
+            screen.value = "mode";
+          }
+        })();
+
+        return;
+      }
+
+      if (game.rematch?.[other] && !game.rematch?.[me] && !game.rematchDeclinedBy) {
+        ensureRematchPrompt();
+        return;
+      }
+    }
+
+    const w = game.winner;
+    const me = myPlayer.value;
+    const iWin = me && (w === me);
+    const isBad = game.lastMove?.type === "timeout" || game.lastMove?.type === "surrender";
+
+    // ✅ Result modal copy rules:
+    // - Couch/AI: show PLAYER 1 WINS / PLAYER 2 WINS
+    // - Online: show VICTORY / DEFEAT per screen
+    let title = "MATCH ENDED";
+    let tone = "good";
+
+    if (!isOnline.value) {
+      title = w ? `PLAYER ${w} WINS` : "MATCH ENDED";
+      tone = w ? "victory" : "good";
+    } else {
+      title = iWin ? "VICTORY" : w ? "DEFEAT" : "MATCH ENDED";
+      tone = iWin ? "victory" : isBad ? "bad" : "good";
+    }
+
+    showModal({
+      title,
+      message: winnerMessage(w ?? "?"),
+      tone,
+      actions: isOnline.value
+        ? [
+            { label: "Play Again", tone: "primary", onClick: requestPlayAgain },
+            { label: "Main Menu", tone: "soft", onClick: () => stopAndExitToMenu("") },
+          ]
+        : [{ label: "Play Again", tone: "primary", onClick: onResetClick }],
+    });
+  }
+);
+
+watch(
+  () => [game.phase, JSON.stringify(game.rematch), game.rematchDeclinedBy],
+  () => {
+    if (!isOnline.value) return;
+    if (game.phase !== "gameover") return;
+
+    // If opponent requests after your gameover modal is already open,
+    // update it live to the Accept/Decline prompt.
+    ensureRematchPrompt();
+
+    if (game.rematchDeclinedBy) {
+      stopAndExitToMenu("Rematch declined. Game terminated.");
+      return;
+    }
+
+    if (game.rematch?.[1] && game.rematch?.[2]) {
+      closeModal();
+      onResetClick();
+    }
+  }
+);
+
 /* =========================
    Quick Match handlers
 ========================= */
-
 async function refreshPublicLobbies() {
   if (!(await ensureSupabaseReadyOrExplain())) return;
   loadingPublic.value = true;
   try {
     const rows = await sbListPublicWaitingLobbies();
-    publicLobbies.value = Array.isArray(rows) ? rows : [];
+    const list = Array.isArray(rows) ? rows : [];
+
+    // ✅ Clean up empty/expired lobbies so they don't stay joinable.
+    // Run best-effort deletes in the background of this refresh.
+    for (const l of list) {
+      // If a row has 0/2 or is expired, delete/close it.
+      if (lobbyPlayerCount(l) === 0 || isLobbyExpired(l)) {
+        cleanupLobbyIfNeeded(l, { reason: "list_refresh" });
+      }
+    }
+
+    // Only show lobbies that are still valid for joining.
+    publicLobbies.value = list.filter((l) => lobbyPlayerCount(l) > 0 && !isLobbyExpired(l));
   } catch (e) {
     showModal({
       title: "Refresh Failed",
@@ -1339,19 +2009,31 @@ async function joinPublicLobby(lobby) {
   if (!(await ensureSupabaseReadyOrExplain())) return;
   try {
     showModal({ title: "Joining...", tone: "info", message: `Joining lobby...\nCode: ${lobby?.code || "—"}` });
-    const joined = await sbJoinLobby(lobby.id);
-    closeModal();
-    showModal({ title: "Joined!", tone: "good", message: `Connected.\nCode: ${joined?.code || lobby?.code || "—"}` });
 
-    // start online polling immediately
+    // Re-check freshness so you can't join an expired lobby from a stale list.
+    const fresh = await sbSelectLobbyById(lobby.id);
+    if (!fresh || isLobbyExpired(fresh) || fresh.guest_id) {
+      closeModal();
+      // Best-effort cleanup so it won't appear again.
+      if (fresh) cleanupLobbyIfNeeded(fresh, { reason: "join_public_expired" });
+      showModal({ title: "Lobby Expired", tone: "bad", message: "That lobby is no longer available." });
+      await refreshPublicLobbies();
+      return;
+    }
+
+    const joined = await sbJoinLobby(lobby.id);
+    if (!joined) {
+      closeModal();
+      showModal({ title: "Join Failed", tone: "bad", message: "Someone else joined first, or the lobby was closed." });
+      await refreshPublicLobbies();
+      return;
+    }
+    closeModal();
+    showModal({ title: "Joined!", tone: "good", message: `Connected.\nCode: ${lobby?.code || "—"}` });
     startPollingLobby(lobby.id, "guest");
   } catch (e) {
     closeModal();
-    showModal({
-      title: "Join Failed",
-      tone: "bad",
-      message: String(e?.message || e || "Could not join lobby."),
-    });
+    showModal({ title: "Join Failed", tone: "bad", message: String(e?.message || e || "Could not join lobby.") });
   }
 }
 
@@ -1374,6 +2056,14 @@ async function joinByCode() {
       return;
     }
 
+    // ✅ Don't allow joining expired/closed lobbies.
+    if (isLobbyExpired(lobby)) {
+      closeModal();
+      cleanupLobbyIfNeeded(lobby, { reason: "join_by_code_expired" });
+      showModal({ title: "Lobby Expired", tone: "bad", message: "That lobby is expired or closed." });
+      return;
+    }
+
     if (lobby.guest_id) {
       closeModal();
       showModal({ title: "Lobby Full", tone: "bad", message: "That lobby already has a guest." });
@@ -1381,34 +2071,41 @@ async function joinByCode() {
     }
 
     const joined = await sbJoinLobby(lobby.id);
+    if (!joined) {
+      closeModal();
+      showModal({
+        title: "Join Failed",
+        tone: "bad",
+        message: "Could not join. The lobby may have closed, expired, or someone joined first.",
+      });
+      return;
+    }
     closeModal();
-
-    showModal({ title: "Joined!", tone: "good", message: `Connected.\nCode: ${joined?.code || code}` });
+    showModal({ title: "Joined!", tone: "good", message: `Connected.\nCode: ${lobby.code || code}` });
 
     startPollingLobby(lobby.id, "guest");
   } catch (e) {
     closeModal();
-    showModal({
-      title: "Join by Code Error",
-      tone: "bad",
-      message: String(e?.message || e || "Something went wrong."),
-    });
+    showModal({ title: "Join by Code Error", tone: "bad", message: String(e?.message || e || "Something went wrong.") });
   }
 }
 
 async function quickMake() {
   if (!(await ensureSupabaseReadyOrExplain())) return;
 
+  // ✅ Require a lobby name (prevents null/empty name DB errors)
+  const nm = String(quick.lobbyName || "").trim();
+  if (!nm) {
+    showModal({ title: "Lobby Name Required", tone: "bad", message: "Please enter a lobby name before creating one." });
+    return;
+  }
+
   try {
-    showModal({
-      title: "Creating Lobby...",
-      tone: "info",
-      message: "Setting up your room...",
-    });
+    showModal({ title: "Creating Lobby...", tone: "info", message: "Setting up your room..." });
 
     const created = await sbCreateLobby({
       isPrivate: quick.isPrivate,
-      lobbyName: quick.lobbyName || (quick.isPrivate ? "Private Lobby" : "Public Lobby"),
+      lobbyName: nm,
     });
 
     closeModal();
@@ -1416,32 +2113,25 @@ async function quickMake() {
     if (!created?.id) throw new Error("Lobby created but no ID returned.");
 
     if (created.code) {
-      try { await navigator.clipboard.writeText(created.code); } catch {}
+      try {
+        await navigator.clipboard.writeText(created.code);
+      } catch {}
     }
 
     showModal({
       title: "Lobby Ready",
       tone: "good",
       message: `Lobby Code: ${created.code || "—"}\n\n${
-        created.is_private
-          ? "This is PRIVATE. Only people with the code can join."
-          : "This is PUBLIC. It will appear in matchmaking."
+        created.is_private ? "This is PRIVATE. Only people with the code can join." : "This is PUBLIC. It will appear in matchmaking."
       }\n\n(Code copied if your browser allowed it.)`,
     });
 
-    if (!created.is_private) {
-      await refreshPublicLobbies();
-    }
+    if (!created.is_private) await refreshPublicLobbies();
 
-    // host starts polling now; when guest joins we init + sync
     startPollingLobby(created.id, "host");
   } catch (e) {
     closeModal();
-    showModal({
-      title: "Create Lobby Error",
-      tone: "bad",
-      message: String(e?.message || e || "Something went wrong."),
-    });
+    showModal({ title: "Create Lobby Error", tone: "bad", message: String(e?.message || e || "Something went wrong.") });
   }
 }
 
@@ -1467,27 +2157,35 @@ function goBack() {
     return;
   }
 }
-function goAuth() {
+
+async function goAuth() {
+  if (isOnline.value) await leaveOnlineLobby("main_menu");
   stopPolling();
   myPlayer.value = null;
   screen.value = "auth";
 }
-function goMode() {
+
+async function goMode() {
+  if (isOnline.value) await leaveOnlineLobby("back_to_modes");
   stopPolling();
   myPlayer.value = null;
   screen.value = "mode";
 }
+
 function playAsGuest() {
   loggedIn.value = false;
   screen.value = "mode";
 }
+
 function goQuick() {
   screen.value = "quick";
 }
+
 function goRanked() {
   if (!loggedIn.value) return;
   screen.value = "ranked";
 }
+
 function startCouchPlay() {
   stopPolling();
   myPlayer.value = null;
@@ -1497,6 +2195,7 @@ function startCouchPlay() {
   game.allowFlip = allowFlip.value;
   game.resetGame();
 }
+
 function startPracticeAi() {
   stopPolling();
   myPlayer.value = null;
@@ -1506,6 +2205,7 @@ function startPracticeAi() {
   game.allowFlip = allowFlip.value;
   game.resetGame();
 }
+
 function applySettings() {
   showModal({
     title: "Settings Applied",
@@ -1515,10 +2215,46 @@ function applySettings() {
   screen.value = "mode";
 }
 
-onBeforeUnmount(() => stopPolling());
+/* =========================
+   MOUNT / UNMOUNT
+========================= */
+onMounted(() => {
+  // ✅ Initial boot gate — prevent accidental clicks before first paint.
+  startUiLock({ label: "Booting…", hint: "Loading UI, sounds, and neon vibes…", minMs: 750 });
+  stopUiLockAfterPaint(750);
+
+  originalAlert = window.alert;
+  window.alert = (msg) => {
+    showModal({
+      title: "Illegal Placement",
+      message: String(msg || "That placement is not allowed."),
+      tone: "bad",
+    });
+  };
+
+  tickTimer = window.setInterval(() => {
+    nowTick.value = Date.now();
+
+    if (!isOnline.value) return;
+    if (!myPlayer.value) return;
+
+    const changed = game.checkAndApplyTimeout?.(nowTick.value);
+    if (changed) {
+      online.localDirty = true;
+      pushMyState("timeout");
+    }
+  }, 250);
+});
+
+onBeforeUnmount(() => {
+  if (originalAlert) window.alert = originalAlert;
+  if (tickTimer) window.clearInterval(tickTimer);
+  stopPolling();
+});
 </script>
 
 <style scoped>
+@import url('https://fonts.googleapis.com/css2?family=Orbitron:wght@600;700;800&family=Rajdhani:wght@400;500;600;700&display=swap');
 /* =========================
    RGB GAME VIBES
 ========================= */
@@ -1530,7 +2266,88 @@ onBeforeUnmount(() => stopPolling());
   position: relative;
   overflow: hidden;
   background: #06060a;
-  font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Arial;
+  font-family: 'Rajdhani', Inter, system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif;
+}
+
+/* Ensure form controls inherit theme fonts */
+.app :deep(button, input, textarea, select){
+  font-family: inherit;
+  font-size: inherit;
+  letter-spacing: inherit;
+}
+
+/* Headings use Orbitron-like sci-fi */
+.app :is(.title, .heroTitle, .menuTitle, .menuBtnTop, .turnPill, .resultTitle){
+  font-family: 'Orbitron', 'Rajdhani', Inter, system-ui, sans-serif;
+}
+
+/* Prefer crisp edges on small text + icons */
+.app :is(.title, .sub, .menuTitle, .menuHint, .menuBtnTop, .menuBtnSub, .heroBadge) {
+  letter-spacing: 0.6px;
+}
+
+/* =========================
+   LOADING / LOCK OVERLAY
+========================= */
+.loadOverlay{
+  position: fixed;
+  inset: 0;
+  z-index: 60;
+  display: grid;
+  place-items: center;
+  padding: 18px;
+  background:
+    radial-gradient(1200px 700px at 50% 20%, rgba(0,229,255,0.10), transparent 60%),
+    radial-gradient(1000px 600px at 20% 80%, rgba(255,43,214,0.10), transparent 60%),
+    rgba(0,0,0,0.72);
+  backdrop-filter: blur(12px);
+}
+.loadCard{
+  width: min(560px, 100%);
+  border-radius: 22px;
+  border: 1px solid rgba(255,255,255,0.14);
+  background: linear-gradient(180deg, rgba(18,18,28,0.88), rgba(10,10,16,0.84));
+  box-shadow:
+    0 18px 80px rgba(0,0,0,0.65),
+    0 0 0 1px rgba(0,229,255,0.08) inset,
+    0 0 0 1px rgba(255,43,214,0.06);
+  padding: 16px;
+  animation: popIn .22s ease-out;
+}
+.loadTop{ display:flex; gap: 12px; align-items:center; }
+.loadLogo{
+  width: 54px;
+  height: 54px;
+  object-fit: contain;
+  filter:
+    drop-shadow(0 10px 22px rgba(0,0,0,0.55))
+    drop-shadow(0 0 18px rgba(0,229,255,0.16))
+    drop-shadow(0 0 18px rgba(255,43,214,0.12));
+}
+.loadTitle{ font-size: 16px; font-weight: 900; }
+.loadSub{ margin-top: 6px; font-size: 12px; opacity: 0.85; }
+.loadBar{
+  margin-top: 14px;
+  height: 12px;
+  border-radius: 999px;
+  background: rgba(255,255,255,0.06);
+  border: 1px solid rgba(255,255,255,0.12);
+  overflow: hidden;
+  box-shadow: 0 0 0 1px rgba(0,0,0,0.35) inset;
+}
+.loadBarFill{
+  height: 100%;
+  border-radius: 999px;
+  background: linear-gradient(90deg, rgba(0,229,255,0.9), rgba(255,43,214,0.9));
+  box-shadow:
+    0 0 18px rgba(0,229,255,0.22),
+    0 0 18px rgba(255,43,214,0.18);
+}
+.loadHint{ margin-top: 12px; font-size: 11px; opacity: 0.78; line-height: 1.4; }
+
+@keyframes popIn{
+  from{ transform: translateY(8px) scale(0.98); opacity: 0; }
+  to{ transform: translateY(0) scale(1); opacity: 1; }
 }
 
 /* ✅ Big screen border glow per turn */
@@ -1635,10 +2452,15 @@ onBeforeUnmount(() => stopPolling());
   display: flex;
   justify-content: space-between;
   align-items: center;
-  padding: 16px 18px;
+  padding: 14px 16px;
   border-bottom: 1px solid rgba(255, 255, 255, 0.10);
-  background: rgba(10, 10, 16, 0.55);
-  backdrop-filter: blur(10px);
+  background:
+    linear-gradient(180deg, rgba(12,12,20,0.72), rgba(10,10,16,0.46));
+  backdrop-filter: blur(12px);
+  box-shadow:
+    0 10px 40px rgba(0,0,0,0.45),
+    0 0 0 1px rgba(0,229,255,0.06) inset,
+    0 0 0 1px rgba(255,43,214,0.05);
 }
 
 .brand {
@@ -1649,363 +2471,21 @@ onBeforeUnmount(() => stopPolling());
   user-select: none;
 }
 .logoMark {
-  width: 34px;
-  height: 34px;
-  border-radius: 10px;
+  width: 44px;
+  height: 44px;
   display: grid;
   place-items: center;
-  background: rgba(255, 255, 255, 0.06);
-  border: 1px solid rgba(255, 255, 255, 0.12);
-  box-shadow:
-    0 0 0 1px rgba(255, 255, 255, 0.08) inset,
-    0 0 18px rgba(0, 255, 255, 0.10),
-    0 0 18px rgba(255, 0, 180, 0.08);
-}
-.brandText .title {
-  font-weight: 1000;
-  letter-spacing: 0.8px;
-  font-size: 18px;
-}
-.brandText .sub {
-  opacity: 0.75;
-  font-size: 12px;
-  margin-top: 2px;
+  background: transparent;
+  border: none;
+  box-shadow: none;
 }
 
-.right { display: flex; gap: 10px; flex-wrap: wrap; }
-
-.main {
-  position: relative;
-  z-index: 1;
-  flex: 1;
-  padding: 28px 18px 36px;
-  display: grid;
-  place-items: center;
-}
-
-.rgbText {
-  background: linear-gradient(90deg, #ff2bd6, #00e5ff, #7c4dff, #00ff9a);
-  -webkit-background-clip: text;
-  background-clip: text;
-  color: transparent;
-  text-shadow: 0 0 18px rgba(0, 229, 255, 0.18);
-}
-
-/* =========================
-   MENU SHELL
-========================= */
-.menuShell { width: min(720px, 94vw); display: grid; gap: 14px; }
-
-.hero { padding: 18px 18px 6px; }
-.hero.compact { padding-bottom: 0; }
-.heroBadge {
-  display: inline-flex;
-  font-size: 12px;
-  font-weight: 900;
-  letter-spacing: 1px;
-  padding: 6px 10px;
-  border-radius: 999px;
-  border: 1px solid rgba(255, 255, 255, 0.12);
-  background: rgba(0, 0, 0, 0.25);
-  box-shadow: 0 0 22px rgba(255, 0, 180, 0.08);
-}
-.heroBadge.green { box-shadow: 0 0 22px rgba(0, 255, 154, 0.10); }
-.heroTitle { margin: 10px 0 6px; font-size: 46px; font-weight: 1000; letter-spacing: 0.5px; }
-.heroTitle.small { font-size: 30px; }
-.heroDesc { margin: 0; opacity: 0.82; line-height: 1.45; }
-.heroDesc.small { font-size: 13px; opacity: 0.8; }
-
-.menuCard {
-  border-radius: 18px;
-  padding: 16px;
-  border: 1px solid rgba(255, 255, 255, 0.12);
-  background: rgba(8, 8, 14, 0.62);
-  backdrop-filter: blur(12px);
-  box-shadow:
-    0 0 0 1px rgba(255, 255, 255, 0.06) inset,
-    0 12px 40px rgba(0, 0, 0, 0.45);
-}
-
-.menuTitleRow {
-  display: flex;
-  justify-content: space-between;
-  align-items: baseline;
-  gap: 12px;
-  margin-bottom: 12px;
-}
-.menuTitle {
-  font-size: 14px;
-  font-weight: 1000;
-  letter-spacing: 0.8px;
-  text-transform: uppercase;
-  opacity: 0.95;
-}
-.menuHint { font-size: 12px; opacity: 0.7; }
-
-.menuStack { display: grid; gap: 10px; }
-
-.menuBtn {
-  width: 100%;
-  border-radius: 16px;
-  padding: 14px 14px;
-  border: 1px solid rgba(255, 255, 255, 0.14);
-  background: rgba(255, 255, 255, 0.06);
-  color: #eaeaea;
-  cursor: pointer;
-  text-align: left;
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  gap: 14px;
-  transition: transform 0.12s ease, background 0.12s ease, border-color 0.12s ease;
-  box-shadow:
-    0 0 0 1px rgba(255, 255, 255, 0.05) inset,
-    0 0 22px rgba(0, 229, 255, 0.06);
-}
-.menuBtn:hover {
+.floatingLogo{
+  width: 40px;
+  height: 40px;
+  object-fit: contain;
+  filter: drop-shadow(0 8px 18px rgba(0,0,0,0.55)) drop-shadow(0 0 18px rgba(0,229,255,0.18)) drop-shadow(0 0 18px rgba(255,43,214,0.14));
   transform: translateY(-1px);
-  border-color: rgba(255, 255, 255, 0.22);
-  background: rgba(255, 255, 255, 0.09);
-}
-.menuBtn.primary {
-  border-color: rgba(0, 229, 255, 0.30);
-  background: linear-gradient(180deg, rgba(0, 229, 255, 0.16), rgba(255, 43, 214, 0.10));
-  box-shadow:
-    0 0 0 1px rgba(0, 229, 255, 0.08) inset,
-    0 0 26px rgba(0, 229, 255, 0.10),
-    0 0 26px rgba(255, 43, 214, 0.08);
-}
-.menuBtn.disabled,
-.menuBtn:disabled {
-  opacity: 0.45;
-  cursor: not-allowed;
-  transform: none !important;
-}
-
-.menuBtnLeft { display: flex; align-items: center; gap: 12px; min-width: 0; }
-.menuBtnIcon {
-  width: 42px;
-  height: 42px;
-  border-radius: 14px;
-  display: grid;
-  place-items: center;
-  background: rgba(0, 0, 0, 0.25);
-  border: 1px solid rgba(255, 255, 255, 0.10);
-  flex: 0 0 auto;
-  box-shadow: 0 0 18px rgba(124, 77, 255, 0.08);
-}
-.menuBtnText { min-width: 0; }
-.menuBtnTop { font-weight: 1000; letter-spacing: 0.2px; }
-.menuBtnSub {
-  margin-top: 4px;
-  font-size: 12px;
-  opacity: 0.75;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  max-width: 520px;
-}
-.menuBtnRight { font-weight: 1000; opacity: 0.88; letter-spacing: 0.6px; flex: 0 0 auto; }
-
-.menuSplitRow { display: flex; gap: 10px; margin-top: 4px; }
-@media (max-width: 520px) { .menuSplitRow { flex-direction: column; } }
-
-.finePrint {
-  margin-top: 12px;
-  font-size: 12px;
-  opacity: 0.72;
-  border-top: 1px solid rgba(255, 255, 255, 0.10);
-  padding-top: 10px;
-}
-
-/* =========================
-   Shared buttons / forms
-========================= */
-.btn {
-  border: 1px solid rgba(255, 255, 255, 0.16);
-  background: rgba(255, 255, 255, 0.06);
-  color: #eaeaea;
-  padding: 9px 12px;
-  border-radius: 12px;
-  cursor: pointer;
-  font-weight: 900;
-  letter-spacing: 0.2px;
-}
-.btn:hover { background: rgba(255, 255, 255, 0.10); }
-.btn.primary { border-color: rgba(0, 229, 255, 0.28); background: rgba(0, 229, 255, 0.12); }
-.btn.ghost { background: transparent; }
-.btn.soft { width: 100%; text-align: left; background: rgba(0, 0, 0, 0.18); }
-.btn:disabled { opacity: 0.5; cursor: not-allowed; }
-
-.form { margin-top: 6px; display: grid; gap: 10px; }
-.field {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  gap: 14px;
-  padding: 12px 12px;
-  border-radius: 14px;
-  border: 1px solid rgba(255, 255, 255, 0.10);
-  background: rgba(0, 0, 0, 0.22);
-}
-.input,
-.select {
-  width: 240px;
-  max-width: 58vw;
-  padding: 9px 10px;
-  border-radius: 12px;
-  border: 1px solid rgba(255, 255, 255, 0.16);
-  background: rgba(0, 0, 0, 0.28);
-  color: #eaeaea;
-}
-.row { display: flex; gap: 10px; margin-top: 14px; flex-wrap: wrap; }
-
-.muted { opacity: 0.78; }
-
-/* =========================
-   GAME LAYOUT
-========================= */
-.gameLayout {
-  width: min(1200px, 96vw);
-  display: grid;
-  grid-template-columns: 420px 1fr;
-  gap: 16px;
-  align-items: start;
-}
-@media (max-width: 900px) { .gameLayout { grid-template-columns: 1fr; } }
-
-.leftPanel, .rightPanel { display: flex; flex-direction: column; gap: 12px; }
-
-.panelHead {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-  padding: 12px 14px;
-  border-radius: 14px;
-  border: 1px solid rgba(255, 255, 255, 0.10);
-  background: rgba(10, 10, 16, 0.58);
-  backdrop-filter: blur(10px);
-}
-
-.modeRow {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  gap: 10px;
-}
-.modeTag { font-size: 13px; opacity: 0.92; }
-
-.turnBadge {
-  padding: 7px 10px;
-  border-radius: 999px;
-  font-weight: 1000;
-  font-size: 12px;
-  letter-spacing: 0.8px;
-  border: 1px solid rgba(255, 255, 255, 0.12);
-  background: rgba(0, 0, 0, 0.20);
-  opacity: 0.95;
-}
-.turnBadge.p1 {
-  border-color: rgba(0, 229, 255, 0.30);
-  box-shadow: 0 0 18px rgba(0, 229, 255, 0.14);
-}
-.turnBadge.p2 {
-  border-color: rgba(255, 64, 96, 0.32);
-  box-shadow: 0 0 18px rgba(255, 64, 96, 0.14);
-}
-.turnBadge.end {
-  border-color: rgba(255, 255, 255, 0.18);
-  box-shadow: 0 0 18px rgba(255, 255, 255, 0.10);
-}
-
-.statusTag, .keysTag { font-size: 13px; opacity: 0.92; }
-
-.panel {
-  background: rgba(10, 10, 16, 0.58);
-  border: 1px solid rgba(255, 255, 255, 0.10);
-  border-radius: 14px;
-  padding: 14px;
-  backdrop-filter: blur(10px);
-}
-.panelTitle { margin: 0 0 10px 0; font-size: 15px; font-weight: 1000; }
-.divider { height: 1px; background: rgba(255, 255, 255, 0.10); margin: 12px 0; }
-.hintSmall { opacity: 0.75; font-size: 13px; padding: 6px 2px; }
-
-/* =========================
-   MODAL
-========================= */
-.modalOverlay {
-  position: fixed;
-  inset: 0;
-  z-index: 60;
-  background: rgba(0, 0, 0, 0.62);
-  backdrop-filter: blur(10px);
-  display: grid;
-  place-items: center;
-  padding: 18px;
-}
-
-.modalCard {
-  width: min(520px, 92vw);
-  border-radius: 18px;
-  border: 1px solid rgba(255, 255, 255, 0.14);
-  background: rgba(10, 10, 16, 0.78);
-  box-shadow:
-    0 0 0 1px rgba(255, 255, 255, 0.06) inset,
-    0 20px 80px rgba(0, 0, 0, 0.65);
-  overflow: hidden;
-}
-
-.modalTop {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  gap: 12px;
-  padding: 14px 14px;
-  border-bottom: 1px solid rgba(255, 255, 255, 0.10);
-}
-
-.modalTitle {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  font-weight: 1000;
-  letter-spacing: 0.3px;
-}
-.modalDot {
-  width: 10px;
-  height: 10px;
-  border-radius: 999px;
-  background: rgba(255, 255, 255, 0.35);
-  box-shadow: 0 0 18px rgba(255, 255, 255, 0.12);
-}
-.modalDot.info { background: rgba(0, 229, 255, 0.75); box-shadow: 0 0 18px rgba(0, 229, 255, 0.18); }
-.modalDot.bad { background: rgba(255, 64, 96, 0.85); box-shadow: 0 0 18px rgba(255, 64, 96, 0.18); }
-.modalDot.good { background: rgba(0, 255, 154, 0.85); box-shadow: 0 0 18px rgba(0, 255, 154, 0.18); }
-
-.modalX {
-  border: 1px solid rgba(255, 255, 255, 0.12);
-  background: rgba(255, 255, 255, 0.06);
-  color: #eaeaea;
-  width: 34px;
-  height: 34px;
-  border-radius: 12px;
-  cursor: pointer;
-  font-weight: 900;
-}
-.modalX:hover { background: rgba(255, 255, 255, 0.10); }
-
-.modalBody { padding: 14px; }
-.modalMsg { margin: 0 0 10px 0; opacity: 0.88; line-height: 1.5; }
-.modalMsg:last-child { margin-bottom: 0; }
-
-.modalActions {
-  padding: 14px;
-  padding-top: 0;
-  display: flex;
-  gap: 10px;
-  justify-content: flex-end;
-  flex-wrap: wrap;
 }
 
 .logoImg{
@@ -2015,6 +2495,7 @@ onBeforeUnmount(() => stopPolling());
   image-rendering: auto;
   border-radius: 6px;
 }
+
 .linkBtn{
   background: transparent;
   border: 0;
@@ -2027,5 +2508,257 @@ onBeforeUnmount(() => stopPolling());
 }
 .linkBtn:hover{ opacity: 1; }
 .finePrint .sep{ margin: 0 6px; opacity:.5; }
+.finePrint{
+  margin-top: 14px;
+  padding-top: 12px;
+  border-top: 1px solid rgba(255,255,255,0.10);
+  opacity: .82;
+  font-size: 13px;
+  line-height: 1.35;
+}
 
+/* Minimal helpers so it doesn't look unstyled if your old CSS was longer */
+.main{ position: relative; z-index: 1; padding: 18px; }
+
+.btn{
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  line-height: 1.1;
+  white-space: nowrap;
+  overflow: visible;
+  padding: 10px 12px;
+  border-radius: 14px;
+  border: 1px solid rgba(255,255,255,0.14);
+  background: rgba(255,255,255,0.06);
+  color: #eaeaea;
+  font-weight: 900;
+  font-family: 'Orbitron', 'Rajdhani', Inter, system-ui, sans-serif;
+  letter-spacing: 0.6px;
+  cursor: pointer;
+  transition: transform .08s ease, box-shadow .18s ease, border-color .18s ease, background .18s ease, opacity .18s ease;
+  box-shadow:
+    0 8px 22px rgba(0,0,0,0.35),
+    0 0 0 1px rgba(255,255,255,0.06) inset;
+}
+.btn:hover{
+  transform: translateY(-1px);
+  border-color: rgba(255,255,255,0.20);
+  box-shadow:
+    0 10px 26px rgba(0,0,0,0.42),
+    0 0 0 1px rgba(255,255,255,0.07) inset,
+    0 0 18px rgba(0,229,255,0.10);
+}
+.btn:active{ transform: translateY(0px) scale(0.99); }
+
+.btn.primary{
+  background: linear-gradient(180deg, rgba(0,229,255,0.18), rgba(0,229,255,0.10));
+  border-color: rgba(0,229,255,0.28);
+  box-shadow:
+    0 12px 30px rgba(0,0,0,0.45),
+    0 0 0 1px rgba(0,229,255,0.10) inset,
+    0 0 22px rgba(0,229,255,0.12);
+}
+.btn.soft{
+  background: rgba(255,255,255,0.05);
+}
+.btn.ghost{
+  background: transparent;
+  box-shadow: none;
+}
+.menuShell{ max-width: 640px; margin: 0 auto; display: grid; gap: 14px; padding: 6px 0 16px; }
+.menuCard{ padding: 18px; border-radius: 20px; border: 1px solid rgba(255,255,255,.10); background: rgba(10,10,16,.55); backdrop-filter: blur(10px); }
+.menuStack{ display: grid; gap: 10px; }
+.menuBtn{ width: 100%; display:flex;
+  line-height: 1.15;
+  overflow: visible; justify-content:space-between; align-items:center; padding: 12px 14px; border-radius: 18px; border: 1px solid rgba(255,255,255,.14); background: linear-gradient(180deg, rgba(255,255,255,.07), rgba(255,255,255,.05)); color:#eaeaea; cursor:pointer; font-weight:900; transition: transform .08s ease, box-shadow .18s ease, border-color .18s ease, background .18s ease; box-shadow: 0 12px 34px rgba(0,0,0,.40), 0 0 0 1px rgba(0,0,0,.25) inset; }
+.menuBtn:hover{ transform: translateY(-1px); border-color: rgba(255,255,255,.20); box-shadow: 0 14px 38px rgba(0,0,0,.46), 0 0 22px rgba(0,229,255,.10); }
+.menuBtn:active{ transform: translateY(0px) scale(0.99); }
+.menuBtn.primary{ background: linear-gradient(180deg, rgba(0,229,255,.16), rgba(0,229,255,.10)); border-color: rgba(0,229,255,.22); }
+.menuBtn.disabled{ opacity:.45; cursor:not-allowed; }
+.menuBtnLeft{ display:flex; gap: 12px; align-items:center; min-width:0; }
+.menuBtnIcon{ width: 38px; height: 38px; display:grid; place-items:center; border-radius: 12px; background: rgba(255,255,255,.06); }
+.menuBtnTop{ font-size: 14px; }
+.menuBtnSub{ font-size: 12px; opacity: .75; font-weight: 700; }
+.menuTitleRow{ display:flex; justify-content:space-between; align-items:center; margin-bottom: 10px; }
+.menuTitle{ font-size: 14px; font-weight: 900; }
+.menuHint{ font-size: 12px; opacity:.7; font-weight: 700; }
+.heroTitle{ margin: 0; }
+.heroDesc{ opacity:.8; }
+.rgbText{ background: linear-gradient(90deg, rgba(0,229,255,1), rgba(255,43,214,1)); -webkit-background-clip:text; background-clip:text; color: transparent; }
+.divider{ height: 1px; background: rgba(255,255,255,.10); margin: 12px 0; }
+.field{ display:flex; gap: 12px; align-items:center; padding: 10px 12px; border-radius: 14px; border: 1px solid rgba(255,255,255,.10); background: rgba(255,255,255,.04); }
+.form{ display:grid; gap: 10px; }
+.input{ width: 100%; padding: 10px 12px; border-radius: 12px; border: 1px solid rgba(255,255,255,.12); background: rgba(0,0,0,.25); color:#eaeaea; }
+.row{ display:flex; gap: 10px; flex-wrap: wrap; margin-top: 10px; }
+.modalOverlay{ position: fixed; inset: 0; z-index: 50; background:
+  radial-gradient(1000px 600px at 50% 20%, rgba(0,229,255,0.10), transparent 60%),
+  radial-gradient(900px 520px at 20% 85%, rgba(255,43,214,0.10), transparent 60%),
+  rgba(0,0,0,.60);
+  display:grid; place-items:center; padding: 18px; backdrop-filter: blur(10px);
+}
+
+.resultHero{
+  position: relative;
+  margin-top: 8px;
+  padding: 18px 14px 14px;
+  border-radius: 18px;
+  border: 1px solid rgba(255,255,255,0.10);
+  background:
+    radial-gradient(900px 280px at 50% 0%, rgba(0,229,255,0.14), transparent 70%),
+    radial-gradient(900px 280px at 50% 100%, rgba(255,43,214,0.12), transparent 70%),
+    rgba(255,255,255,0.03);
+  overflow: hidden;
+  text-align: center;
+}
+.resultHero::after{
+  content:"";
+  position:absolute;
+  inset:-2px;
+  background: linear-gradient(90deg, rgba(0,229,255,0.0), rgba(0,229,255,0.20), rgba(255,43,214,0.18), rgba(255,43,214,0.0));
+  filter: blur(18px);
+  opacity: .8;
+  pointer-events:none;
+}
+.resultHero.victory{ border-color: rgba(0,229,255,0.22); }
+.resultHero.defeat{ border-color: rgba(255,64,96,0.22); }
+.resultHero.couchP1{ border-color: rgba(0,229,255,0.22); }
+.resultHero.couchP2{ border-color: rgba(255,43,214,0.22); }
+
+.resultTitle{
+  font-size: 44px;
+  line-height: 1;
+  margin: 2px 0 6px;
+  font-weight: 800;
+  text-transform: uppercase;
+  background: linear-gradient(90deg, rgba(0,229,255,1), rgba(255,43,214,1));
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+  text-shadow: 0 18px 60px rgba(0,0,0,0.65);
+}
+.resultHero.defeat .resultTitle{
+  background: linear-gradient(90deg, rgba(255,64,96,1), rgba(255,215,0,0.9));
+  -webkit-background-clip: text;
+  background-clip: text;
+}
+.resultSub{
+  font-size: 14px;
+  letter-spacing: 2px;
+  opacity: .85;
+  font-weight: 800;
+}
+.resultGlow{
+  position:absolute;
+  left:50%;
+  top: 50%;
+  width: 520px;
+  height: 220px;
+  transform: translate(-50%,-50%);
+  background: radial-gradient(circle at 50% 50%, rgba(0,229,255,0.18), transparent 60%);
+  filter: blur(22px);
+  opacity: .75;
+  pointer-events:none;
+}
+.resultHero.defeat .resultGlow{
+  background: radial-gradient(circle at 50% 50%, rgba(255,64,96,0.16), transparent 60%);
+}
+
+.modalTop.resultTop{
+  justify-content: flex-end;
+  margin-bottom: 6px;
+}
+.modalXSpacer{ width: 18px; height: 18px; }
+
+.modalCard.modalResult{
+  width: min(720px, 100%);
+  padding: 18px 18px 16px;
+}
+
+.confetti{
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  overflow: hidden;
+  z-index: 51;
+}
+.confettiPiece{
+  position: absolute;
+  top: -20px;
+  border-radius: 3px;
+  background: linear-gradient(90deg, rgba(0,229,255,1), rgba(255,43,214,1));
+  opacity: 0.95;
+  transform: translateX(0) rotate(var(--r));
+  animation: confettiFall var(--t) ease-in forwards;
+  animation-delay: var(--d);
+  box-shadow: 0 10px 30px rgba(0,0,0,0.40);
+}
+@keyframes confettiFall{
+  0%{ transform: translateX(0) translateY(0) rotate(var(--r)); opacity: 0; }
+  8%{ opacity: 1; }
+  100%{ transform: translateX(var(--x)) translateY(105vh) rotate(calc(var(--r) + 420deg)); opacity: 0; }
+}
+
+.modalCard{
+  width: min(560px, 100%);
+  border-radius: 22px;
+  border: 1px solid rgba(255,255,255,0.14);
+  background: linear-gradient(180deg, rgba(18,18,28,0.90), rgba(10,10,16,0.86));
+  backdrop-filter: blur(14px);
+  padding: 14px;
+  box-shadow:
+    0 18px 80px rgba(0,0,0,0.62),
+    0 0 0 1px rgba(255,255,255,0.06) inset;
+  animation: popIn .18s ease-out;
+}
+.modalCard.modalDanger{
+  box-shadow:
+    0 18px 80px rgba(0,0,0,0.62),
+    0 0 0 1px rgba(255,64,96,0.12) inset,
+    0 0 28px rgba(255,64,96,0.10);
+}
+.modalCard.modalVictory{
+  width: min(620px, 100%);
+  border-color: rgba(0,229,255,0.24);
+  background:
+    radial-gradient(900px 260px at 50% 0%, rgba(0,229,255,0.16), transparent 70%),
+    radial-gradient(900px 260px at 50% 100%, rgba(255,43,214,0.14), transparent 70%),
+    linear-gradient(180deg, rgba(18,18,28,0.92), rgba(10,10,16,0.88));
+  box-shadow:
+    0 22px 110px rgba(0,0,0,0.70),
+    0 0 0 1px rgba(0,229,255,0.12) inset,
+    0 0 36px rgba(0,229,255,0.16),
+    0 0 32px rgba(255,43,214,0.12);
+  animation: victoryPop .24s ease-out;
+}
+.modalTop{ display:flex; justify-content:space-between; align-items:center; gap: 10px; }
+.modalTitle{ display:flex; align-items:center; gap: 10px; font-weight: 900; }
+.modalDot{ width: 10px; height: 10px; border-radius: 999px; background: rgba(0,229,255,.92); box-shadow: 0 0 14px rgba(0,229,255,0.18); }
+.modalDot.bad{ background: rgba(255,64,96,.95); }
+.modalDot.good{ background: rgba(0,255,128,.95); }
+.modalDot.victory{ background: linear-gradient(90deg, rgba(0,229,255,1), rgba(255,43,214,1)); box-shadow: 0 0 18px rgba(0,229,255,0.22), 0 0 18px rgba(255,43,214,0.18); }
+.modalX{ background: transparent; border: 0; color:#eaeaea; font-size: 18px; cursor:pointer; }
+.modalBody{ margin-top: 10px; }
+.modalMsg{ margin: 0 0 8px 0; opacity: .92; line-height: 1.45; }
+.modalActions{ display:flex; gap: 10px; justify-content:flex-end; margin-top: 12px; flex-wrap: wrap; }
+
+@keyframes victoryPop{
+  from{ transform: translateY(10px) scale(0.97); opacity: 0; filter: saturate(1.1); }
+  to{ transform: translateY(0) scale(1); opacity: 1; filter: saturate(1.0); }
+}
+
+/* You already have these elsewhere in your CSS normally */
+.gameLayout{ display:grid; grid-template-columns: 420px 1fr; gap: 14px; }
+.leftPanel,.rightPanel{ min-width:0; }
+.panelHead{ padding: 14px; border-radius: 18px; border: 1px solid rgba(255,255,255,.10); background: rgba(10,10,16,.55); backdrop-filter: blur(10px); }
+.panel{ margin-top: 12px; padding: 14px; border-radius: 18px; border: 1px solid rgba(255,255,255,.10); background: rgba(10,10,16,.55); backdrop-filter: blur(10px); }
+.panelTitle{ margin: 0 0 10px 0; }
+.hintSmall{ margin-top: 10px; opacity:.75; font-size: 12px; }
+.turnBadge{ padding: 8px 10px; border-radius: 999px; font-weight: 900; border: 1px solid rgba(255,255,255,.12); background: rgba(255,255,255,.06); }
+.turnBadge.p1{ border-color: rgba(0,229,255,.25); background: rgba(0,229,255,.10); }
+.turnBadge.p2{ border-color: rgba(255,64,96,.25); background: rgba(255,64,96,.10); }
+.turnBadge.end{ border-color: rgba(255,255,255,.18); }
+.modeRow{ display:flex; justify-content:space-between; align-items:center; gap: 10px; flex-wrap: wrap; }
+.statusTag,.keysTag{ margin-top: 10px; font-size: 12px; opacity: .85; font-weight: 700; }
 </style>
