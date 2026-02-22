@@ -2968,6 +2968,10 @@ onBeforeUnmount(() => {
     0 0 0 1px rgba(255,43,214,0.05);
 }
 
+/* In-game header: keep buttons on the top-right */
+.topbar:not(.tetrBar){ justify-content: space-between; }
+.topbar:not(.tetrBar) .right{ margin-left: auto; }
+
 .brand {
   display: flex;
   gap: 10px;
@@ -3036,8 +3040,9 @@ onBeforeUnmount(() => {
 
 /* Menus should fit on-screen without scrolling */
 .app:not(.inGame) .main{
-  min-height: calc(100vh - 86px);
-  overflow: hidden;
+  /* Use normal page scroll only (no nested scroll containers) */
+  min-height: auto;
+  overflow: visible;
 }
 
 .btn{
@@ -3395,8 +3400,9 @@ onBeforeUnmount(() => {
   /* Keep all menu content visible (no scrolling) */
   width: min(1020px, calc(100vw - 40px));
   margin: 0 20px 0 auto; /* push the menu block to the right like the reference */
-  padding: 12px 0 16px;
-  max-height: calc(100vh - 92px); /* topbar (~72px) + breathing room */
+  padding: 6px 0 14px;
+  /* Let the browser handle scrolling (prevents double scrollbars) */
+/* topbar (~72px) + breathing room */
   display: flex;
   flex-direction: column;
 }
@@ -3430,9 +3436,9 @@ onBeforeUnmount(() => {
 }
 
 .tetrHero{
-  padding: 6px 6px clamp(10px, 1.8vh, 14px);
+  padding: 2px 6px clamp(8px, 1.6vh, 12px);
   border-bottom: 1px solid rgba(255,255,255,0.08);
-  margin-bottom: 14px;
+  margin-bottom: 10px;
 }
 .tetrHero.compact{
   padding-bottom: 12px;
@@ -3629,6 +3635,155 @@ onBeforeUnmount(() => {
   transition: transform .12s ease, filter .12s ease;
 }
 .tetrMiniBtn:hover{ transform: translateX(-6px); filter: brightness(1.05); }
+
+
+/* ===== Lobby (TETR-inspired card + form) ===== */
+.tetrCard{
+  margin-top: 6px;
+  border-radius: 14px;
+  border: 1px solid rgba(255,255,255,0.12);
+  background:
+    radial-gradient(900px 420px at 20% 0%, rgba(160,120,255,0.18), transparent 60%),
+    radial-gradient(900px 420px at 100% 80%, rgba(0,229,255,0.14), transparent 62%),
+    linear-gradient(180deg, rgba(0,0,0,0.42), rgba(0,0,0,0.22));
+  box-shadow:
+    0 18px 60px rgba(0,0,0,0.55),
+    0 0 0 1px rgba(0,0,0,0.30) inset;
+  padding: 14px 14px 12px;
+  backdrop-filter: blur(10px);
+}
+.tetrTitleRow{
+  display:flex;
+  justify-content:space-between;
+  align-items:baseline;
+  gap: 12px;
+  margin-top: 4px;
+}
+.tetrTitle{
+  font-weight: 1000;
+  letter-spacing: 2.2px;
+  text-transform: uppercase;
+  font-size: 14px;
+  opacity: .92;
+}
+.tetrHint{
+  font-weight: 900;
+  letter-spacing: 1.8px;
+  text-transform: uppercase;
+  font-size: 11px;
+  opacity: .65;
+}
+.tetrDivider{
+  height: 1px;
+  background: rgba(255,255,255,0.10);
+  margin: 12px 0;
+}
+.tetrForm{
+  display:grid;
+  gap: 10px;
+  margin-top: 10px;
+}
+.tetrField{
+  display:grid;
+  gap: 6px;
+}
+.tetrField > span{
+  font-size: 11px;
+  letter-spacing: 2px;
+  text-transform: uppercase;
+  opacity: .75;
+  font-weight: 900;
+}
+.tetrField.inline{
+  grid-template-columns: 1fr auto;
+  align-items:center;
+}
+.tetrInput{
+  width: 100%;
+  border-radius: 10px;
+  padding: 12px 12px;
+  border: 1px solid rgba(255,255,255,0.12);
+  background: rgba(0,0,0,0.35);
+  color: #eaeaea;
+  outline: none;
+  font-weight: 800;
+  letter-spacing: .6px;
+  box-shadow: 0 0 0 1px rgba(0,0,0,0.28) inset;
+}
+.tetrInput:focus{
+  border-color: rgba(0,229,255,0.26);
+  box-shadow: 0 0 0 1px rgba(0,229,255,0.10) inset, 0 0 22px rgba(0,229,255,0.10);
+}
+.tetrCheck{
+  width: 18px;
+  height: 18px;
+  accent-color: rgb(200,160,255);
+}
+.tetrRow{
+  display:flex;
+  gap: 10px;
+  margin-top: 10px;
+}
+.tetrMiniBtn.primary{
+  border-color: rgba(0,229,255,0.18);
+  background: linear-gradient(180deg, rgba(0,229,255,0.18), rgba(0,229,255,0.08));
+}
+.tetrFineLine{
+  margin-top: 10px;
+  opacity: .75;
+  font-size: 12px;
+  letter-spacing: .8px;
+}
+.tetrLobbyList{
+  display:grid;
+  gap: 10px;
+  margin-top: 10px;
+}
+.tetrLobbyRow{
+  display:flex;
+  align-items:center;
+  justify-content:space-between;
+  gap: 12px;
+  padding: 12px 12px;
+  border-radius: 12px;
+  border: 1px solid rgba(255,255,255,0.10);
+  background: rgba(0,0,0,0.28);
+  transition: transform .14s ease, border-color .14s ease, background .14s ease;
+}
+.tetrLobbyRow:hover{
+  transform: translateX(-10px);
+  border-color: rgba(255,255,255,0.16);
+  background: rgba(0,0,0,0.34);
+}
+.tetrLobbyInfo{
+  min-width: 0;
+  display:flex;
+  flex-direction:column;
+  gap: 4px;
+}
+.tetrLobbyName{
+  font-weight: 1000;
+  letter-spacing: 1.4px;
+  text-transform: uppercase;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.tetrLobbyMeta{
+  font-size: 12px;
+  opacity: .75;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.tetrLobbyMeta .dot{
+  margin: 0 8px;
+  opacity: .55;
+}
+.joinBtn{
+  flex: 0 0 auto;
+  min-width: 110px;
+}
 
 .tetrBackBtn{
   border-radius: 10px;
