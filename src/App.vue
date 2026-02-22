@@ -1,5 +1,5 @@
 <template>
-  <div class="app" :class="{ inGame: isInGame, hasBottomBar: showBottomBar }">
+  <div ref="appRoot" class="app" :class="{ inGame: isInGame, hasBottomBar: showBottomBar }">
     <!-- 🔥 Animated RGB background -->
     <div class="bg">
       <div class="bgGradient"></div>
@@ -688,6 +688,14 @@ function computeIsPortrait() {
 }
 const landscapeLockActive = computed(() => isInGame.value && !!game.ui?.lockLandscape && isPortrait.value);
 
+// Viewport sizing: we rely on responsive CSS + natural page scroll.
+// Keep portrait detection for optional landscape lock UI.
+const appRoot = ref(null);
+
+function onViewportChange() {
+  computeIsPortrait();
+}
+
 
 const logoUrl = new URL("./assets/logo.png", import.meta.url).href;
 
@@ -1027,6 +1035,8 @@ function onModalAction(a) {
 let originalAlert = null;
 let tickTimer = null;
 
+// Layout changes handled by normal responsive CSS.
+
 /* =========================
    QUICK MATCH — Supabase REST
 ========================= */
@@ -1194,14 +1204,28 @@ async function leaveOnlineLobby(reason = "left") {
         updated_at: new Date().toISOString(),
       });
 
-      // ✅ If this was a public quick-match lobby and the match already ended,
-      // clear it from DB so history doesn't pile up.
-      if (isPublicQuick && matchEndedLocally) {
+      // ✅ Quick Match rooms should NEVER linger.
+// If someone leaves (even mid-match), delete/close the room so the next queue can't get shoved
+// into an already-ended or half-finished session.
+      const isQuickMatchRoom =
+        String(lobby.lobby_name || "") === "__QM__" || String(st?.meta?.kind || "") === "quickmatch";
+
+      if (isQuickMatchRoom) {
         try {
           const ok = await sbDeleteLobby(online.lobbyId);
-          if (!ok) await sbCloseAndNukeLobby(online.lobbyId, { terminateReason: "ended", reason: "quick_cleanup" });
+          if (!ok) await sbCloseAndNukeLobby(online.lobbyId, { terminateReason: matchEndedLocally ? "ended" : "abandoned", reason: "qm_leave" });
         } catch {
           // ignore
+        }
+      } else {
+        // For normal public lobbies: if the match already ended, clear the row to avoid history pileup.
+        if (isPublicQuick && matchEndedLocally) {
+          try {
+            const ok = await sbDeleteLobby(online.lobbyId);
+            if (!ok) await sbCloseAndNukeLobby(online.lobbyId, { terminateReason: "ended", reason: "quick_cleanup" });
+          } catch {
+            // ignore
+          }
         }
       }
     }
@@ -2612,10 +2636,28 @@ async function sbQuickMatch() {
   const list = Array.isArray(rows) ? rows : [];
 
   for (const lobby of list) {
+    // Clean up dead rows so they don't get reused by accident
+    if (lobbyPlayerCount(lobby) === 0) {
+      cleanupLobbyIfNeeded(lobby, { reason: "qm_empty" });
+      continue;
+    }
+
     if (isLobbyExpired(lobby)) {
       cleanupLobbyIfNeeded(lobby, { reason: "qm_expired" });
       continue;
     }
+
+    // ✅ If a previous quick match already ended/terminated, don't ever reuse it.
+    const phase = lobby?.state?.game?.phase;
+    const term = lobby?.state?.meta?.terminateReason;
+    if (phase === "gameover" || term) {
+      try {
+        const ok = await sbDeleteLobby(lobby.id);
+        if (!ok) await sbCloseAndNukeLobby(lobby.id, { terminateReason: phase === "gameover" ? "ended" : "terminated", reason: "qm_stale" });
+      } catch {}
+      continue;
+    }
+
     if (lobby.host_id === me) continue;
 
     // Claim it (atomic PATCH guarded by guest_id is null + status waiting)
@@ -2713,9 +2755,9 @@ onMounted(() => {
   // ✅ Initial boot gate — prevent accidental clicks before first paint.
   startUiLock({ label: "Booting…", hint: "Loading UI, sounds, and neon vibes…", minMs: 750 });
 
-  computeIsPortrait();
-  window.addEventListener("resize", computeIsPortrait, { passive: true });
-  window.addEventListener("orientationchange", computeIsPortrait, { passive: true });
+  onViewportChange();
+  window.addEventListener("resize", onViewportChange, { passive: true });
+  window.addEventListener("orientationchange", onViewportChange, { passive: true });
   stopUiLockAfterPaint(750);
 
   originalAlert = window.alert;
@@ -2744,8 +2786,9 @@ onMounted(() => {
 onBeforeUnmount(() => {
   if (originalAlert) window.alert = originalAlert;
   if (tickTimer) window.clearInterval(tickTimer);
-  try { window.removeEventListener("resize", computeIsPortrait); } catch {}
-  try { window.removeEventListener("orientationchange", computeIsPortrait); } catch {}
+  try { window.removeEventListener("resize", onViewportChange); } catch {}
+  try { window.removeEventListener("orientationchange", onViewportChange); } catch {}
+  try { if (_fitRaf) cancelAnimationFrame(_fitRaf); } catch {}
   stopPolling();
 });
 </script>
@@ -2761,8 +2804,7 @@ onBeforeUnmount(() => {
   display: flex;
   flex-direction: column;
   position: relative;
-  overflow-x: hidden;
-  overflow-y: visible;
+  overflow: visible;
   background: #06060a;
   font-family: 'Rajdhani', Inter, system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif;
 }
@@ -2770,7 +2812,8 @@ onBeforeUnmount(() => {
 /* When the fixed bottom bar is visible, keep layout at exactly 100vh (no extra scroll).
    Padding is compensated by reducing min-height. */
 .app.hasBottomBar{
-  min-height: calc(100vh - 62px);
+  /* Bottom bar is fixed; we only need extra padding so content never hides behind it.
+     Avoid min-height hacks that can cause scrollbars to "pulse" on some browsers. */
   padding-bottom: 62px;
 }
 
@@ -3059,8 +3102,11 @@ onBeforeUnmount(() => {
 }
 
 /* Minimal helpers so it doesn't look unstyled if your old CSS was longer */
-.main{ position: relative; z-index: 1; padding: 18px; 
-  padding-bottom: 72px;
+.main{ position: relative; z-index: 1; padding: 18px; }
+
+/* Only add bottom padding when the fixed bottom bar is visible */
+.app.hasBottomBar .main{
+  padding-bottom: 84px;
 }
 
 /* Menus should fit on-screen without scrolling */

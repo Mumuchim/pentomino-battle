@@ -3,8 +3,38 @@
 }
 
 * { box-sizing: border-box; }
-html, body { margin: 0; padding: 0; }
-/* Use the platform/default scrollbar behavior. Do not force overflow on html/body. */
+
+/* Prevent accidental text highlighting / tap highlight on interactive UI */
+* { -webkit-tap-highlight-color: transparent; }
+button, .cell, .chipBtn, [role="button"] {
+  -webkit-user-select: none;
+  user-select: none;
+}
+img, svg, canvas {
+  -webkit-user-drag: none;
+  user-select: none;
+}
+
+
+/*
+  Viewport sizing: allow natural page scroll (desktop + phone) while keeping layout responsive.
+  We intentionally avoid custom scrollbar styling; instead we prevent overflow.
+*/
+html, body {
+  margin: 0;
+  padding: 0;
+  width: 100%;
+  height: 100%;
+  overflow-x: hidden;
+  overflow-y: auto;
+  overscroll-behavior: none;
+}
+
+#app {
+  width: 100%;
+  min-height: 100vh;
+  overflow: visible;
+}
 
 body {
   font-family: system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif;
