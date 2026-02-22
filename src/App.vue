@@ -58,7 +58,12 @@
       <!-- TETR-like top bar (menus) -->
       <template v-if="showTetrChrome">
         <div class="tetrTopLeft">
-          <div class="tetrTopTitle">{{ topPageTitle }}</div>
+          <div class="tetrTopTitle">
+            <template v-if="useMenuPngs && String(topPageTitle).toUpperCase() === 'WELCOME'">
+              <img :src="welcomeUrl" class="tetrTopTitlePng floatingLogo" alt="WELCOME" />
+            </template>
+            <template v-else>{{ topPageTitle }}</template>
+          </div>
         </div>
 
         <div class="tetrTopRight">
@@ -107,18 +112,36 @@
 
             <!-- WELCOME hero title (AAA-style) -->
             <div class="tetrHeroTitle tetrWelcomeTitle" aria-label="PentoBattle">
-              <img :src="logoUrl" class="tetrWelcomeLogo" alt="" />
-              <span class="tetrWelcomeWord">PENTO</span>
-              <span class="tetrWelcomeWord strong">BATTLE</span>
+              <template v-if="useSplitBrandPng">
+                <div class="tetrBrandRow">
+                  <img :src="logoUrl" class="tetrBrandLogo floatingLogo" alt="Logo" />
+                  <img :src="titleUrl" class="tetrTitlePng floatingLogo" alt="Pento Battle" />
+                </div>
+              </template>
+              <template v-else>
+                <img :src="logoUrl" class="tetrWelcomeLogo" alt="" />
+                <span class="tetrWelcomeWord">PENTO</span>
+                <span class="tetrWelcomeWord strong">BATTLE</span>
+              </template>
             </div>
           </div>
 
           <div class="tetrTiles">
             <button class="tetrTile disabled" disabled title="Login not implemented yet" @mouseenter="uiHover">
               <div class="tetrTileInner">
-                <div class="tetrTileGlyph">LG</div>
+                <div class="tetrTileGlyph">
+                  <template v-if="useMenuPngs">
+                    <img :src="loginIconUrl" class="tetrGlyphPng floatingLogo" alt="LG" />
+                  </template>
+                  <template v-else>LG</template>
+                </div>
                 <div class="tetrTileText">
-                  <div class="tetrTileTitle">LOGIN</div>
+                  <div class="tetrTileTitle">
+                    <template v-if="useMenuPngs">
+                      <img :src="loginTitleUrl" class="tetrTextPng" alt="LOGIN" />
+                    </template>
+                    <template v-else>LOGIN</template>
+                  </div>
                   <div class="tetrTileDesc">not working yet</div>
                 </div>
               </div>
@@ -126,10 +149,25 @@
 
             <button class="tetrTile accentPink" @mouseenter="uiHover" @click="uiClick(); playAsGuest()">
               <div class="tetrTileInner">
-                <div class="tetrTileGlyph">GS</div>
+                <div class="tetrTileGlyph">
+                  <template v-if="useMenuPngs">
+                    <img :src="playGuestIconUrl" class="tetrGlyphPng floatingLogo" alt="GS" />
+                  </template>
+                  <template v-else>GS</template>
+                </div>
                 <div class="tetrTileText">
-                  <div class="tetrTileTitle">PLAY AS GUEST</div>
-                  <div class="tetrTileDesc">jump straight into the modes</div>
+                  <div class="tetrTileTitle">
+                  <template v-if="useMenuPngs">
+                    <img :src="playGuestTitleUrl" class="tetrTextPng" alt="PLAY AS GUEST" />
+                  </template>
+                  <template v-else>PLAY AS GUEST</template>
+                </div>
+                  <div class="tetrTileDesc">
+                  <template v-if="useMenuPngs">
+                    <img :src="playGuestDescUrl" class="tetrSubPng" alt="jump straight into the modes" />
+                  </template>
+                  <template v-else>jump straight into the modes</template>
+                </div>
                 </div>
               </div>
             </button>
@@ -145,7 +183,12 @@
       ========================== -->
       <section v-else-if="screen === 'mode'" class="menuShell tetrShell">
         <div class="tetrHeaderRow">
-          <div class="tetrPageTitle">WELCOME</div>
+          <div class="tetrPageTitle">
+          <template v-if="useMenuPngs">
+            <img :src="welcomeUrl" class="tetrHeaderPng" alt="WELCOME" />
+          </template>
+          <template v-else>WELCOME</template>
+        </div>
         </div>
 
         <div class="tetrPane">
@@ -567,7 +610,12 @@
     <div class="tetrBottomBrand">PentoBattle</div>
   </div>
   <div class="tetrBottomRight">
-    <div class="tetrBottomHint">MADE BY MUMUCHXM</div>
+    <div class="tetrBottomHint">
+    <template v-if="useMenuPngs">
+      <img :src="madeByUrl" class="tetrBottomPng" alt="MADE BY MUMUCHXM" />
+    </template>
+    <template v-else>MADE BY MUMUCHXM</template>
+  </div>
   </div>
 </footer>
 
@@ -704,6 +752,24 @@ function onViewportChange() {
 
 
 const logoUrl = new URL("./assets/logo.png", import.meta.url).href;
+// Split brand assets (replaceable):
+// - ./assets/logo.png  (icon)
+// - ./assets/title.png (PENTO BATTLE text)
+const titleUrl = new URL("./assets/title.png", import.meta.url).href;
+const useSplitBrandPng = ref(true); // toggle off to fall back to text title
+
+// Extra replaceable menu PNG assets (safe placeholders included in /assets)
+const welcomeUrl = new URL("./assets/welcome.png", import.meta.url).href;
+const madeByUrl = new URL("./assets/madeby.png", import.meta.url).href;
+const loginTitleUrl = new URL("./assets/login.png", import.meta.url).href;
+const loginIconUrl = new URL("./assets/login_icon.png", import.meta.url).href;
+const playGuestTitleUrl = new URL("./assets/play_guest.png", import.meta.url).href;
+const playGuestDescUrl = new URL("./assets/play_guest_sub.png", import.meta.url).href;
+const playGuestIconUrl = new URL("./assets/gs_icon.png", import.meta.url).href;
+
+// Toggle: replace specific menu texts with PNGs (falls back to text if turned off)
+const useMenuPngs = ref(true);
+
 
 const quick = reactive({
   lobbyName: "",
@@ -3194,23 +3260,155 @@ onBeforeUnmount(() => {
   background: transparent;
   box-shadow: none;
 }
-.menuShell{ max-width: 640px; margin: 0 auto; display: grid; gap: 14px; padding: 6px 0 16px; }
-.menuCard{ padding: 18px; border-radius: 20px; border: 1px solid rgba(255,255,255,.10); background: rgba(10,10,16,.55); backdrop-filter: blur(10px); }
+.menuShell{ max-width: 720px; margin: 0 auto; display: grid; gap: 14px; padding: 6px 0 16px; }
+
+/* Neon tile system (inspired by the reference image) */
+.menuShell{
+  --neo-cyan: rgba(0, 229, 255, 1);
+  --neo-mag: rgba(255, 43, 214, 1);
+  --neo-ink: rgba(8, 10, 18, 0.76);
+  --neo-ink2: rgba(8, 10, 16, 0.52);
+}
+
+.menuCard{
+  position: relative;
+  padding: 18px;
+  border-radius: 22px;
+  border: 1px solid rgba(255,255,255,.10);
+  background:
+    radial-gradient(900px 420px at 20% 0%, rgba(0,229,255,0.10), transparent 60%),
+    radial-gradient(900px 420px at 85% 100%, rgba(255,43,214,0.09), transparent 60%),
+    linear-gradient(180deg, rgba(12,12,20,0.62), rgba(10,10,16,0.46));
+  backdrop-filter: blur(12px);
+  box-shadow:
+    0 16px 70px rgba(0,0,0,0.55),
+    0 0 0 1px rgba(0,229,255,0.06) inset,
+    0 0 0 1px rgba(255,43,214,0.05);
+  overflow: hidden;
+}
+.menuCard::after{
+  content:"";
+  position:absolute;
+  inset:0;
+  opacity: 0.22;
+  background:
+    repeating-linear-gradient(90deg, rgba(255,255,255,0.10) 0 1px, transparent 1px 44px),
+    repeating-linear-gradient(0deg, rgba(255,255,255,0.08) 0 1px, transparent 1px 44px);
+  mix-blend-mode: overlay;
+  pointer-events:none;
+}
+
 .menuStack{ display: grid; gap: 10px; }
 .menuSplitRow{ display:flex; gap: 10px; flex-wrap: wrap; margin-top: 2px; }
-.menuBtn{ width: 100%; display:flex;
+
+/* Big neon menu tiles (keep your Valorant-ish layout & hover feel, but neon theming) */
+.menuBtn{
+  width: 100%;
+  display:flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 16px 16px;
   line-height: 1.15;
-  overflow: visible; justify-content:space-between; align-items:center; padding: 12px 14px; border-radius: 18px; border: 1px solid rgba(255,255,255,.14); background: linear-gradient(180deg, rgba(255,255,255,.07), rgba(255,255,255,.05)); color:#eaeaea; cursor:pointer; font-weight:900; transition: transform .08s ease, box-shadow .18s ease, border-color .18s ease, background .18s ease; box-shadow: 0 12px 34px rgba(0,0,0,.40), 0 0 0 1px rgba(0,0,0,.25) inset; }
-.menuBtn:hover{ transform: translateY(-1px); border-color: rgba(255,255,255,.20); box-shadow: 0 14px 38px rgba(0,0,0,.46), 0 0 22px rgba(0,229,255,.10); }
+  cursor: pointer;
+  font-weight: 900;
+  color: #eaeaea;
+  position: relative;
+  isolation: isolate;
+  border: 1px solid rgba(255,255,255,.12);
+  background: linear-gradient(180deg, var(--neo-ink), var(--neo-ink2));
+  /* Chamfer/cut corners like the reference image */
+  clip-path: polygon(18px 0, calc(100% - 18px) 0, 100% 18px, 100% calc(100% - 18px), calc(100% - 18px) 100%, 18px 100%, 0 calc(100% - 18px), 0 18px);
+  transition: transform .08s ease, box-shadow .18s ease, border-color .18s ease, filter .18s ease;
+  box-shadow:
+    0 14px 44px rgba(0,0,0,.44),
+    0 0 0 1px rgba(0,0,0,.25) inset;
+}
+
+/* inner grid + subtle scan sheen */
+.menuBtn::after{
+  content:"";
+  position:absolute;
+  inset:0;
+  z-index:-1;
+  opacity: 0.18;
+  background:
+    radial-gradient(900px 320px at 25% 0%, rgba(255,255,255,0.06), transparent 60%),
+    repeating-linear-gradient(90deg, rgba(255,255,255,0.10) 0 1px, transparent 1px 52px),
+    repeating-linear-gradient(0deg, rgba(255,255,255,0.08) 0 1px, transparent 1px 52px);
+  mix-blend-mode: overlay;
+  pointer-events:none;
+}
+
+/* neon edge glow layer */
+.menuBtn::before{
+  content:"";
+  position:absolute;
+  inset:-2px;
+  z-index:-2;
+  background: linear-gradient(90deg, rgba(0,229,255,0.0), rgba(0,229,255,0.35), rgba(255,43,214,0.30), rgba(255,43,214,0.0));
+  filter: blur(16px);
+  opacity: 0.55;
+  pointer-events:none;
+}
+
+.menuBtn:hover{
+  transform: translateY(-1px);
+  border-color: rgba(255,255,255,.18);
+  box-shadow:
+    0 18px 56px rgba(0,0,0,.52),
+    0 0 0 1px rgba(255,255,255,0.06) inset,
+    0 0 30px rgba(0,229,255,.14);
+  filter: saturate(1.05);
+}
 .menuBtn:active{ transform: translateY(0px) scale(0.99); }
-.menuBtn.primary{ background: linear-gradient(180deg, rgba(0,229,255,.16), rgba(0,229,255,.10)); border-color: rgba(0,229,255,.22); }
-.menuBtn.alt{ background: linear-gradient(180deg, rgba(255,43,214,.16), rgba(255,64,96,.10)); border-color: rgba(255,43,214,.22); }
-.menuBtn.alt:hover{ box-shadow: 0 14px 38px rgba(0,0,0,.46), 0 0 22px rgba(255,43,214,.12); }
-.menuBtn.disabled{ opacity:.45; cursor:not-allowed; }
-.menuBtnLeft{ display:flex; gap: 12px; align-items:center; min-width:0; }
-.menuBtnIcon{ width: 38px; height: 38px; display:grid; place-items:center; border-radius: 12px; background: rgba(255,255,255,.06); }
-.menuBtnTop{ font-size: 14px; }
-.menuBtnSub{ font-size: 12px; opacity: .75; font-weight: 700; }
+
+.menuBtn.primary{
+  border-color: rgba(0,229,255,.22);
+  box-shadow:
+    0 14px 44px rgba(0,0,0,.44),
+    0 0 0 1px rgba(0,229,255,0.08) inset,
+    0 0 22px rgba(0,229,255,0.10);
+}
+.menuBtn.primary::before{
+  background: linear-gradient(90deg, rgba(0,229,255,0.0), rgba(0,229,255,0.42), rgba(0,229,255,0.18), rgba(0,229,255,0.0));
+}
+
+.menuBtn.alt{
+  border-color: rgba(255,43,214,.22);
+  box-shadow:
+    0 14px 44px rgba(0,0,0,.44),
+    0 0 0 1px rgba(255,43,214,0.08) inset,
+    0 0 22px rgba(255,43,214,0.10);
+}
+.menuBtn.alt::before{
+  background: linear-gradient(90deg, rgba(255,43,214,0.0), rgba(255,43,214,0.42), rgba(255,43,214,0.18), rgba(255,43,214,0.0));
+}
+.menuBtn.alt:hover{
+  box-shadow:
+    0 18px 56px rgba(0,0,0,.52),
+    0 0 0 1px rgba(255,255,255,0.06) inset,
+    0 0 32px rgba(255,43,214,.16);
+}
+
+.menuBtn.disabled{ opacity:.45; cursor:not-allowed; filter: grayscale(0.15); }
+.menuBtnLeft{ display:flex; gap: 14px; align-items:center; min-width:0; }
+.menuBtnIcon{
+  width: 42px;
+  height: 42px;
+  display:grid;
+  place-items:center;
+  border-radius: 14px;
+  background: rgba(0,0,0,0.18);
+  border: 1px solid rgba(255,255,255,0.10);
+  box-shadow:
+    0 10px 26px rgba(0,0,0,0.40),
+    0 0 0 1px rgba(255,255,255,0.05) inset;
+}
+.menuBtn.primary .menuBtnIcon{ border-color: rgba(0,229,255,0.18); box-shadow: 0 10px 26px rgba(0,0,0,0.40), 0 0 20px rgba(0,229,255,0.10); }
+.menuBtn.alt .menuBtnIcon{ border-color: rgba(255,43,214,0.18); box-shadow: 0 10px 26px rgba(0,0,0,0.40), 0 0 20px rgba(255,43,214,0.10); }
+
+.menuBtnTop{ font-size: 15px; text-transform: uppercase; letter-spacing: 1.2px; }
+.menuBtnSub{ font-size: 12px; opacity: .78; font-weight: 700; }
 .menuTitleRow{ display:flex; justify-content:space-between; align-items:center; margin-bottom: 10px; }
 .menuTitle{ font-size: 14px; font-weight: 900; }
 .menuHint{ font-size: 12px; opacity:.7; font-weight: 700; }
@@ -3683,6 +3881,98 @@ onBeforeUnmount(() => {
     drop-shadow(0 0 22px rgba(0,229,255,0.18))
     drop-shadow(0 0 18px rgba(255,43,214,0.14));
 }
+
+.tetrBrandPng{
+  width: clamp(180px, 36vh, 520px);
+  height: auto;
+  object-fit: contain;
+  max-width: min(92vw, 560px);
+  filter:
+    drop-shadow(0 18px 46px rgba(0,0,0,0.62))
+    drop-shadow(0 0 26px rgba(0,229,255,0.20))
+    drop-shadow(0 0 22px rgba(255,43,214,0.16));
+}
+
+/* Split brand (logo + title PNG) */
+.tetrBrandRow{
+  display:flex;
+  align-items:center;
+  justify-content:center;
+  gap: clamp(10px, 2.2vh, 18px);
+  max-width: min(92vw, 720px);
+}
+.tetrBrandLogo{
+  width: clamp(44px, 7vh, 86px);
+  height: clamp(44px, 7vh, 86px);
+  object-fit: contain;
+  filter:
+    drop-shadow(0 14px 34px rgba(0,0,0,0.62))
+    drop-shadow(0 0 22px rgba(0,229,255,0.18))
+    drop-shadow(0 0 18px rgba(255,43,214,0.14));
+}
+.tetrTitlePng{
+  width: clamp(220px, 42vh, 620px);
+  height: auto;
+  object-fit: contain;
+  max-width: min(78vw, 640px);
+  filter:
+    drop-shadow(0 18px 46px rgba(0,0,0,0.62))
+    drop-shadow(0 0 26px rgba(0,229,255,0.20))
+    drop-shadow(0 0 22px rgba(255,43,214,0.16));
+}
+
+/* Menu text PNG helpers (optional) */
+.tetrTextPng{
+  display:block;
+  height: 22px;
+  width: auto;
+  object-fit: contain;
+  filter:
+    drop-shadow(0 10px 28px rgba(0,0,0,0.55))
+    drop-shadow(0 0 18px rgba(0,229,255,0.16))
+    drop-shadow(0 0 14px rgba(255,43,214,0.12));
+}
+.tetrSubPng{
+  display:block;
+  height: 14px;
+  width: auto;
+  object-fit: contain;
+  opacity: .92;
+  filter:
+    drop-shadow(0 8px 22px rgba(0,0,0,0.5))
+    drop-shadow(0 0 14px rgba(0,229,255,0.12));
+}
+.tetrGlyphPng{
+  display:block;
+  width: 34px;
+  height: 34px;
+  object-fit: contain;
+  filter:
+    drop-shadow(0 10px 26px rgba(0,0,0,0.55))
+    drop-shadow(0 0 16px rgba(255,43,214,0.14))
+    drop-shadow(0 0 14px rgba(0,229,255,0.14));
+}
+.tetrHeaderPng{
+  display:block;
+  height: 32px;
+  width: auto;
+  object-fit: contain;
+  filter:
+    drop-shadow(0 12px 30px rgba(0,0,0,0.55))
+    drop-shadow(0 0 18px rgba(0,229,255,0.16))
+    drop-shadow(0 0 16px rgba(255,43,214,0.12));
+}
+.tetrBottomPng{
+  display:block;
+  height: 16px;
+  width: auto;
+  object-fit: contain;
+  opacity: .85;
+  filter:
+    drop-shadow(0 10px 24px rgba(0,0,0,0.55))
+    drop-shadow(0 0 14px rgba(0,229,255,0.12));
+}
+
 .tetrWelcomeWord{ opacity: 0.98; }
 .tetrWelcomeWord.strong{ opacity: 1; }
 .tetrHeroSub{
@@ -3711,6 +4001,11 @@ onBeforeUnmount(() => {
   height: clamp(120px, 18vh, 190px);
   flex: 0 0 auto;
 
+  /* Per-tile accent colors (overridden by accent classes below) */
+  --c1: 0,229,255;   /* cyan */
+  --c2: 255,43,214;  /* magenta */
+  --c3: 255,215,0;   /* gold */
+
   /* AAA "off-panel" illusion (Valorant/TETR style):
      Make each tile *wider than its panel* and offset it so its far/right edge is always off-screen.
      This also prevents a visible gap on hover when the tile slides left. */
@@ -3722,7 +4017,14 @@ onBeforeUnmount(() => {
   text-align:left;
   border: 1px solid rgba(255,255,255,0.12);
   border-radius: 14px;
-  background: rgba(0,0,0,.36);
+
+  /* Rich, colorful glass (keeps readability while feeling "Pentomino-colorful") */
+  background:
+    radial-gradient(1200px 420px at 16% 0%, rgba(255,255,255,.06), transparent 55%),
+    radial-gradient(900px 360px at 18% 12%, rgba(var(--c1), .22), transparent 62%),
+    radial-gradient(900px 360px at 58% 92%, rgba(var(--c2), .18), transparent 64%),
+    radial-gradient(760px 320px at 92% 18%, rgba(var(--c3), .12), transparent 58%),
+    linear-gradient(180deg, rgba(0,0,0,.52), rgba(0,0,0,.32));
   padding: 0;
   cursor: pointer;
 
@@ -3730,8 +4032,10 @@ onBeforeUnmount(() => {
   overflow: hidden;
 
   box-shadow:
-    0 14px 40px rgba(0,0,0,.55),
-    0 0 0 1px rgba(0,0,0,0.35) inset;
+    0 14px 40px rgba(0,0,0,.58),
+    0 0 0 1px rgba(0,0,0,0.35) inset,
+    0 0 18px rgba(var(--c1), .10),
+    0 0 18px rgba(var(--c2), .08);
 
   transition:
     transform .28s cubic-bezier(.2,.85,.2,1),
@@ -3746,11 +4050,13 @@ onBeforeUnmount(() => {
 
   /* Subtle glass + diagonal sheen */
   background:
-    linear-gradient(135deg, rgba(255,255,255,.10), rgba(255,255,255,0) 55%),
-    radial-gradient(900px 320px at 18% 12%, rgba(0,229,255,0.14), transparent 60%),
-    radial-gradient(900px 320px at 55% 88%, rgba(255,43,214,0.12), transparent 62%);
+    linear-gradient(135deg, rgba(255,255,255,.14), rgba(255,255,255,0) 52%),
+    radial-gradient(1100px 360px at 12% 10%, rgba(var(--c1),0.26), transparent 62%),
+    radial-gradient(980px 340px at 54% 92%, rgba(var(--c2),0.22), transparent 64%),
+    radial-gradient(820px 320px at 92% 18%, rgba(var(--c3),0.16), transparent 60%),
+    radial-gradient(900px 300px at 30% 50%, rgba(255,255,255,0.06), transparent 65%);
 
-  opacity: .70;
+  opacity: .78;
 }
 
 /* Neon border + scanline shimmer (AAA "juicy" feel) */
@@ -3761,17 +4067,23 @@ onBeforeUnmount(() => {
   pointer-events:none;
   border-radius: inherit;
 
+  /* Neon edge + rainbow scan shimmer */
   background:
-    linear-gradient(90deg, rgba(0,229,255,0.22), rgba(255,43,214,0.18) 55%, rgba(255,255,255,0.06)),
+    linear-gradient(90deg,
+      rgba(var(--c1),0.26),
+      rgba(var(--c2),0.22) 48%,
+      rgba(var(--c3),0.18) 78%,
+      rgba(255,255,255,0.06)
+    ),
     repeating-linear-gradient(
       180deg,
-      rgba(255,255,255,0.05) 0px,
-      rgba(255,255,255,0.05) 1px,
+      rgba(255,255,255,0.07) 0px,
+      rgba(255,255,255,0.07) 1px,
       rgba(255,255,255,0) 6px,
       rgba(255,255,255,0) 10px
     );
   mix-blend-mode: screen;
-  opacity: .18;
+  opacity: .20;
   transform: translateX(-10%);
   animation: tetrScan 4.2s linear infinite;
 }
@@ -3784,9 +4096,11 @@ onBeforeUnmount(() => {
   transform: translateX(-34px);
   box-shadow:
     0 18px 55px rgba(0,0,0,.62),
-    0 0 0 1px rgba(0,229,255,0.10) inset,
-    0 0 0 1px rgba(255,43,214,0.07);
-  filter: brightness(1.08) saturate(1.04);
+    0 0 0 1px rgba(var(--c1),0.10) inset,
+    0 0 0 1px rgba(var(--c2),0.08),
+    0 0 26px rgba(var(--c1),0.14),
+    0 0 22px rgba(var(--c2),0.10);
+  filter: brightness(1.10) saturate(1.18);
 }
 .tetrTile:active{
   transform: translateX(-34px) scale(0.995);
@@ -4044,44 +4358,64 @@ onBeforeUnmount(() => {
 .tetrBackBtn:hover{ transform: translateX(-6px); filter: brightness(1.05); }
 
 .tetrTile.accentPink{
-  box-shadow: 0 0 0 1px rgba(255,70,160,0.12) inset;
+  --c1: 255,60,210;
+  --c2: 255,155,60;
+  --c3: 0,240,255;
+  box-shadow: 0 0 0 1px rgba(255,155,60,0.10) inset;
 }
 .tetrTile.accentPink .tetrTileGlyph,
 .tetrTile.accentPink .tetrTileTitle{
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
- color: rgba(255,170,220,0.98); }
+  color: rgba(255,200,235,0.98);
+  text-shadow: 0 10px 28px rgba(0,0,0,0.55), 0 0 18px rgba(255,155,60,0.10);
+}
 
 .tetrTile.accentPurple{
-  box-shadow: 0 0 0 1px rgba(190,130,255,0.14) inset;
+  --c1: 160,120,255;
+  --c2: 0,229,255;
+  --c3: 255,215,0;
+  box-shadow: 0 0 0 1px rgba(0,229,255,0.10) inset;
 }
 .tetrTile.accentPurple .tetrTileGlyph,
 .tetrTile.accentPurple .tetrTileTitle{
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
- color: rgba(220,200,255,0.98); }
+  color: rgba(230,215,255,0.98);
+  text-shadow: 0 10px 28px rgba(0,0,0,0.55), 0 0 18px rgba(0,229,255,0.10);
+}
 
 .tetrTile.accentPurple2{
-  box-shadow: 0 0 0 1px rgba(160,120,255,0.12) inset;
+  --c1: 120,110,255;
+  --c2: 255,43,214;
+  --c3: 0,229,255;
+  box-shadow: 0 0 0 1px rgba(255,43,214,0.10) inset;
 }
 .tetrTile.accentPurple2 .tetrTileGlyph,
 .tetrTile.accentPurple2 .tetrTileTitle{
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
- color: rgba(210,190,255,0.98); }
+  color: rgba(220,205,255,0.98);
+  text-shadow: 0 10px 28px rgba(0,0,0,0.55), 0 0 18px rgba(255,43,214,0.10);
+}
 
 .tetrTile.accentBlue{
-  box-shadow: 0 0 0 1px rgba(120,170,255,0.14) inset;
+  --c1: 0,200,255;
+  --c2: 80,255,160;
+  --c3: 255,215,0;
+  box-shadow: 0 0 0 1px rgba(80,255,160,0.10) inset;
 }
 .tetrTile.accentBlue .tetrTileGlyph,
 .tetrTile.accentBlue .tetrTileTitle{
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
- color: rgba(190,220,255,0.98); }
+  color: rgba(205,235,255,0.98);
+  text-shadow: 0 10px 28px rgba(0,0,0,0.55), 0 0 18px rgba(80,255,160,0.10);
+}
 
 /* Responsive: keep everything visible on smaller screens */
 @media (max-width: 700px) {
@@ -4130,6 +4464,14 @@ onBeforeUnmount(() => {
   font-size: 34px;
   opacity: .75;
   text-transform: uppercase;
+}
+.tetrTopTitlePng{
+  height: 34px;
+  width: auto;
+  display: block;
+  opacity: .85;
+  image-rendering: pixelated;
+  filter: drop-shadow(0 2px 6px rgba(0,0,0,.45));
 }
 .tetrTopRight{ display:flex; align-items:center; gap: 12px; margin-left:auto; }
 .tetrTopIgn{
