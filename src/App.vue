@@ -302,7 +302,7 @@
                   {{ l.lobby_name || "Public Lobby" }}
                 </div>
                 <div style="opacity:.75;font-size:12px;">
-                  Code: <b>{{ l.code || "—" }}</b> · Status: <b>{{ l.status || "waiting" }}</b>
+                  Code: <b>{{ l.code || "—" }}</b> · Players: <b>{{ lobbyCountLabel(l) }}</b> · Status: <b>{{ l.status || "waiting" }}</b>
                 </div>
               </div>
 
@@ -821,6 +821,9 @@ async function leaveOnlineLobby(reason = "left") {
     const st = lobby.state || {};
     const meta = st.meta || {};
 
+    const isPublicQuick = lobby.is_private === false;
+    const matchEndedLocally = game.phase === "gameover";
+
     if (online.role === "host") {
       const nextState = {
         ...st,
@@ -833,12 +836,26 @@ async function leaveOnlineLobby(reason = "left") {
         },
       };
 
-      await sbForcePatchState(online.lobbyId, {
-        status: "closed",
-        state: nextState,
-        version: nextVersion,
-        updated_at: new Date().toISOString(),
-      });
+      // ✅ Prefer DELETE so we don't leave dead lobbies behind.
+      // If RLS blocks delete, we close+invalidate so nobody can join.
+      try {
+        const ok = await sbDeleteLobby(online.lobbyId);
+        if (!ok) {
+          await sbForcePatchState(online.lobbyId, {
+            status: "closed",
+            state: nextState,
+            version: nextVersion,
+            updated_at: new Date().toISOString(),
+          });
+        }
+      } catch {
+        await sbForcePatchState(online.lobbyId, {
+          status: "closed",
+          state: nextState,
+          version: nextVersion,
+          updated_at: new Date().toISOString(),
+        });
+      }
     } else {
       const nextState = {
         ...st,
@@ -859,6 +876,17 @@ async function leaveOnlineLobby(reason = "left") {
         version: nextVersion,
         updated_at: new Date().toISOString(),
       });
+
+      // ✅ If this was a public quick-match lobby and the match already ended,
+      // clear it from DB so history doesn't pile up.
+      if (isPublicQuick && matchEndedLocally) {
+        try {
+          const ok = await sbDeleteLobby(online.lobbyId);
+          if (!ok) await sbCloseAndNukeLobby(online.lobbyId, { terminateReason: "ended", reason: "quick_cleanup" });
+        } catch {
+          // ignore
+        }
+      }
     }
   } catch {
     // best-effort
@@ -886,7 +914,8 @@ async function sbSelectLobbyByCode(code) {
 
 async function sbListPublicWaitingLobbies() {
   const q = [
-    "select=id,code,status,is_private,lobby_name,updated_at",
+    // include host/guest so we can show 1/2 or 2/2 and clean up 0/2 rows
+    "select=id,code,status,is_private,lobby_name,updated_at,host_id,guest_id,state",
     "status=eq.waiting",
     "is_private=eq.false",
     "guest_id=is.null",
@@ -937,7 +966,9 @@ async function sbCreateLobby({ isPrivate = false, lobbyName = "" } = {}) {
 async function sbJoinLobby(lobbyId) {
   const guestId = getGuestId();
 
-  const res = await fetch(sbRestUrl(`pb_lobbies?id=eq.${encodeURIComponent(lobbyId)}`), {
+  // ✅ Guard join so you can't join closed/full/expired lobbies.
+  // This PATCH will only succeed if the lobby is still waiting and has no guest.
+  const res = await fetch(sbRestUrl(`pb_lobbies?id=eq.${encodeURIComponent(lobbyId)}&guest_id=is.null&status=eq.waiting`), {
     method: "PATCH",
     headers: { ...sbHeaders(), Prefer: "return=representation" },
     body: JSON.stringify({
@@ -954,6 +985,63 @@ async function sbJoinLobby(lobbyId) {
 
   const rows = await res.json();
   return rows?.[0] || null;
+}
+
+/* =========================
+   ✅ Lobby hygiene helpers
+========================= */
+const LOBBY_WAITING_TTL_MS = 5 * 60 * 1000; // 5 minutes (prevents joining very old / abandoned rooms)
+
+function lobbyPlayerCount(lobby) {
+  return (lobby?.host_id ? 1 : 0) + (lobby?.guest_id ? 1 : 0);
+}
+
+function lobbyCountLabel(lobby) {
+  return `${lobbyPlayerCount(lobby)}/2`;
+}
+
+function parseIsoMs(iso) {
+  const t = Date.parse(String(iso || ""));
+  return Number.isFinite(t) ? t : 0;
+}
+
+function isLobbyExpired(lobby) {
+  if (!lobby) return true;
+  if (String(lobby.status || "").toLowerCase() === "closed") return true;
+
+  const pc = lobbyPlayerCount(lobby);
+  if (pc === 0) return true;
+
+  const st = lobby?.state || {};
+  const meta = st?.meta || {};
+  if (meta?.terminateReason === "expired") return true;
+
+  // If it's waiting with no guest and hasn't been touched in a while, treat as abandoned.
+  const upd = parseIsoMs(lobby.updated_at);
+  if (String(lobby.status || "").toLowerCase() === "waiting" && !lobby.guest_id) {
+    if (upd && Date.now() - upd > LOBBY_WAITING_TTL_MS) return true;
+  }
+  return false;
+}
+
+async function cleanupLobbyIfNeeded(lobby, { reason = "cleanup" } = {}) {
+  if (!lobby?.id) return;
+
+  const pc = lobbyPlayerCount(lobby);
+  if (pc === 0) {
+    try {
+      const ok = await sbDeleteLobby(lobby.id);
+      if (!ok) await sbCloseAndNukeLobby(lobby.id, { terminateReason: "empty", reason });
+    } catch {}
+    return;
+  }
+
+  if (isLobbyExpired(lobby)) {
+    try {
+      const ok = await sbDeleteLobby(lobby.id);
+      if (!ok) await sbCloseAndNukeLobby(lobby.id, { terminateReason: "expired", reason });
+    } catch {}
+  }
 }
 
 
@@ -1734,7 +1822,19 @@ async function refreshPublicLobbies() {
   loadingPublic.value = true;
   try {
     const rows = await sbListPublicWaitingLobbies();
-    publicLobbies.value = Array.isArray(rows) ? rows : [];
+    const list = Array.isArray(rows) ? rows : [];
+
+    // ✅ Clean up empty/expired lobbies so they don't stay joinable.
+    // Run best-effort deletes in the background of this refresh.
+    for (const l of list) {
+      // If a row has 0/2 or is expired, delete/close it.
+      if (lobbyPlayerCount(l) === 0 || isLobbyExpired(l)) {
+        cleanupLobbyIfNeeded(l, { reason: "list_refresh" });
+      }
+    }
+
+    // Only show lobbies that are still valid for joining.
+    publicLobbies.value = list.filter((l) => lobbyPlayerCount(l) > 0 && !isLobbyExpired(l));
   } catch (e) {
     showModal({
       title: "Refresh Failed",
@@ -1754,7 +1854,25 @@ async function joinPublicLobby(lobby) {
   if (!(await ensureSupabaseReadyOrExplain())) return;
   try {
     showModal({ title: "Joining...", tone: "info", message: `Joining lobby...\nCode: ${lobby?.code || "—"}` });
-    await sbJoinLobby(lobby.id);
+
+    // Re-check freshness so you can't join an expired lobby from a stale list.
+    const fresh = await sbSelectLobbyById(lobby.id);
+    if (!fresh || isLobbyExpired(fresh) || fresh.guest_id) {
+      closeModal();
+      // Best-effort cleanup so it won't appear again.
+      if (fresh) cleanupLobbyIfNeeded(fresh, { reason: "join_public_expired" });
+      showModal({ title: "Lobby Expired", tone: "bad", message: "That lobby is no longer available." });
+      await refreshPublicLobbies();
+      return;
+    }
+
+    const joined = await sbJoinLobby(lobby.id);
+    if (!joined) {
+      closeModal();
+      showModal({ title: "Join Failed", tone: "bad", message: "Someone else joined first, or the lobby was closed." });
+      await refreshPublicLobbies();
+      return;
+    }
     closeModal();
     showModal({ title: "Joined!", tone: "good", message: `Connected.\nCode: ${lobby?.code || "—"}` });
     startPollingLobby(lobby.id, "guest");
@@ -1783,13 +1901,30 @@ async function joinByCode() {
       return;
     }
 
+    // ✅ Don't allow joining expired/closed lobbies.
+    if (isLobbyExpired(lobby)) {
+      closeModal();
+      cleanupLobbyIfNeeded(lobby, { reason: "join_by_code_expired" });
+      showModal({ title: "Lobby Expired", tone: "bad", message: "That lobby is expired or closed." });
+      return;
+    }
+
     if (lobby.guest_id) {
       closeModal();
       showModal({ title: "Lobby Full", tone: "bad", message: "That lobby already has a guest." });
       return;
     }
 
-    await sbJoinLobby(lobby.id);
+    const joined = await sbJoinLobby(lobby.id);
+    if (!joined) {
+      closeModal();
+      showModal({
+        title: "Join Failed",
+        tone: "bad",
+        message: "Could not join. The lobby may have closed, expired, or someone joined first.",
+      });
+      return;
+    }
     closeModal();
     showModal({ title: "Joined!", tone: "good", message: `Connected.\nCode: ${lobby.code || code}` });
 
