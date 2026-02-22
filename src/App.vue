@@ -3711,12 +3711,12 @@ onBeforeUnmount(() => {
   height: clamp(120px, 18vh, 190px);
   flex: 0 0 auto;
 
-  /* AAA "off-panel" illusion without cropping:
-     push the tile slightly to the right (beyond viewport), so its far edge is not visible.
-     We keep the left edge fully visible (no negative left margin), avoiding cut text/glyphs. */
-  width: 100%;
-  /* Push farther past the right edge so there is NO visible pane edge (Valorant/TETR vibe) */
-  margin-right: clamp(-140px, -12vw, -260px);
+  /* AAA "off-panel" illusion (Valorant/TETR style):
+     Make each tile *wider than its panel* and offset it so its far/right edge is always off-screen.
+     This also prevents a visible gap on hover when the tile slides left. */
+  --tetrOverhang: clamp(260px, 26vw, 560px);
+  width: calc(100% + var(--tetrOverhang));
+  margin-right: calc(var(--tetrOverhang) * -1);
 
   position: relative;
   text-align:left;
