@@ -1,5 +1,5 @@
 <template>
-  <div class="app" :class="{ inGame: isInGame }">
+  <div class="app" :class="{ inGame: isInGame, hasBottomBar: showBottomBar }">
     <!-- 🔥 Animated RGB background -->
     <div class="bg">
       <div class="bgGradient"></div>
@@ -1290,7 +1290,9 @@ async function sbJoinLobby(lobbyId) {
     headers: { ...sbHeaders(), Prefer: "return=representation" },
     body: JSON.stringify({
       guest_id: guestId,
-      status: "full",
+      // Keep status as 'waiting' until the match is fully initialized (players assigned).
+      // This avoids edge cases where clients treat unknown statuses differently.
+      status: "waiting",
       updated_at: new Date().toISOString(),
     }),
   });
@@ -2553,7 +2555,23 @@ async function startQuickMatchAuto() {
   try {
     showModal({ title: "Quick Match", tone: "info", message: "Finding opponent, please wait…" });
 
-    const { lobby, role } = await sbQuickMatch();
+    // Guard against rare hangs / stalled fetches.
+    const withTimeout = (p, ms) =>
+      Promise.race([
+        p,
+        new Promise((_, rej) => setTimeout(() => rej(new Error("Quick Match timed out")), ms)),
+      ]);
+
+    let result;
+    try {
+      result = await withTimeout(sbQuickMatch(), 9000);
+    } catch {
+      // One retry after a short delay.
+      await new Promise((r) => setTimeout(r, 600));
+      result = await withTimeout(sbQuickMatch(), 9000);
+    }
+
+    const { lobby, role } = result;
 
     closeModal();
     showModal({
@@ -2747,6 +2765,13 @@ onBeforeUnmount(() => {
   overflow-y: visible;
   background: #06060a;
   font-family: 'Rajdhani', Inter, system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif;
+}
+
+/* When the fixed bottom bar is visible, keep layout at exactly 100vh (no extra scroll).
+   Padding is compensated by reducing min-height. */
+.app.hasBottomBar{
+  min-height: calc(100vh - 62px);
+  padding-bottom: 62px;
 }
 
 /* Ensure form controls inherit theme fonts */

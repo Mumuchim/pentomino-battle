@@ -3,19 +3,10 @@
 }
 
 * { box-sizing: border-box; }
-html, body {
-  height: 100%;
-}
-
-/* Avoid double scrollbars (html + body). Use body as the only scroll container. */
-html {
-  overflow: hidden;
-}
+html, body { margin: 0; padding: 0; }
+/* Use the platform/default scrollbar behavior. Do not force overflow on html/body. */
 
 body {
-  margin: 0;
-  overflow-y: auto;
-  overflow-x: hidden;
   font-family: system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif;
   background: #121212;
   color: #eaeaea;
