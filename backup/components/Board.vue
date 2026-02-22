@@ -70,7 +70,7 @@
 </template>
 
 <script setup>
-import { computed, ref } from "vue";
+import { computed, ref, watch } from "vue";
 import { useGameStore } from "../store/game";
 import { getPieceStyle } from "../lib/pieceStyles";
 import { playBuzz } from "../lib/sfx";
@@ -85,6 +85,7 @@ const props = defineProps({
 const game = useGameStore();
 const shell = ref(null);
 const hover = ref(null);
+const targetCell = ref(null);
 
 const BOARD_PADDING = 10;
 
@@ -121,6 +122,7 @@ const gridStyle = computed(() => ({
    PLACE phase ghost preview
 ---------------------------- */
 const ghost = computed(() => {
+  if (!game.ui?.enableHoverPreview) return { map: new Set(), ok: false };
   if (!hover.value) return { map: new Set(), ok: false };
   if (game.phase !== "place") return { map: new Set(), ok: false };
   if (!game.selectedPieceKey) return { map: new Set(), ok: false };
@@ -139,6 +141,7 @@ const ghost = computed(() => {
 });
 
 const ghostOverlay = computed(() => {
+  if (!game.ui?.enableHoverPreview) return { visible: false };
   if (!hover.value) return { visible: false };
   if (game.phase !== "place") return { visible: false };
   if (!game.selectedPieceKey) return { visible: false };
@@ -153,7 +156,9 @@ const ghostOverlay = computed(() => {
 });
 
 function setHover(x, y) {
+  if (!game.ui?.enableHoverPreview) return;
   if (game.phase !== "place") return;
+  if (!game.ui?.enableClickPlace) return;
   if (!game.selectedPieceKey) return;
   hover.value = { x, y };
 }
@@ -164,6 +169,7 @@ function clearHover() {
 
 function updateHoverFromClientXY(clientX, clientY) {
   if (game.phase !== "place") return;
+  if (!game.ui?.enableClickPlace) return;
   if (!game.selectedPieceKey) return;
 
   const el = shell.value;
@@ -175,13 +181,19 @@ function updateHoverFromClientXY(clientX, clientY) {
   const innerW = rect.width - BOARD_PADDING * 2;
   const innerH = rect.height - BOARD_PADDING * 2;
 
-  if (
-    clientX < innerLeft ||
-    clientY < innerTop ||
-    clientX >= innerLeft + innerW ||
-    clientY >= innerTop + innerH
-  ) {
-    hover.value = null;
+  const inside =
+    clientX >= innerLeft &&
+    clientY >= innerTop &&
+    clientX < innerLeft + innerW &&
+    clientY < innerTop + innerH;
+
+  if (!inside) {
+    targetCell.value = null;
+    if (game.ui?.enableHoverPreview) hover.value = null;
+
+    if (game.drag?.active) {
+      game.drag.target = { inside: false, ok: false, x: null, y: null };
+    }
     return;
   }
 
@@ -194,23 +206,38 @@ function updateHoverFromClientXY(clientX, clientY) {
   x = Math.max(0, Math.min(game.boardW - 1, x));
   y = Math.max(0, Math.min(game.boardH - 1, y));
 
-  hover.value = { x, y };
+  targetCell.value = { x, y };
+  if (game.ui?.enableHoverPreview) hover.value = { x, y };
+
+  if (game.drag?.active) {
+    const ok = game.canPlaceAt(x, y);
+    game.drag.target = { inside: true, ok, x, y };
+  }
 }
 
 function onPointerMove(e) {
+  if (game.phase !== "place") return;
+  if (!game.ui?.enableClickPlace) return;
+  if (!game.selectedPieceKey) return;
+  if (!game.ui?.enableHoverPreview && !game.drag?.active) return;
   updateHoverFromClientXY(e.clientX, e.clientY);
 }
 function onDragOver(e) {
+  if (game.phase !== "place") return;
+  if (!game.ui?.enableClickPlace) return;
+  if (!game.selectedPieceKey) return;
+  // native HTML drag
   updateHoverFromClientXY(e.clientX, e.clientY);
 }
 
 function onShellDrop() {
-  if (!hover.value) return;
+  if (!targetCell.value) return;
   if (game.phase !== "place") return;
+  if (!game.ui?.enableClickPlace) return;
   if (!game.selectedPieceKey) return;
   if (props.isOnline && !props.canAct) return;
 
-  const ok = game.placeAt(hover.value.x, hover.value.y);
+  const ok = game.placeAt(targetCell.value.x, targetCell.value.y);
   if (!ok) {
     playBuzz();
     showWarning("Illegal placement — try another spot / rotate / flip.");
@@ -219,6 +246,7 @@ function onShellDrop() {
 
 function onDrop(x, y) {
   if (game.phase !== "place") return;
+  if (!game.ui?.enableClickPlace) return;
   if (!game.selectedPieceKey) return;
   if (props.isOnline && !props.canAct) return;
 
@@ -346,6 +374,7 @@ function onCellClick(x, y, evt) {
   }
 
   if (game.phase !== "place") return;
+  if (!game.ui?.enableClickPlace) return;
   if (!game.selectedPieceKey) return;
   if (props.isOnline && !props.canAct) return;
 

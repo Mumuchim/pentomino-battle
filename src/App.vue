@@ -54,302 +54,299 @@
       </div>
     </div>
 
-    <header class="topbar">
-      <div class="brand" @click="goAuth" title="Back to Main Menu">
-        <div class="logoMark">
-          <img :src="logoUrl" alt="Logo" class="logoImg floatingLogo" />
+    <header class="topbar" :class="{ tetrBar: showTetrChrome }">
+      <!-- TETR-like top bar (menus) -->
+      <template v-if="showTetrChrome">
+        <div class="tetrTopLeft">
+          <div class="tetrTopTitle">{{ topPageTitle }}</div>
         </div>
-        <div class="brandText">
-          <div class="title">PentoBattle</div>
-          <div class="sub">Rotate • Flip • Dominate</div>
-        </div>
-      </div>
 
-      <div class="right">
-        <button class="btn ghost" v-if="canGoBack" @click="goBack">← Back</button>
-        <button class="btn ghost" v-if="screen !== 'auth'" @click="goAuth">Main Menu</button>
-        <button class="btn" v-if="isInGame" @click="onPrimaryMatchAction">
-          {{ primaryMatchActionLabel }}
-        </button>
-      </div>
+        <div class="tetrTopRight">
+          <div class="tetrTopIgn">
+            <span class="tetrTopIgnLabel">IGN</span>
+            <span class="tetrTopIgnName">{{ displayName }}</span>
+          </div>
+        </div>
+</template>
+
+      <!-- Original game top bar (in-game) -->
+      <template v-else>
+        <div class="brand" @click="goAuth" title="Back to Main Menu">
+          <div class="logoMark">
+            <img :src="logoUrl" alt="Logo" class="logoImg floatingLogo" />
+          </div>
+          <div class="brandText">
+            <div class="title">PentoBattle</div>
+            <div class="sub">Rotate • Flip • Dominate</div>
+          </div>
+        </div>
+
+        <div class="right">
+          <button class="btn ghost" v-if="canGoBack" @click="goBack">← Back</button>
+          <button class="btn ghost" v-if="screen !== 'auth'" @click="goAuth">Main Menu</button>
+          <button class="btn" v-if="isInGame" @click="onPrimaryMatchAction">
+            {{ primaryMatchActionLabel }}
+          </button>
+        </div>
+      </template>
     </header>
+
+    <!-- Back button below the top bar (menus) -->
+    <div v-if="showTetrChrome && canGoBack" class="tetrBackRow">
+      <button class="tetrBackBtn" @mouseenter="uiHover" @click="uiClick(); goBack()">BACK</button>
+    </div>
 
     <main class="main">
       <!-- =========================
            AUTH MENU
       ========================== -->
-      <section v-if="screen === 'auth'" class="menuShell">
-        <div class="hero">
-          <div class="heroBadge">WEB EDITION</div>
-          <h1 class="heroTitle">
-            <span class="rgbText">PentoBattle</span>
-          </h1>
-          <p class="heroDesc">
-            Draft pieces, outplay your opponent, and claim the board.
-          </p>
-        </div>
+      <section v-if="screen === 'auth'" class="menuShell tetrShell">
+        <div class="tetrPane">
+          <div class="tetrHero">
+            <div class="tetrHeroTop"></div>
 
-        <div class="menuCard">
-          <div class="menuTitleRow">
-            <div class="menuTitle">Start</div>
-            <div class="menuHint">Login unlocks Ranked later</div>
+            <div class="tetrHeroTitle">FLIP | ROTATE | DOMINATE</div>
           </div>
 
-          <div class="menuStack">
-            <button class="menuBtn disabled" disabled title="Login not implemented yet">
-              <div class="menuBtnLeft">
-                <div class="menuBtnIcon">🔒</div>
-                <div class="menuBtnText">
-                  <div class="menuBtnTop">Login</div>
-                  <div class="menuBtnSub">Not working yet</div>
+          <div class="tetrTiles">
+            <button class="tetrTile disabled" disabled title="Login not implemented yet" @mouseenter="uiHover">
+              <div class="tetrTileInner">
+                <div class="tetrTileGlyph">LG</div>
+                <div class="tetrTileText">
+                  <div class="tetrTileTitle">LOGIN</div>
+                  <div class="tetrTileDesc">not working yet</div>
                 </div>
               </div>
-              <div class="menuBtnRight">SOON</div>
             </button>
 
-            <button class="menuBtn primary" @click="playAsGuest">
-              <div class="menuBtnLeft">
-                <div class="menuBtnIcon">👤</div>
-                <div class="menuBtnText">
-                  <div class="menuBtnTop">Play as Guest</div>
-                  <div class="menuBtnSub">Works now</div>
+            <button class="tetrTile accentPink" @mouseenter="uiHover" @click="uiClick(); playAsGuest()">
+              <div class="tetrTileInner">
+                <div class="tetrTileGlyph">GS</div>
+                <div class="tetrTileText">
+                  <div class="tetrTileTitle">PLAY AS GUEST</div>
+                  <div class="tetrTileDesc">jump straight into the modes</div>
                 </div>
               </div>
-              <div class="menuBtnRight">▶</div>
             </button>
           </div>
 
-          <div class="finePrint">
-            Tip: You can still play Couch + Practice without login.
-            <span class="sep">·</span>
-          </div>
+          <div class="tetrFine">Tip: Q rotate • E flip</div>
         </div>
       </section>
+
 
       <!-- =========================
            MODE MENU (STACKED)
       ========================== -->
-      <section v-else-if="screen === 'mode'" class="menuShell">
-        <div class="hero compact">
-          <div class="heroBadge" :class="{ green: loggedIn }">
-            {{ loggedIn ? "LOGGED IN" : "GUEST" }}
-          </div>
-          <h1 class="heroTitle small">
-            Choose a <span class="rgbText">Mode</span>
-          </h1>
-          <p class="heroDesc small">
-            Ranked requires login. Others work offline.
-          </p>
+      <section v-else-if="screen === 'mode'" class="menuShell tetrShell">
+        <div class="tetrHeaderRow">
+          <div class="tetrPageTitle">HOME</div>
         </div>
 
-        <div class="menuCard">
-          <div class="menuTitleRow">
-            <div class="menuTitle">Game Modes</div>
-            <div class="menuHint">Keyboard: Q rotate • E flip</div>
-          </div>
-
-          <div class="menuStack">
+        <div class="tetrPane">
+          <div class="tetrHero compact">
+            <div class="tetrHeroTitle">FLIP | ROTATE | DOMINATE</div>
+          </div><div class="tetrTiles">
             <button
-              class="menuBtn"
+              class="tetrTile accentPurple"
               :disabled="!loggedIn"
               :class="{ disabled: !loggedIn }"
               :title="!loggedIn ? 'Ranked requires login' : ''"
-              @click="goRanked"
+              @mouseenter="uiHover"
+              @click="uiClick(); goRanked()"
             >
-              <div class="menuBtnLeft">
-                <div class="menuBtnIcon">🏆</div>
-                <div class="menuBtnText">
-                  <div class="menuBtnTop">Ranked</div>
-                  <div class="menuBtnSub">Auto finds lobby with same tier</div>
+              <div class="tetrTileInner">
+                <div class="tetrTileGlyph">RK</div>
+                <div class="tetrTileText">
+                  <div class="tetrTileTitle">RANKED</div>
+                  <div class="tetrTileDesc">auto finds lobby with same tier</div>
                 </div>
               </div>
-              <div class="menuBtnRight">{{ loggedIn ? "▶" : "LOCKED" }}</div>
             </button>
 
-            <button class="menuBtn primary" @click="goQuick">
-              <div class="menuBtnLeft">
-                <div class="menuBtnIcon">⚡</div>
-                <div class="menuBtnText">
-                  <div class="menuBtnTop">Quick Match</div>
-                  <div class="menuBtnSub">Browse public lobbies or join by code</div>
+            <button class="tetrTile accentPink" @mouseenter="uiHover" @click="uiClick(); startQuickMatchAuto()">
+              <div class="tetrTileInner">
+                <div class="tetrTileGlyph">QM</div>
+                <div class="tetrTileText">
+                  <div class="tetrTileTitle">QUICK MATCH</div>
+                  <div class="tetrTileDesc">finding opponent · please wait</div>
                 </div>
               </div>
-              <div class="menuBtnRight">PLAY</div>
             </button>
 
-            <button class="menuBtn alt" @click="startCouchPlay">
-              <div class="menuBtnLeft">
-                <div class="menuBtnIcon">🛋️</div>
-                <div class="menuBtnText">
-                  <div class="menuBtnTop">Couch Play</div>
-                  <div class="menuBtnSub">Local 2-player (your current mode)</div>
+            <button class="tetrTile accentPurple2" @mouseenter="uiHover" @click="uiClick(); goLobby()">
+              <div class="tetrTileInner">
+                <div class="tetrTileGlyph">LB</div>
+                <div class="tetrTileText">
+                  <div class="tetrTileTitle">GO TO LOBBY</div>
+                  <div class="tetrTileDesc">create session · browse rooms · join by code</div>
                 </div>
               </div>
-              <div class="menuBtnRight">PLAY</div>
             </button>
 
-            <button class="menuBtn disabled" disabled title="Practice vs. AI is locked for now">
-              <div class="menuBtnLeft">
-                <div class="menuBtnIcon">🔒</div>
-                <div class="menuBtnText">
-                  <div class="menuBtnTop">Practice vs. AI</div>
-                  <div class="menuBtnSub">Locked for now</div>
+            <button class="tetrTile accentBlue" @mouseenter="uiHover" @click="uiClick(); startCouchPlay()">
+              <div class="tetrTileInner">
+                <div class="tetrTileGlyph">1P</div>
+                <div class="tetrTileText">
+                  <div class="tetrTileTitle">COUCH PLAY</div>
+                  <div class="tetrTileDesc">local 2-player on one device</div>
                 </div>
               </div>
-              <div class="menuBtnRight">LOCKED</div>
             </button>
 
-            <div class="menuSplitRow">
-              <button class="btn soft" @click="screen = 'settings'">⚙ Settings</button>
-              <button class="btn soft" @click="screen = 'credits'">✨ Credits</button>
-            </div>
-          </div>
+            <button class="tetrTile disabled" disabled title="Practice vs. AI is locked for now" @mouseenter="uiHover">
+              <div class="tetrTileInner">
+                <div class="tetrTileGlyph">AI</div>
+                <div class="tetrTileText">
+                  <div class="tetrTileTitle">PRACTICE VS AI</div>
+                  <div class="tetrTileDesc">locked for now</div>
+                </div>
+              </div>
+            </button>
 
-          <div class="finePrint">
-            Public lobbies are visible. Private lobbies require a code.
+            <button class="tetrTile accentGrey" @mouseenter="uiHover" @click="uiClick(); screen = 'settings'">
+              <div class="tetrTileInner">
+                <div class="tetrTileGlyph">ST</div>
+                <div class="tetrTileText">
+                  <div class="tetrTileTitle">SETTINGS</div>
+                  <div class="tetrTileDesc">controls · preferences</div>
+                </div>
+              </div>
+            </button>
+
+            <button class="tetrTile accentGrey2" @mouseenter="uiHover" @click="uiClick(); screen = 'credits'">
+              <div class="tetrTileInner">
+                <div class="tetrTileGlyph">CR</div>
+                <div class="tetrTileText">
+                  <div class="tetrTileTitle">CREDITS</div>
+                  <div class="tetrTileDesc">about the game</div>
+                </div>
+              </div>
+            </button>
           </div>
         </div>
       </section>
 
-      <!-- =========================
-           QUICK MATCH MENU
+
+            <!-- =========================
+           LOBBY
       ========================== -->
-      <section v-else-if="screen === 'quick'" class="menuShell">
-        <div class="hero compact">
-          <div class="heroBadge">ONLINE</div>
-          <h1 class="heroTitle small">
-            <span class="rgbText">Quick Match</span>
-          </h1>
-          <p class="heroDesc small">Public lobbies are listed. Private requires code.</p>
+      <section v-else-if="screen === 'lobby'" class="menuShell tetrShell">
+        <div class="tetrHeaderRow">
+          <div class="tetrPageTitle">MULTIPLAYER</div>
         </div>
 
-        <div class="menuCard">
-          <div class="menuStack">
-            <button class="menuBtn primary" @click="enterQuickFind">
-              <div class="menuBtnLeft">
-                <div class="menuBtnIcon">🔎</div>
-                <div class="menuBtnText">
-                  <div class="menuBtnTop">Matchmaking</div>
-                  <div class="menuBtnSub">See public lobbies + join by code</div>
-                </div>
-              </div>
-              <div class="menuBtnRight">▶</div>
-            </button>
-
-            <button class="menuBtn alt" @click="screen = 'quick_make'">
-              <div class="menuBtnLeft">
-                <div class="menuBtnIcon">➕</div>
-                <div class="menuBtnText">
-                  <div class="menuBtnTop">Make Lobby</div>
-                  <div class="menuBtnSub">Create public or private room</div>
-                </div>
-              </div>
-              <div class="menuBtnRight">▶</div>
-            </button>
-
-            <button class="btn soft" @click="screen = 'mode'">← Back to Modes</button>
+        <div class="tetrPane">
+          <div class="tetrHero compact">
+            <div class="tetrHeroTitle">LOBBY</div>
+            <div class="tetrHeroSub">Create a session, browse rooms, or join by code.</div>
           </div>
 
-          <div class="finePrint">
-            Tip: Public = visible. Private = hidden, join by code.
-          </div>
-        </div>
-      </section>
-
-      <!-- QUICK MATCH: FIND -->
-      <section v-else-if="screen === 'quick_find'" class="menuShell">
-        <div class="hero compact">
-          <div class="heroBadge">MATCHMAKING</div>
-          <h1 class="heroTitle small">Find / Join Lobby</h1>
-          <p class="heroDesc small">Join a public lobby from the list or type a private code.</p>
-        </div>
-
-        <div class="menuCard">
-          <div class="form">
-            <label class="field">
-              <span>Join Code</span>
-              <input
-                v-model="quick.joinCode"
-                class="input"
-                placeholder="e.g., PB-AB12CD34"
-                @keydown.enter.prevent="joinByCode"
-              />
-            </label>
-          </div>
-
-          <div class="row">
-            <button class="btn soft" @click="screen = 'quick'">← Back</button>
-            <button class="btn" @click="refreshPublicLobbies">Refresh</button>
-            <button class="btn primary" @click="joinByCode">Join by Code</button>
-          </div>
-
-          <div class="divider"></div>
-
-          <div class="menuTitleRow" style="margin-bottom: 8px;">
-            <div class="menuTitle">Public Lobbies</div>
-            <div class="menuHint">{{ publicLobbies.length }} found</div>
-          </div>
-
-          <div v-if="loadingPublic" class="finePrint" style="border-top:none;padding-top:0;margin-top:0;">
-            Loading public lobbies...
-          </div>
-
-          <div v-else-if="!publicLobbies.length" class="finePrint" style="border-top:none;padding-top:0;margin-top:0;">
-            No public lobbies waiting right now. Create one or refresh.
-          </div>
-
-          <div v-else class="form">
-            <div
-              class="field"
-              v-for="l in publicLobbies"
-              :key="l.id"
-              style="justify-content: space-between;"
-            >
-              <div style="display:flex;flex-direction:column;gap:4px;min-width:0;">
-                <div style="font-weight:900;letter-spacing:.2px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">
-                  {{ l.lobby_name || "Public Lobby" }}
-                </div>
-                <div style="opacity:.75;font-size:12px;">
-                  Code: <b>{{ l.code || "—" }}</b> · Players: <b>{{ lobbyCountLabel(l) }}</b> · Status: <b>{{ l.status || "waiting" }}</b>
-                </div>
-              </div>
-
-              <button class="btn primary" @click="joinPublicLobby(l)">
-                Join
-              </button>
+          <div class="tetrCard">
+            <div class="tetrTitleRow">
+              <div class="tetrTitle">CREATE SESSION</div>
+              <div class="tetrHint">PUBLIC OR PRIVATE</div>
             </div>
-          </div>
-        </div>
-      </section>
 
-      <!-- QUICK MATCH: MAKE -->
-      <section v-else-if="screen === 'quick_make'" class="menuShell">
-        <div class="hero compact">
-          <div class="heroBadge">HOST</div>
-          <h1 class="heroTitle small">Make Lobby</h1>
-          <p class="heroDesc small">Public shows in matchmaking. Private requires a code.</p>
-        </div>
+            <div class="tetrForm">
+              <label class="tetrField">
+                <span>LOBBY NAME</span>
+                <input v-model="quick.lobbyName" class="tetrInput" placeholder="e.g., Mumuchxm room" />
+              </label>
 
-        <div class="menuCard">
-          <div class="form">
-            <label class="field">
-              <span>Lobby Name</span>
-              <input v-model="quick.lobbyName" class="input" placeholder="e.g., Mumuchxm room" />
-            </label>
+              <label class="tetrField inline">
+                <span>PRIVATE</span>
+                <input class="tetrCheck" type="checkbox" v-model="quick.isPrivate" />
+              </label>
+            </div>
 
-            <label class="field">
-              <span>Private</span>
-              <input type="checkbox" v-model="quick.isPrivate" />
-            </label>
-          </div>
+            <div class="tetrRow">
+              <button class="tetrMiniBtn" @mouseenter="uiHover" @click="uiClick(); refreshLobby()">REFRESH</button>
+              <button class="tetrMiniBtn primary" @mouseenter="uiHover" @click="uiClick(); lobbyCreate()">CREATE</button>
+            </div>
 
-          <div class="row">
-            <button class="btn soft" @click="screen = 'quick'">← Back</button>
-            <button class="btn primary" @click="quickMake">Create</button>
-          </div>
+            <div class="tetrDivider"></div>
 
-          <div class="finePrint">
-            Public lobbies appear in matchmaking. Private lobbies are hidden and must be joined by code.
+            <div class="tetrTitleRow">
+              <div class="tetrTitle">JOIN / SEARCH</div>
+              <div class="tetrHint">CODE OR NAME</div>
+            </div>
+
+            <div class="tetrForm">
+              <label class="tetrField">
+                <span>CODE OR NAME</span>
+                <input
+                  v-model="quick.joinCode"
+                  class="tetrInput"
+                  placeholder="PB-XXXXYYYY or lobby name"
+                  @keydown.enter.prevent="lobbySearchOrJoin"
+                />
+              </label>
+            </div>
+
+            <div class="tetrRow">
+              <button class="tetrMiniBtn primary" @mouseenter="uiHover" @click="uiClick(); lobbySearchOrJoin()">GO</button>
+            </div>
+
+            <div class="tetrDivider"></div>
+
+            <div class="tetrTitleRow">
+              <div class="tetrTitle">AVAILABLE ROOMS</div>
+              <div class="tetrHint">{{ publicLobbies.length }} FOUND</div>
+            </div>
+
+            <div v-if="loadingPublic" class="tetrFineLine">Loading rooms…</div>
+            <div v-else-if="!publicLobbies.length" class="tetrFineLine">No public rooms waiting right now.</div>
+
+            <div v-else class="tetrLobbyList">
+              <div class="tetrLobbyRow" v-for="l in publicLobbies" :key="l.id">
+                <div class="tetrLobbyInfo">
+                  <div class="tetrLobbyName">{{ l.lobby_name || "Public Lobby" }}</div>
+                  <div class="tetrLobbyMeta">
+                    Code: <b>{{ l.code || "—" }}</b>
+                    <span class="dot">•</span>
+                    Players: <b>{{ lobbyCountLabel(l) }}</b>
+                  </div>
+                </div>
+
+                <button
+                  class="tetrMiniBtn primary joinBtn"
+                  @mouseenter="uiHover"
+                  @click="uiClick(); joinPublicLobby(l)"
+                >
+                  JOIN
+                </button>
+              </div>
+            </div>
+
+            <div v-if="myPrivateLobbies.length" class="tetrDivider"></div>
+
+            <div v-if="myPrivateLobbies.length" class="tetrTitleRow">
+              <div class="tetrTitle">YOUR PRIVATE SESSIONS</div>
+              <div class="tetrHint">{{ myPrivateLobbies.length }}</div>
+            </div>
+
+            <div v-if="myPrivateLobbies.length" class="tetrLobbyList">
+              <div class="tetrLobbyRow" v-for="l in myPrivateLobbies" :key="'p_'+l.id">
+                <div class="tetrLobbyInfo">
+                  <div class="tetrLobbyName">{{ l.lobby_name || "Private Lobby" }}</div>
+                  <div class="tetrLobbyMeta">
+                    Code: <b>{{ l.code || "—" }}</b>
+                    <span class="dot">•</span>
+                    Status: <b>{{ l.status || "waiting" }}</b>
+                  </div>
+                </div>
+
+                <button class="tetrMiniBtn" @mouseenter="uiHover" @click="uiClick(); copyCode(l.code)">COPY</button>
+                <button class="tetrMiniBtn primary joinBtn" @mouseenter="uiHover" @click="uiClick(); reEnterLobby(l)">
+                  ENTER
+                </button>
+              </div>
+            </div>
+
+            <div class="tetrFineLine">
+              Private rooms are hidden — join by code. Quick Match rooms never show up here.
+            </div>
           </div>
         </div>
       </section>
@@ -477,7 +474,7 @@
                   end: game.phase === 'gameover',
                 }"
               >
-                <span v-if="game.phase === 'draft'">DRAFT</span>
+                <span v-if="game.phase === 'draft'">P{{ game.draftTurn }} PICK</span>
                 <span v-else-if="game.phase === 'place'">P{{ game.currentPlayer }} TURN</span>
                 <span v-else>GAME OVER</span>
               </div>
@@ -556,6 +553,19 @@
       </section>
     </main>
 
+
+<!-- TETR-like bottom bar (menus) -->
+<footer v-if="showBottomBar" class="tetrBottomBar" aria-hidden="true">
+  <div class="tetrBottomLeft">
+    <img :src="logoUrl" alt="" class="tetrBottomLogo" />
+    <div class="tetrBottomBrand">PentoBattle</div>
+  </div>
+  <div class="tetrBottomRight">
+    <div class="tetrBottomHint">MADE BY MUMUCHXM</div>
+  </div>
+</footer>
+
+
     <!-- ✅ Modal -->
     <div v-if="modal.open" class="modalOverlay" @click.self="!modal.locked && closeModal()">
       <div v-if="showConfetti" class="confetti" aria-hidden="true">
@@ -618,6 +628,50 @@ const game = useGameStore();
 const screen = ref("auth");
 const loggedIn = ref(false);
 const allowFlip = ref(true);
+const guestName = ref("GUEST");
+const displayName = computed(() => (loggedIn.value ? "PLAYER" : guestName.value));
+
+/* =========================
+   Menu SFX (no asset files)
+========================= */
+let _uiAudioCtx = null;
+let _uiAudioUnlocked = false;
+
+function uiUnlockAudio() {
+  try {
+    if (!_uiAudioCtx) _uiAudioCtx = new (window.AudioContext || window.webkitAudioContext)();
+    if (_uiAudioCtx.state === "suspended") _uiAudioCtx.resume();
+    _uiAudioUnlocked = true;
+  } catch {}
+}
+
+function uiBeep({ freq = 700, dur = 0.03, gain = 0.03 } = {}) {
+  try {
+    uiUnlockAudio();
+    if (!_uiAudioCtx) return;
+    const ctx = _uiAudioCtx;
+    const o = ctx.createOscillator();
+    const g = ctx.createGain();
+    o.type = "square";
+    o.frequency.value = freq;
+    g.gain.value = gain;
+    o.connect(g);
+    g.connect(ctx.destination);
+    const t = ctx.currentTime;
+    g.gain.setValueAtTime(gain, t);
+    g.gain.exponentialRampToValueAtTime(0.0001, t + dur);
+    o.start(t);
+    o.stop(t + dur + 0.01);
+  } catch {}
+}
+
+function uiHover() {
+  uiBeep({ freq: 760, dur: 0.025, gain: 0.02 });
+}
+function uiClick() {
+  uiBeep({ freq: 420, dur: 0.04, gain: 0.03 });
+}
+
 
 // Cross-platform: optional landscape lock for mobile
 const isPortrait = ref(false);
@@ -651,21 +705,36 @@ const modeLabel = computed(() =>
 );
 
 const phaseTitle = computed(() => {
-  if (game.phase === "draft") return "Draft";
+  if (game.phase === "draft") return "Drafting";
   if (game.phase === "place") return "Battle";
   if (game.phase === "gameover") return "Game Over";
   return game.phase || "—";
 });
 
 const phaseSub = computed(() => {
-  if (game.phase === "draft") return `Draft pick: P${game.draftTurn}`;
+  if (game.phase === "draft") return `Pick: P${game.draftTurn}`;
   if (game.phase === "place") return `Turn: P${game.currentPlayer}`;
   return "";
 });
 
 const canGoBack = computed(() =>
-  ["mode", "quick", "quick_find", "quick_make", "settings", "credits", "ranked"].includes(screen.value)
+  ["mode", "lobby", "settings", "credits", "ranked"].includes(screen.value)
 );
+
+
+// TETR-like chrome (menus only)
+const isMenuScreen = computed(() => !isInGame.value);
+const topPageTitle = computed(() => {
+  if (screen.value === "auth") return "HOME";
+  if (screen.value === "mode") return "HOME";
+  if (screen.value === "lobby") return "LOBBY";
+  if (screen.value === "ranked") return "RANKED";
+  if (screen.value === "settings") return "CONFIG";
+  if (screen.value === "credits") return "ABOUT";
+  return "HOME";
+});
+const showTetrChrome = computed(() => isMenuScreen.value && ["auth","mode","lobby","ranked","settings","credits"].includes(screen.value));
+const showBottomBar = computed(() => showTetrChrome.value);
 
 // ✅ Online match
 const isOnline = computed(() => screen.value === "online");
@@ -789,7 +858,7 @@ watch(
       startUiLock({ label: "Loading match…", hint: "Syncing visuals and state…", minMs: 850 });
       stopUiLockAfterPaint(850);
     }
-    if (["auth", "mode", "quick", "quick_find", "quick_make", "settings", "credits", "ranked"].includes(nv)) {
+    if (["auth", "mode", "lobby", "settings", "credits", "ranked"].includes(nv)) {
       // If we navigated back to menus, ensure the lock isn't stuck.
       if (uiLock.active && Date.now() > uiLock._minUntil) stopUiLock();
     }
@@ -980,6 +1049,8 @@ const online = reactive({
 
 const publicLobbies = ref([]);
 const loadingPublic = ref(false);
+const myPrivateLobbies = ref([]);
+const loadingPrivate = ref(false);
 
 function getGuestId() {
   const k = "pb_guest_id";
@@ -990,6 +1061,27 @@ function getGuestId() {
   }
   return id;
 }
+
+function getGuestName() {
+  const k = "pb_guest_name";
+  let name = localStorage.getItem(k);
+  if (!name) {
+    const id = getGuestId();
+    // Make a stable 4-digit code from the UUID-ish guest id
+    let h = 0;
+    for (let i = 0; i < id.length; i++) h = (h * 31 + id.charCodeAt(i)) >>> 0;
+    const num = (h % 10000).toString().padStart(4, "0");
+    name = `GUEST-${num}`;
+    localStorage.setItem(k, name);
+  }
+  return name;
+}
+
+// Ensure guest name is ready for menus/topbar
+try {
+  guestName.value = getGuestName();
+} catch {}
+
 
 function sbConfig() {
   const url = import.meta.env.VITE_SUPABASE_URL;
@@ -1153,7 +1245,7 @@ async function sbListPublicWaitingLobbies() {
   return await res.json();
 }
 
-async function sbCreateLobby({ isPrivate = false, lobbyName = "" } = {}) {
+async function sbCreateLobby({ isPrivate = false, lobbyName = "", extraStateMeta = null } = {}) {
   const hostId = getGuestId();
   const code = `PB-${Math.random().toString(16).slice(2, 6).toUpperCase()}${Math.random()
     .toString(16)
@@ -1169,7 +1261,7 @@ async function sbCreateLobby({ isPrivate = false, lobbyName = "" } = {}) {
     guest_id: null,
     host_ready: false,
     guest_ready: false,
-    state: {},
+    state: { meta: { ...(extraStateMeta || {}) } },
     version: 1,
   };
 
@@ -1915,19 +2007,16 @@ async function onResetClick() {
 
 function winnerMessage(w) {
   const me = myPlayer.value;
-
   if (!me) {
     // Couch/AI: title already shows the winner.
     if (!isOnline.value) return "GG!";
     return `Player ${w} wins.\nGG!`;
   }
-
   if (w === null || w === undefined) {
     return game.matchInvalid
       ? `Match invalid — ${game.matchInvalidReason || "dodged"}.`
       : "Match ended.";
   }
-
   return w === me ? "You win!\nGG!" : "Opponent wins.\nGG!";
 }
 
@@ -2213,8 +2302,15 @@ async function refreshPublicLobbies() {
       }
     }
 
-    // Only show lobbies that are still valid for joining.
-    publicLobbies.value = list.filter((l) => lobbyPlayerCount(l) > 0 && !isLobbyExpired(l));
+    // Only show lobbies that are still valid for joining (and NOT quick-match hidden rooms).
+    publicLobbies.value = list.filter((l) => {
+      if (!(lobbyPlayerCount(l) > 0) || isLobbyExpired(l)) return false;
+      const name = String(l?.lobby_name || "");
+      if (name === "__QM__") return false;
+      const meta = l?.state?.meta || {};
+      if (meta?.kind === "quickmatch") return false;
+      return true;
+    });
   } catch (e) {
     showModal({
       title: "Refresh Failed",
@@ -2223,6 +2319,34 @@ async function refreshPublicLobbies() {
     });
   } finally {
     loadingPublic.value = false;
+  }
+}
+
+
+async function refreshMyPrivateLobbies() {
+  if (!(await ensureSupabaseReadyOrExplain())) return;
+  loadingPrivate.value = true;
+  try {
+    const me = getGuestId();
+    // Your own waiting private lobbies (so you can re-enter / copy code)
+    const q = [
+      "select=id,code,status,is_private,lobby_name,updated_at,host_id,guest_id,state,version",
+      "status=eq.waiting",
+      "is_private=eq.true",
+      `host_id=eq.${encodeURIComponent(me)}`,
+      "order=updated_at.desc",
+      "limit=20",
+    ].join("&");
+
+    const res = await fetch(sbRestUrl(`pb_lobbies?${q}`), { headers: sbHeaders() });
+    if (!res.ok) throw new Error(`List private lobbies failed (${res.status})`);
+    const rows = await res.json();
+    const list = Array.isArray(rows) ? rows : [];
+    myPrivateLobbies.value = list.filter((l) => lobbyPlayerCount(l) > 0 && !isLobbyExpired(l));
+  } catch {
+    myPrivateLobbies.value = [];
+  } finally {
+    loadingPrivate.value = false;
   }
 }
 
@@ -2360,20 +2484,144 @@ async function quickMake() {
   }
 }
 
-async function enterQuickFind() {
-  screen.value = "quick_find";
-  await refreshPublicLobbies();
+async function goLobby() {
+  screen.value = "lobby";
+  await refreshLobby();
 }
+
+async function refreshLobby() {
+  await Promise.all([refreshPublicLobbies(), refreshMyPrivateLobbies()]);
+}
+
+function lobbyCreate() {
+  return quickMake();
+}
+
+async function lobbySearchOrJoin() {
+  const term = String(quick.joinCode || "").trim();
+  if (!term) {
+    showModal({ title: "Enter Code or Name", tone: "bad", message: "Type a lobby code (PB-...) or a lobby name." });
+    return;
+  }
+
+  // If it looks like a code, treat it as code.
+  const looksLikeCode = /^PB-[A-Z0-9]{8}$/i.test(term) || /^[A-Z0-9]{6,10}$/i.test(term);
+  if (looksLikeCode) {
+    quick.joinCode = term.toUpperCase().startsWith("PB-") ? term.toUpperCase() : term.toUpperCase();
+    await joinByCode();
+    return;
+  }
+
+  // Otherwise, try to find a public room by name (client-side filter over current list).
+  const list = Array.isArray(publicLobbies.value) ? publicLobbies.value : publicLobbies;
+  const found = (list || []).find((l) => String(l?.lobby_name || "").toLowerCase().includes(term.toLowerCase()));
+  if (found) {
+    await joinPublicLobby(found);
+    return;
+  }
+
+  showModal({
+    title: "No Match Found",
+    tone: "bad",
+    message: "Couldn't find a public room with that name. Try refreshing, or join by code for private rooms.",
+  });
+}
+
+function copyCode(code) {
+  const c = String(code || "").trim();
+  if (!c) return;
+  try {
+    navigator.clipboard?.writeText?.(c);
+  } catch {
+    try {
+      const ta = document.createElement("textarea");
+      ta.value = c;
+      ta.style.position = "fixed";
+      ta.style.left = "-9999px";
+      document.body.appendChild(ta);
+      ta.select();
+      document.execCommand("copy");
+      document.body.removeChild(ta);
+    } catch {}
+  }
+}
+
+
+async function startQuickMatchAuto() {
+  if (!(await ensureSupabaseReadyOrExplain())) return;
+
+  try {
+    showModal({ title: "Quick Match", tone: "info", message: "Finding opponent, please wait…" });
+
+    const { lobby, role } = await sbQuickMatch();
+
+    closeModal();
+    showModal({
+      title: "Match Found",
+      tone: "good",
+      message: role === "host" ? `Created quick match room.
+Waiting for opponent…` : `Opponent found!
+Joining…`,
+    });
+
+    // Jump to online immediately
+    screen.value = "online";
+    startPollingLobby(lobby.id, role);
+  } catch (e) {
+    closeModal();
+    showModal({ title: "Quick Match Error", tone: "bad", message: String(e?.message || e || "Something went wrong.") });
+  }
+}
+
+async function sbQuickMatch() {
+  // Quick Match rooms are hidden from the lobby browser by lobby_name="__QM__"
+  const me = getGuestId();
+
+  // 1) Try to claim the oldest waiting quickmatch room
+  const q = [
+    "select=id,code,status,is_private,lobby_name,updated_at,host_id,guest_id,state,version",
+    "status=eq.waiting",
+    "is_private=eq.false",
+    "guest_id=is.null",
+    "lobby_name=eq.__QM__",
+    "order=updated_at.asc",
+    "limit=6",
+  ].join("&");
+
+  const res = await fetch(sbRestUrl(`pb_lobbies?${q}`), { headers: sbHeaders() });
+  if (!res.ok) throw new Error(`Quick match lookup failed (${res.status})`);
+  const rows = await res.json();
+  const list = Array.isArray(rows) ? rows : [];
+
+  for (const lobby of list) {
+    if (isLobbyExpired(lobby)) {
+      cleanupLobbyIfNeeded(lobby, { reason: "qm_expired" });
+      continue;
+    }
+    if (lobby.host_id === me) continue;
+
+    // Claim it (atomic PATCH guarded by guest_id is null + status waiting)
+    const joined = await sbJoinLobby(lobby.id);
+    if (joined?.id) return { lobby: joined, role: "guest" };
+  }
+
+  // 2) Otherwise, create a new hidden quick match room and wait as host
+  const created = await sbCreateLobby({
+    isPrivate: false,
+    lobbyName: "__QM__",
+    extraStateMeta: { kind: "quickmatch", hidden: true },
+  });
+
+  if (!created?.id) throw new Error("Failed to create quick match lobby.");
+  return { lobby: created, role: "host" };
+}
+
 
 /* =========================
    NAV
 ========================= */
 function goBack() {
-  if (screen.value === "quick_find" || screen.value === "quick_make") {
-    screen.value = "quick";
-    return;
-  }
-  if (["quick", "settings", "credits", "ranked"].includes(screen.value)) {
+  if (["lobby", "settings", "credits", "ranked"].includes(screen.value)) {
     screen.value = "mode";
     return;
   }
@@ -2381,6 +2629,7 @@ function goBack() {
     screen.value = "auth";
     return;
   }
+  // In-game back is handled by dedicated buttons (Main Menu / Reset) to avoid desync.
 }
 
 async function goAuth() {
@@ -2402,9 +2651,7 @@ function playAsGuest() {
   screen.value = "mode";
 }
 
-function goQuick() {
-  screen.value = "quick";
-}
+function goQuick() { return goLobby(); }
 
 function goRanked() {
   if (!loggedIn.value) return;
@@ -2496,7 +2743,8 @@ onBeforeUnmount(() => {
   display: flex;
   flex-direction: column;
   position: relative;
-  overflow: hidden;
+  overflow-x: hidden;
+  overflow-y: visible;
   background: #06060a;
   font-family: 'Rajdhani', Inter, system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif;
 }
@@ -2707,7 +2955,7 @@ onBeforeUnmount(() => {
   position: relative;
   z-index: 2;
   display: flex;
-  justify-content: space-between;
+  justify-content: flex-start;
   align-items: center;
   padding: 14px 16px;
   border-bottom: 1px solid rgba(255, 255, 255, 0.10);
@@ -2782,7 +3030,15 @@ onBeforeUnmount(() => {
 }
 
 /* Minimal helpers so it doesn't look unstyled if your old CSS was longer */
-.main{ position: relative; z-index: 1; padding: 18px; }
+.main{ position: relative; z-index: 1; padding: 18px; 
+  padding-bottom: 72px;
+}
+
+/* Menus should fit on-screen without scrolling */
+.app:not(.inGame) .main{
+  min-height: calc(100vh - 86px);
+  overflow: hidden;
+}
 
 .btn{
   display: inline-flex;
@@ -3130,4 +3386,424 @@ onBeforeUnmount(() => {
 .turnBadge.end{ border-color: rgba(255,255,255,.18); }
 .modeRow{ display:flex; justify-content:space-between; align-items:center; gap: 10px; flex-wrap: wrap; }
 .statusTag,.keysTag{ margin-top: 10px; font-size: 12px; opacity: .85; font-weight: 700; }
+
+
+/* =========================
+   TETR-INSPIRED MENU (ONLY MENUS)
+========================= */
+.tetrShell {
+  /* Keep all menu content visible (no scrolling) */
+  width: min(1020px, calc(100vw - 40px));
+  margin: 0 20px 0 auto; /* push the menu block to the right like the reference */
+  padding: 12px 0 16px;
+  max-height: calc(100vh - 92px); /* topbar (~72px) + breathing room */
+  display: flex;
+  flex-direction: column;
+}
+
+.tetrHeaderRow{
+  /* Page title is now handled by the top bar (TETR-like),
+     so we hide the extra in-pane header to avoid duplicates. */
+  display:none;
+}
+
+.tetrPageTitle{
+  font-weight: 1000;
+  letter-spacing: 2px;
+  font-size: clamp(28px, 5vh, 44px);
+  opacity:.75;
+  text-transform: uppercase;
+  text-shadow: 0 2px 18px rgba(0,0,0,.55);
+}
+
+.tetrPane{
+  background: transparent;
+  border: none;
+  box-shadow: none;
+  border-radius: 14px;
+  padding: 0;
+  backdrop-filter: none;
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.tetrHero{
+  padding: 6px 6px clamp(10px, 1.8vh, 14px);
+  border-bottom: 1px solid rgba(255,255,255,0.08);
+  margin-bottom: 14px;
+}
+.tetrHero.compact{
+  padding-bottom: 12px;
+}
+
+.tetrHeroTop{
+  display:flex;
+  align-items:center;
+  justify-content:space-between;
+  gap:12px;
+  margin-bottom: 8px;
+}
+
+.tetrBadge{
+  display:inline-flex;
+  align-items:center;
+  gap:8px;
+  padding: 6px 10px;
+  border-radius: 999px;
+  font-weight: 900;
+  letter-spacing: 1px;
+  font-size: 12px;
+  background: rgba(0,0,0,.35);
+  border: 1px solid rgba(255,255,255,0.10);
+  text-transform: uppercase;
+}
+.tetrBadge.green{
+  border-color: rgba(80,255,160,0.25);
+  box-shadow: 0 0 0 1px rgba(80,255,160,0.12) inset;
+}
+
+.tetrIgn{
+  display:flex;
+  align-items:baseline;
+  gap:10px;
+  padding: 6px 10px;
+  border-radius: 10px;
+  background: rgba(0,0,0,.35);
+  border: 1px solid rgba(255,255,255,0.10);
+}
+.tetrIgnLabel{
+  font-size: 11px;
+  letter-spacing: 2px;
+  opacity:.65;
+}
+.tetrIgnName{
+  font-weight: 1000;
+  letter-spacing: 1px;
+}
+
+.tetrHintRight{
+  font-size: 12px;
+  opacity: .75;
+}
+
+.tetrHeroTitle{
+  font-weight: 1000;
+  letter-spacing: 4px;
+  font-size: clamp(26px, 4.6vh, 40px);
+  text-transform: uppercase;
+}
+.tetrHeroSub{
+  margin-top: 6px;
+  opacity: .78;
+  font-size: 14px;
+  letter-spacing: .4px;
+}
+
+.tetrTiles{
+  display:flex;
+  flex-direction:column;
+  gap: clamp(8px, 1.6vh, 14px);
+  flex: 1;
+  min-height: 0;
+  justify-content: flex-start;
+}
+
+.tetrTile{
+  flex: 1 1 auto;
+  min-height: clamp(86px, 12vh, 140px);
+
+  position: relative;
+  text-align:left;
+  border: 1px solid rgba(255,255,255,0.10);
+  border-radius: 10px;
+  background: rgba(0,0,0,.38);
+  padding: 0;
+  cursor: pointer;
+  overflow: visible;
+  transition: transform .28s cubic-bezier(.2,.85,.2,1), box-shadow .28s cubic-bezier(.2,.85,.2,1), filter .28s cubic-bezier(.2,.85,.2,1);
+}
+.tetrTile:before{
+  content:"";
+  position:absolute;
+  inset:0;
+  background: linear-gradient(135deg, rgba(255,255,255,.08), rgba(255,255,255,0) 55%);
+  opacity: .55;
+  pointer-events:none;
+}
+.tetrTile:hover{
+  transform: translateX(-18px);
+  box-shadow: 0 14px 30px rgba(0,0,0,.55);
+  filter: brightness(1.05);
+}
+.tetrTile:active{
+  transform: translateX(-18px) scale(0.995);
+}
+.tetrTile.disabled,
+.tetrTile:disabled{
+  cursor:not-allowed;
+  opacity:.55;
+  filter: grayscale(.2);
+}
+.tetrTile.disabled:hover,
+.tetrTile:disabled:hover{
+  transform:none;
+  box-shadow:none;
+  filter:none;
+}
+
+.tetrTileInner{
+  display:flex;
+  align-items:center;
+  gap: clamp(12px, 2vh, 18px);
+  padding: clamp(10px, 1.9vh, 18px) clamp(12px, 2.2vh, 18px);
+}
+
+.tetrTileGlyph{
+  width: clamp(68px, 10vh, 96px);
+  height: clamp(44px, 7vh, 58px);
+  display:flex;
+  align-items:center;
+  justify-content:center;
+  font-weight: 1000;
+  letter-spacing: 2px;
+  font-size: clamp(30px, 5.2vh, 44px);
+  opacity: .95;
+  text-shadow: 0 3px 16px rgba(0,0,0,.6);
+}
+
+.tetrTileText{
+  display:flex;
+  flex-direction:column;
+  gap: 4px;
+  min-width:0;
+}
+.tetrTileTitle{
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+
+  font-weight: 1000;
+  letter-spacing: 3px;
+  font-size: clamp(22px, 4.2vh, 34px);
+  text-transform: uppercase;
+  line-height:1.05;
+}
+.tetrTileDesc{
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+
+  opacity: .75;
+  letter-spacing: 1.4px;
+  font-size: 12px;
+  text-transform: uppercase;
+}
+
+.tetrFine{
+  margin-top: 14px;
+  opacity: .7;
+  font-size: 12px;
+  letter-spacing: 1px;
+  text-transform: uppercase;
+  border-top: 1px solid rgba(255,255,255,0.08);
+  padding-top: 12px;
+}
+
+.tetrBottomRow{
+  display:flex;
+  gap: 12px;
+  margin-top: 14px;
+}
+.tetrMiniBtn{
+  flex:1;
+  border-radius: 10px;
+  padding: 12px 14px;
+  font-weight: 1000;
+  letter-spacing: 2px;
+  text-transform: uppercase;
+  border: 1px solid rgba(255,255,255,0.10);
+  background: rgba(0,0,0,.35);
+  cursor:pointer;
+  transition: transform .12s ease, filter .12s ease;
+}
+.tetrMiniBtn:hover{ transform: translateX(-6px); filter: brightness(1.05); }
+
+.tetrBackBtn{
+  border-radius: 10px;
+  padding: 12px 18px;
+  font-weight: 1000;
+  letter-spacing: 2px;
+  text-transform: uppercase;
+  border: 1px solid rgba(255,255,255,0.10);
+  background: rgba(0,0,0,.35);
+  cursor:pointer;
+  transition: transform .12s ease, filter .12s ease;
+}
+.tetrBackBtn:hover{ transform: translateX(-6px); filter: brightness(1.05); }
+
+.tetrTile.accentPink{
+  box-shadow: 0 0 0 1px rgba(255,70,160,0.12) inset;
+}
+.tetrTile.accentPink .tetrTileGlyph,
+.tetrTile.accentPink .tetrTileTitle{
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+ color: rgba(255,170,220,0.98); }
+
+.tetrTile.accentPurple{
+  box-shadow: 0 0 0 1px rgba(190,130,255,0.14) inset;
+}
+.tetrTile.accentPurple .tetrTileGlyph,
+.tetrTile.accentPurple .tetrTileTitle{
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+ color: rgba(220,200,255,0.98); }
+
+.tetrTile.accentPurple2{
+  box-shadow: 0 0 0 1px rgba(160,120,255,0.12) inset;
+}
+.tetrTile.accentPurple2 .tetrTileGlyph,
+.tetrTile.accentPurple2 .tetrTileTitle{
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+ color: rgba(210,190,255,0.98); }
+
+.tetrTile.accentBlue{
+  box-shadow: 0 0 0 1px rgba(120,170,255,0.14) inset;
+}
+.tetrTile.accentBlue .tetrTileGlyph,
+.tetrTile.accentBlue .tetrTileTitle{
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+ color: rgba(190,220,255,0.98); }
+
+/* Responsive: keep everything visible on smaller screens */
+@media (max-width: 700px) {
+  .tetrPageTitle{ font-size: 34px; }
+  .tetrHeroTitle{ font-size: 30px; }
+  .tetrTileGlyph{ width: 74px; font-size: 34px; }
+  .tetrTileTitle{
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+ font-size: 26px; }
+  .tetrTileInner{ padding: 14px 14px; gap: 14px; }
+}
+@media (max-width: 420px) {
+  .tetrHeaderRow{ flex-wrap: wrap; }
+  .tetrIgn{ width: 100%; justify-content: flex-start; }
+}
+
+/* Short viewports: tighten the menu to avoid scrolling */
+@media (max-height: 820px) {
+  .tetrShell{ padding: 10px 0 12px; max-height: calc(100vh - 86px); }
+  .tetrHeroSub{ font-size: 13px; }
+  .tetrTileDesc{
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+ font-size: 11px; }
+}
+
+
+
+/* TETR-like top & bottom bars (menus) */
+.topbar.tetrBar{
+  min-height: 64px;
+  height: auto;
+  padding: 10px 18px 10px;
+  background: linear-gradient(180deg, rgba(0,0,0,0.62), rgba(0,0,0,0.22));
+  border-bottom: 1px solid rgba(255,255,255,0.10);
+  justify-content: space-between;
+  align-items: flex-start;
+}
+.tetrTopLeft{ display:flex; flex-direction:column; align-items:flex-start; gap: 6px; min-width: 0; }
+.tetrTopTitle{
+  font-weight: 1000;
+  letter-spacing: 2.2px;
+  font-size: 34px;
+  opacity: .75;
+  text-transform: uppercase;
+}
+.tetrTopRight{ display:flex; align-items:center; gap: 12px; margin-left:auto; }
+.tetrTopIgn{
+  display:flex;
+  align-items:baseline;
+  gap:10px;
+  padding: 8px 12px;
+  border-radius: 10px;
+  background: rgba(0,0,0,.35);
+  border: 1px solid rgba(255,255,255,0.10);
+}
+.tetrTopIgnLabel{ font-size: 11px; letter-spacing: 2px; opacity:.65; }
+.tetrTopIgnName{ font-weight: 1000; letter-spacing: 1px; }
+.tetrTopBtn{
+  border-radius: 10px;
+  padding: 10px 14px;
+  font-weight: 1000;
+  letter-spacing: 2px;
+  text-transform: uppercase;
+  border: 1px solid rgba(255,255,255,0.10);
+  background: rgba(0,0,0,.35);
+  color: #eaeaea;
+  cursor: pointer;
+  transition: transform .12s ease, filter .12s ease;
+}
+
+.tetrBackRow{
+  padding: 10px 18px 0;
+  display: flex;
+  justify-content: flex-start;
+  pointer-events: auto;
+}
+.tetrBackBtn{
+  border-radius: 12px;
+  padding: 12px 18px;
+  font-weight: 1000;
+  letter-spacing: 2px;
+  text-transform: uppercase;
+  border: 1px solid rgba(255,255,255,0.14);
+  background: rgba(255,255,255,0.06);
+  color: #eaeaea;
+  box-shadow: 0 10px 26px rgba(0,0,0,0.32), 0 0 0 1px rgba(0,0,0,0.25) inset;
+  cursor: pointer;
+}
+.tetrBackBtn:hover{ background: rgba(255,255,255,0.10); transform: translateY(-1px); }
+
+.tetrTopBtn:hover{ transform: translateX(-6px); filter: brightness(1.05); }
+.tetrTopBtn.under{
+  padding: 8px 12px;
+  border-radius: 10px;
+}
+.tetrTopBtn.under:hover{ transform: translateX(-10px); }
+
+
+.tetrBottomBar{
+  position: fixed;
+  left: 0; right: 0; bottom: 0;
+  height: 62px;
+  z-index: 25;
+  display:flex;
+  align-items:center;
+  justify-content:space-between;
+  padding: 0 16px;
+  background: linear-gradient(180deg, rgba(0,0,0,0.18), rgba(0,0,0,0.62));
+  border-top: 1px solid rgba(255,255,255,0.10);
+  backdrop-filter: blur(10px);
+  pointer-events: none;
+}
+.tetrBottomLeft{ display:flex; align-items:center; gap: 10px; }
+.tetrBottomLogo{
+  width: 28px; height: 28px; object-fit: contain;
+  filter: drop-shadow(0 10px 22px rgba(0,0,0,0.55));
+}
+.tetrBottomBrand{ font-weight: 1000; letter-spacing: 2px; opacity:.75; text-transform: uppercase; }
+.tetrBottomRight{ opacity:.55; font-weight: 900; letter-spacing: 2px; text-transform: uppercase; }
+
 </style>

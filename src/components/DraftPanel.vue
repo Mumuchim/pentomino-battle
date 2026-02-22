@@ -1,6 +1,6 @@
 <template>
   <section class="panel">
-    <h2 class="panelTitle">Draft Phase</h2>
+    <h2 class="panelTitle">Picks</h2>
 
     <p class="muted">
       Click a piece on the board to draft it — it flies into the tray.
@@ -12,7 +12,7 @@
       <!-- PLAYER 1 -->
       <div class="draftCol">
         <div class="draftHead p1">
-          Player 1 Drafted
+          Player 1
 
           <!-- Animation anchor -->
           <span
@@ -43,7 +43,7 @@
       <!-- PLAYER 2 -->
       <div class="draftCol">
         <div class="draftHead p2">
-          Player 2 Drafted
+          Player 2
 
           <span
             class="trayAnchor"

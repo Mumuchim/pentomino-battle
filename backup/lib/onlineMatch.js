@@ -5,6 +5,18 @@ function uid(prefix = "g") {
   return prefix + "_" + Math.random().toString(16).slice(2) + "_" + Date.now().toString(16);
 }
 
+
+const LOBBY_TTL_MS = 5 * 60 * 1000;
+function isLobbyExpiredClient(lobby) {
+  if (!lobby) return true;
+  if (lobby.status === "closed") return true;
+  if (lobby.guest_id) return false;
+  const ts = new Date(lobby.updated_at || lobby.created_at || 0).getTime();
+  if (!ts) return false;
+  return Date.now() - ts > LOBBY_TTL_MS;
+}
+
+
 export function getGuestId() {
   const key = "pb_guest_id";
   let id = localStorage.getItem(key);
@@ -67,6 +79,7 @@ export async function quickMatch({ region = "auto" } = {}) {
 
   if (openList && openList.length) {
     for (const lobby of openList) {
+      if (isLobbyExpiredClient(lobby)) continue;
       // Claim it (only if still empty)
       const { data: claimed, error: updErr } = await supabase
         .from("pb_lobbies")
@@ -94,6 +107,7 @@ export async function joinByCode(code) {
   const { data: lobby, error } = await supabase.from("pb_lobbies").select("*").eq("code", c).single();
   if (error) throw error;
 
+  if (isLobbyExpiredClient(lobby)) throw new Error("Expired lobby.");
   if (lobby.status === "closed") throw new Error("Lobby is closed.");
   if (lobby.host_id === me) return { lobby, role: "host" };
 

@@ -193,6 +193,23 @@ export const useGameStore = defineStore("game", {
     flipped: false,
     allowFlip: true,
 
+    // UI / Controls (local)
+    ui: {
+      enableDragPlace: true,
+      enableClickPlace: true,
+      enableHoverPreview: true,
+      lockLandscape: false,
+    },
+
+    // Custom drag (for touch + mouse). Board updates drag.target.
+    drag: {
+      active: false,
+      x: 0,
+      y: 0,
+      target: null, // { x, y, inside, ok }
+      pieceKey: null,
+    },
+
     winner: null,
     lastMove: null,
 
@@ -243,6 +260,11 @@ export const useGameStore = defineStore("game", {
       this.selectedPieceKey = null;
       this.rotation = 0;
       this.flipped = false;
+      if (this.drag) {
+        this.drag.active = false;
+        this.drag.pieceKey = null;
+        this.drag.target = null;
+      }
 
       this.winner = null;
       this.lastMove = null;
@@ -329,6 +351,42 @@ export const useGameStore = defineStore("game", {
       this.selectedPieceKey = pieceKey;
       this.rotation = 0;
       this.flipped = false;
+    },
+
+    // ----- CUSTOM DRAG (touch-friendly) -----
+    beginDrag(pieceKey, clientX, clientY) {
+      if (!this.ui?.enableDragPlace) return false;
+      if (this.phase !== "place") return false;
+      if (!this.remaining[this.currentPlayer].includes(pieceKey)) return false;
+
+      // Selecting is part of dragging.
+      this.selectedPieceKey = pieceKey;
+
+      this.drag.active = true;
+      this.drag.pieceKey = pieceKey;
+      this.drag.x = Number(clientX) || 0;
+      this.drag.y = Number(clientY) || 0;
+      this.drag.target = null;
+      return true;
+    },
+
+    updateDrag(clientX, clientY) {
+      if (!this.drag.active) return;
+      this.drag.x = Number(clientX) || 0;
+      this.drag.y = Number(clientY) || 0;
+    },
+
+    endDrag() {
+      this.drag.active = false;
+      this.drag.pieceKey = null;
+      this.drag.target = null;
+    },
+
+    clearSelection() {
+      this.selectedPieceKey = null;
+      this.rotation = 0;
+      this.flipped = false;
+      this.endDrag();
     },
 
     rotateSelected() {

@@ -46,6 +46,14 @@
       </div>
     </div>
 
+    <!-- 📱 Landscape lock overlay (optional) -->
+    <div v-if="landscapeLockActive" class="rotateOverlay" aria-live="polite" aria-busy="true">
+      <div class="rotateCard">
+        <div class="rotateTitle">Rotate your device</div>
+        <div class="rotateSub">This match is locked to <b>landscape</b>.</div>
+      </div>
+    </div>
+
     <header class="topbar">
       <div class="brand" @click="goAuth" title="Back to Main Menu">
         <div class="logoMark">
@@ -169,7 +177,7 @@
               <div class="menuBtnRight">PLAY</div>
             </button>
 
-            <button class="menuBtn primary" @click="startCouchPlay">
+            <button class="menuBtn alt" @click="startCouchPlay">
               <div class="menuBtnLeft">
                 <div class="menuBtnIcon">🛋️</div>
                 <div class="menuBtnText">
@@ -180,15 +188,15 @@
               <div class="menuBtnRight">PLAY</div>
             </button>
 
-            <button class="menuBtn" @click="startPracticeAi">
+            <button class="menuBtn disabled" disabled title="Practice vs. AI is locked for now">
               <div class="menuBtnLeft">
-                <div class="menuBtnIcon">🤖</div>
+                <div class="menuBtnIcon">🔒</div>
                 <div class="menuBtnText">
                   <div class="menuBtnTop">Practice vs. AI</div>
-                  <div class="menuBtnSub">Uses local flow for now</div>
+                  <div class="menuBtnSub">Locked for now</div>
                 </div>
               </div>
-              <div class="menuBtnRight">▶</div>
+              <div class="menuBtnRight">LOCKED</div>
             </button>
 
             <div class="menuSplitRow">
@@ -228,7 +236,7 @@
               <div class="menuBtnRight">▶</div>
             </button>
 
-            <button class="menuBtn" @click="screen = 'quick_make'">
+            <button class="menuBtn alt" @click="screen = 'quick_make'">
               <div class="menuBtnLeft">
                 <div class="menuBtnIcon">➕</div>
                 <div class="menuBtnText">
@@ -391,6 +399,28 @@
               <span>Allow Flip (Mirror)</span>
               <input type="checkbox" v-model="allowFlip" />
             </label>
+
+            <div class="divider"></div>
+
+            <label class="field">
+              <span>Enable Drag Placement</span>
+              <input type="checkbox" v-model="game.ui.enableDragPlace" />
+            </label>
+
+            <label class="field">
+              <span>Enable Click Placement</span>
+              <input type="checkbox" v-model="game.ui.enableClickPlace" />
+            </label>
+
+            <label class="field">
+              <span>Enable Hover Preview</span>
+              <input type="checkbox" v-model="game.ui.enableHoverPreview" />
+            </label>
+
+            <label class="field">
+              <span>Landscape Only (Mobile)</span>
+              <input type="checkbox" v-model="game.ui.lockLandscape" />
+            </label>
           </div>
 
           <div class="row">
@@ -429,12 +459,13 @@
       ========================== -->
       <section v-else class="gameLayout">
         <section class="leftPanel">
-          <div class="panelHead">
-          <div class="infoBar">
-            <div class="infoRow">
-              <div class="infoLeft">
-                <div class="chip">Mode: <b>{{ modeLabel }}</b>
-                  <span v-if="isOnline && myPlayer"> · You: <b>P{{ myPlayer }}</b></span>
+          <div class="panelHead hudPanel">
+            <div class="hudTop">
+              <div class="hudMode">
+                <div class="hudKicker">MODE</div>
+                <div class="hudLine">
+                  <span class="hudModeName">{{ modeLabel }}</span>
+                  <span v-if="isOnline && myPlayer" class="hudYou">YOU: P{{ myPlayer }}</span>
                 </div>
               </div>
 
@@ -452,33 +483,58 @@
               </div>
             </div>
 
-            <div class="infoRow">
-              <div class="chip">Phase: <b>{{ game.phase }}</b>
-                <span v-if="game.phase === 'draft'"> · Draft pick: <b>P{{ game.draftTurn }}</b></span>
-                <span v-else-if="game.phase === 'place'"> · Turn: <b>P{{ game.currentPlayer }}</b></span>
+            <div class="hudPhase">
+              <div class="hudKicker">PHASE</div>
+              <div class="hudPhaseMain">{{ phaseTitle }}</div>
+              <div class="hudPhaseSub" v-if="phaseSub">{{ phaseSub }}</div>
+            </div>
+
+            <div v-if="isOnline" class="hudGrid">
+              <div class="hudStat ping" :class="pingLevelClass">
+                <span class="pingDot" aria-hidden="true"></span>
+                <span class="statLabel">PING</span>
+                <span class="statValue">{{ pingText }}</span>
+              </div>
+
+              <div v-if="online.code" class="hudStat code">
+                <span class="statLabel">CODE</span>
+                <span class="mono statValue">{{ online.code }}</span>
+                <button class="copyBtn" @click="copyLobbyCode" title="Copy code">COPY</button>
+              </div>
+
+              <div v-if="onlineTurnText" class="hudStat turn">
+                <span class="statLabel">STATUS</span>
+                <span class="statValue">{{ onlineTurnText }}</span>
+              </div>
+
+              <div
+                v-if="timerHud"
+                class="hudStat timer"
+                :class="{
+                  p1: timerHud.kind === 'clock' && timerHud.player === 1,
+                  p2: timerHud.kind === 'clock' && timerHud.player === 2,
+                  urgent: timerHud.kind === 'draft' && timerHud.seconds <= 10,
+                }"
+              >
+                <template v-if="timerHud.kind === 'draft'">
+                  <span class="statLabel">TIME</span>
+                  <span class="statValue">{{ timerHud.value }}</span>
+                </template>
+                <template v-else>
+                  <span class="statLabel">CLOCK</span>
+                  <span class="clockBadge" :class="{ p1: timerHud.player === 1, p2: timerHud.player === 2 }">
+                    P{{ timerHud.player }}
+                  </span>
+                  <span class="statValue clockValue">{{ timerHud.value }}</span>
+                </template>
               </div>
             </div>
 
-            <div v-if="isOnline" class="infoRow">
-              <div class="chip ping" :class="pingLevelClass">
-                <span class="lamp" aria-hidden="true"></span>
-                <b>Ping:</b> {{ pingText }}
-              </div>
-
-              <div v-if="online.code" class="chip code">
-                <b>Code:</b> <span class="mono">{{ online.code }}</span>
-                <button class="miniBtn" @click="copyLobbyCode" title="Copy code">Copy</button>
-              </div>
-
-              <div v-if="onlineTurnText" class="chip">{{ onlineTurnText }}</div>
-              <div v-if="turnTimerText" class="chip clock">{{ turnTimerText }}</div>
-            </div>
-
-            <div class="infoRow" v-if="game.phase === 'place'">
-              <div class="chip keys">Keys: <b>Q</b> Rotate · <b>E</b> Flip</div>
+            <div class="hudKeys" v-if="game.phase === 'place'">
+              <span class="hudKicker">CONTROLS</span>
+              <span class="hudKeysLine"><b>Q</b> Rotate <span class="sepDot">•</span> <b>E</b> Flip</span>
             </div>
           </div>
-        </div>
 
           <DraftPanel v-if="game.phase === 'draft'" />
 
@@ -516,7 +572,7 @@
             <span class="modalDot" :class="modalDotClass"></span>
             {{ modal.title }}
           </div>
-          <button v-if="!modal.locked" class="modalX" @click="closeModal" aria-label="Close">✕</button>
+          <button v-if="showModalX" class="modalX" @click="closeModal" aria-label="Close">✕</button>
           <div v-else class="modalXSpacer" aria-hidden="true"></div>
         </div>
 
@@ -563,6 +619,22 @@ const screen = ref("auth");
 const loggedIn = ref(false);
 const allowFlip = ref(true);
 
+// Cross-platform: optional landscape lock for mobile
+const isPortrait = ref(false);
+function computeIsPortrait() {
+  if (typeof window === "undefined") return false;
+  // Prefer matchMedia when available
+  try {
+    if (window.matchMedia) {
+      isPortrait.value = window.matchMedia("(orientation: portrait)").matches;
+      return;
+    }
+  } catch {}
+  isPortrait.value = window.innerHeight > window.innerWidth;
+}
+const landscapeLockActive = computed(() => isInGame.value && !!game.ui?.lockLandscape && isPortrait.value);
+
+
 const logoUrl = new URL("./assets/logo.png", import.meta.url).href;
 
 const quick = reactive({
@@ -578,6 +650,19 @@ const modeLabel = computed(() =>
   screen.value === "ai" ? "Practice vs AI" : screen.value === "couch" ? "Couch Play" : screen.value === "online" ? "Online Match" : "—"
 );
 
+const phaseTitle = computed(() => {
+  if (game.phase === "draft") return "Draft";
+  if (game.phase === "place") return "Battle";
+  if (game.phase === "gameover") return "Game Over";
+  return game.phase || "—";
+});
+
+const phaseSub = computed(() => {
+  if (game.phase === "draft") return `Draft pick: P${game.draftTurn}`;
+  if (game.phase === "place") return `Turn: P${game.currentPlayer}`;
+  return "";
+});
+
 const canGoBack = computed(() =>
   ["mode", "quick", "quick_find", "quick_make", "settings", "credits", "ranked"].includes(screen.value)
 );
@@ -590,8 +675,8 @@ const onlineSyncing = ref(false);
 const onlineTurnText = computed(() => {
   if (!isOnline.value || !myPlayer.value) return "";
   if (game.phase === "gameover") return "";
-  if (game.phase === "draft") return game.draftTurn === myPlayer.value ? "Your turn" : `Waiting for Player ${game.draftTurn}...`;
-  if (game.phase === "place") return game.currentPlayer === myPlayer.value ? "Your turn" : `Waiting for Player ${game.currentPlayer}...`;
+  if (game.phase === "draft") return game.draftTurn === myPlayer.value ? "Your turn" : `Waiting for P${game.draftTurn}...`;
+  if (game.phase === "place") return game.currentPlayer === myPlayer.value ? "Your turn" : `Waiting for P${game.currentPlayer}...`;
   return "";
 });
 
@@ -655,22 +740,28 @@ function fmtClock(sec) {
   return `${m}:${r}`;
 }
 
-const turnTimerText = computed(() => {
-  if (!isInGame.value) return "";
-  if (game.phase === "gameover") return "";
-  if (isOnline.value && !myPlayer.value) return "";
+const timerHud = computed(() => {
+  if (!isInGame.value) return null;
+  if (game.phase === "gameover") return null;
+  if (isOnline.value && !myPlayer.value) return null;
 
+  // Draft timer (countdown)
   if (game.phase === "draft") {
-    if (!game.turnStartedAt) return "";
+    if (!game.turnStartedAt) return null;
     const limit = game.turnLimitDraftSec || 30;
     const left = Math.max(0, limit - (nowTick.value - game.turnStartedAt) / 1000);
     const s = Math.ceil(left);
-    return `Time: ${s}s`;
+    return { kind: "draft", seconds: s, value: `${s}s` };
   }
 
-  const p1 = fmtClock(game.battleClockSec?.[1] ?? 0);
-  const p2 = fmtClock(game.battleClockSec?.[2] ?? 0);
-  return `Clock P1 ${p1} · P2 ${p2}`;
+  // Battle clock (interchanges depending on whose turn it is)
+  if (game.phase === "place") {
+    const p = game.currentPlayer === 2 ? 2 : 1;
+    const v = fmtClock(game.battleClockSec?.[p] ?? 0);
+    return { kind: "clock", player: p, value: v };
+  }
+
+  return null;
 });
 
 // Top-right button
@@ -727,6 +818,17 @@ const modalCardClass = computed(() => ({
   modalDanger: modal.tone === "bad",
   modalResult: isResultModal.value,
 }));
+
+// Hide the X when it would do the exact same thing as the only action button.
+const showModalX = computed(() => {
+  if (modal.locked) return false;
+  const acts = Array.isArray(modal.actions) ? modal.actions : [];
+  if (acts.length === 1) {
+    const lbl = String(acts[0]?.label || "").trim().toLowerCase();
+    if (lbl === "ok" || lbl === "close") return false;
+  }
+  return true;
+});
 
 // ✅ Result-style modal (Victory/Defeat) helpers + confetti
 const isResultModal = computed(() => {
@@ -1192,21 +1294,23 @@ async function sbCloseAndNukeLobby(id, metaPatch = {}) {
 /* =========================
    ✅ ONLINE STATE SERIALIZATION
 ========================= */
-function stableHash(str) {
-  let h = 0x811c9dc5;
-  for (let i = 0; i < str.length; i++) {
-    h ^= str.charCodeAt(i);
-    h = Math.imul(h, 0x01000193) >>> 0;
-  }
-  return h >>> 0;
-}
-
-function computePlayerAssignment(code, hostId, guestId) {
-  const h = stableHash(String(code || ""));
-  const hostIsP1 = h % 2 === 0;
+function makeRandomPlayers(hostId, guestId) {
+  // Random per round (written into state.meta.players so both clients agree)
+  const hostIsP1 = Math.random() < 0.5;
   const p1 = hostIsP1 ? hostId : guestId;
   const p2 = hostIsP1 ? guestId : hostId;
   return { hostIsP1, players: { 1: p1, 2: p2 } };
+}
+
+function makeRoundSeed() {
+  try {
+    // Prefer crypto when available
+    const a = new Uint32Array(2);
+    crypto.getRandomValues(a);
+    return `${a[0].toString(16)}${a[1].toString(16)}_${Date.now().toString(16)}`;
+  } catch {
+    return `${Math.random().toString(16).slice(2)}_${Date.now().toString(16)}`;
+  }
 }
 
 function getMyPlayerFromPlayers(players, myId) {
@@ -1216,24 +1320,38 @@ function getMyPlayerFromPlayers(players, myId) {
   return null;
 }
 
+function deepClone(obj) {
+  // State is JSON-safe (plain objects/arrays), so JSON clone is fine and avoids reference races.
+  try {
+    return JSON.parse(JSON.stringify(obj));
+  } catch {
+    return obj;
+  }
+}
+
 function buildSyncedState(meta = {}) {
+  // Heartbeat lives in state.meta so we can detect silent tab closes.
+  const hb = { ...(meta.heartbeat || {}) };
+  if (online?.role) hb[online.role] = Date.now();
+  const metaWithHb = { ...meta, heartbeat: hb };
+
   return {
-    meta,
+    meta: metaWithHb,
     game: {
       phase: game.phase,
       boardW: game.boardW,
       boardH: game.boardH,
       allowFlip: game.allowFlip,
 
-      board: game.board,
-      draftBoard: game.draftBoard,
+      board: deepClone(game.board),
+      draftBoard: deepClone(game.draftBoard),
 
       draftTurn: game.draftTurn,
       currentPlayer: game.currentPlayer,
 
-      pool: game.pool,
-      picks: game.picks,
-      remaining: game.remaining,
+      pool: deepClone(game.pool),
+      picks: deepClone(game.picks),
+      remaining: deepClone(game.remaining),
       placedCount: game.placedCount,
 
       turnStartedAt: game.turnStartedAt,
@@ -1244,10 +1362,10 @@ function buildSyncedState(meta = {}) {
 
       winner: game.winner,
 
-      rematch: game.rematch,
+      rematch: deepClone(game.rematch),
       rematchDeclinedBy: game.rematchDeclinedBy,
 
-      battleClockSec: game.battleClockSec,
+      battleClockSec: deepClone(game.battleClockSec),
       battleClockLastTickAt: game.battleClockLastTickAt,
     },
   };
@@ -1418,43 +1536,49 @@ function maybeSetMyPlayerFromLobby(lobby) {
     return;
   }
 
-  if (lobby?.code && lobby?.host_id && lobby?.guest_id) {
-    const { players: p } = computePlayerAssignment(lobby.code, lobby.host_id, lobby.guest_id);
-    myPlayer.value = getMyPlayerFromPlayers(p, myId);
-  }
 }
 
 async function ensureOnlineInitialized(lobby) {
   if (!lobby) return;
 
-  const myId = getGuestId();
   const hasPlayers = !!lobby?.state?.meta?.players;
   if (hasPlayers) return;
-
   if (!lobby.host_id || !lobby.guest_id) return;
 
-  const { players } = computePlayerAssignment(lobby.code, lobby.host_id, lobby.guest_id);
+  // Randomize player numbers for THIS round, then write it once into meta.
+  const { players } = makeRandomPlayers(lobby.host_id, lobby.guest_id);
 
   game.boardW = 10;
   game.boardH = 6;
   game.allowFlip = allowFlip.value;
   game.resetGame();
 
+  const prevMeta = lobby.state?.meta ? lobby.state.meta : {};
+  const nextRound = Number(prevMeta.round || 0) + 1;
+
   const initState = buildSyncedState({
+    ...prevMeta,
     players,
+    round: nextRound,
+    roundSeed: makeRoundSeed(),
     started_at: new Date().toISOString(),
-    created_by: myId,
   });
 
   const nextVersion = Number(lobby.version || 0) + 1;
-  const updated = await sbForcePatchState(lobby.id, {
-    state: initState,
-    version: nextVersion,
-    status: "playing",
-    updated_at: new Date().toISOString(),
-  });
 
-  online.lastAppliedVersion = updated?.version || nextVersion;
+  try {
+    // Prefer guarded patch to avoid race if both clients try to init at once.
+    const updated = await sbPatchStateWithVersionGuard(lobby.id, lobby.version, {
+      state: initState,
+      version: nextVersion,
+      status: "playing",
+      updated_at: new Date().toISOString(),
+    });
+
+    online.lastAppliedVersion = updated?.version || nextVersion;
+  } catch {
+    // If it failed, assume the other side initialized it.
+  }
 }
 
 function startPollingLobby(lobbyId, role) {
@@ -1503,6 +1627,22 @@ function startPollingLobby(lobbyId, role) {
 
       online.code = lobby.code || online.code;
 
+      // ✅ If someone joined an expired/abandoned room, cancel cleanly.
+      if (isLobbyExpired(lobby)) {
+        stopPolling();
+        myPlayer.value = null;
+        screen.value = "mode";
+        showModal({
+          title: "Expired Lobby",
+          tone: "bad",
+          message: online.role === "guest"
+            ? "You joined an expired lobby.\nPlease create or join a fresh lobby."
+            : "This lobby expired.\nPlease create a fresh lobby.",
+          actions: [{ label: "OK", tone: "primary" }],
+        });
+        return;
+      }
+
       // Keep / show the waiting modal (host only) — but don't interrupt other modals.
       if (online.role === "host" && online.waitingForOpponent && online.code) {
         if (!modal.open) {
@@ -1527,6 +1667,38 @@ function startPollingLobby(lobbyId, role) {
           message: "Lobby creator left — terminating the game.\nReturning to main menu.",
         });
         return;
+      }
+
+      // ✅ Presence heartbeat: handle silent tab closes (especially important on gameover/rematch).
+      try {
+        const hb = lobby?.state?.meta?.heartbeat || {};
+        const oppRole = online.role === "host" ? "guest" : "host";
+        const oppTs = Number(hb?.[oppRole] || 0);
+        const staleMs = oppTs ? Date.now() - oppTs : 0;
+        const bothPresent = !!(lobby.host_id && lobby.guest_id);
+
+        const staleHard = bothPresent && staleMs > 45_000;
+        const staleOnGameOver = bothPresent && game.phase === "gameover" && staleMs > 25_000;
+
+        if ((staleHard || staleOnGameOver) && oppRole === "host") {
+          // If the host disappeared, end the match and leave.
+          try {
+            await sbCloseAndNukeLobby(lobbyId, { terminateReason: "host_timeout", reason: "heartbeat" });
+          } catch {
+            // ignore
+          }
+          stopPolling();
+          myPlayer.value = null;
+          screen.value = "mode";
+          showModal({
+            title: "Match Terminated",
+            tone: "bad",
+            message: "Lobby creator disconnected — terminating the game.\nReturning to main menu.",
+          });
+          return;
+        }
+      } catch {
+        // ignore
       }
 
       if (online.role === "host" && !prevGuest && lobby.guest_id) {
@@ -1569,6 +1741,27 @@ function startPollingLobby(lobbyId, role) {
         game.battleClockLastTickAt = null;
         online.waitingForOpponent = true;
         online.hostWaitStartedAt = Date.now();
+
+        // ✅ Reset round assignment so the next challenger gets a fresh random P1/P2.
+        (async () => {
+          try {
+            const meta = lobby.state?.meta ? lobby.state.meta : {};
+            game.boardW = 10;
+            game.boardH = 6;
+            game.allowFlip = allowFlip.value;
+            game.resetGame();
+            const snapshot = buildSyncedState({ ...meta, players: null, started_at: null, roundSeed: null });
+            const nextVersion = Number(lobby.version || 0) + 1;
+            await sbForcePatchState(lobby.id, {
+              state: snapshot,
+              version: nextVersion,
+              status: "waiting",
+              updated_at: new Date().toISOString(),
+            });
+          } catch {
+            // ignore
+          }
+        })();
         showModal({
           title: "Opponent Left",
           tone: "bad",
@@ -1670,17 +1863,44 @@ async function onResetClick() {
     return;
   }
 
+  // Prefer a single author for round resets to avoid version fights.
+  // Host resets the round; guest simply waits for the new state.
+  if (online.role !== "host") {
+    game.resetGame();
+    return;
+  }
+
   try {
     const lobby = await sbSelectLobbyById(online.lobbyId);
     if (!lobby) return;
 
+    if (!lobby.host_id || !lobby.guest_id) {
+      showModal({
+        title: "Rematch Failed",
+        tone: "bad",
+        message: "Opponent is no longer in the lobby.",
+        actions: [{ label: "OK", tone: "primary", onClick: () => stopAndExitToMenu("Opponent left.") }],
+      });
+      return;
+    }
+
     const meta = lobby.state?.meta ? lobby.state.meta : {};
+    const nextRound = Number(meta.round || 0) + 1;
+
+    const { players } = makeRandomPlayers(lobby.host_id, lobby.guest_id);
+
     game.boardW = 10;
     game.boardH = 6;
     game.allowFlip = allowFlip.value;
     game.resetGame();
 
-    const snapshot = buildSyncedState(meta);
+    const snapshot = buildSyncedState({
+      ...meta,
+      players,
+      round: nextRound,
+      roundSeed: makeRoundSeed(),
+      started_at: new Date().toISOString(),
+    });
     const nextVersion = Number(lobby.version || 0) + 1;
 
     await sbForcePatchState(online.lobbyId, {
@@ -1695,14 +1915,19 @@ async function onResetClick() {
 
 function winnerMessage(w) {
   const me = myPlayer.value;
+
   if (!me) {
     // Couch/AI: title already shows the winner.
     if (!isOnline.value) return "GG!";
     return `Player ${w} wins.\nGG!`;
   }
+
   if (w === null || w === undefined) {
-    return game.matchInvalid ? `Match invalid — ${game.matchInvalidReason || "dodged"}.` : "Match ended.";
+    return game.matchInvalid
+      ? `Match invalid — ${game.matchInvalidReason || "dodged"}.`
+      : "Match ended.";
   }
+
   return w === me ? "You win!\nGG!" : "Opponent wins.\nGG!";
 }
 
@@ -2209,7 +2434,8 @@ function startPracticeAi() {
 function applySettings() {
   showModal({
     title: "Settings Applied",
-    message: `Allow Flip: ${allowFlip.value ? "ON" : "OFF"}`,
+    message: `Allow Flip: ${allowFlip.value ? "ON" : "OFF"}
+Drag: ${game.ui.enableDragPlace ? "ON" : "OFF"} · Click: ${game.ui.enableClickPlace ? "ON" : "OFF"} · Hover: ${game.ui.enableHoverPreview ? "ON" : "OFF"}`,
     tone: "info",
   });
   screen.value = "mode";
@@ -2221,6 +2447,10 @@ function applySettings() {
 onMounted(() => {
   // ✅ Initial boot gate — prevent accidental clicks before first paint.
   startUiLock({ label: "Booting…", hint: "Loading UI, sounds, and neon vibes…", minMs: 750 });
+
+  computeIsPortrait();
+  window.addEventListener("resize", computeIsPortrait, { passive: true });
+  window.addEventListener("orientationchange", computeIsPortrait, { passive: true });
   stopUiLockAfterPaint(750);
 
   originalAlert = window.alert;
@@ -2249,6 +2479,8 @@ onMounted(() => {
 onBeforeUnmount(() => {
   if (originalAlert) window.alert = originalAlert;
   if (tickTimer) window.clearInterval(tickTimer);
+  try { window.removeEventListener("resize", computeIsPortrait); } catch {}
+  try { window.removeEventListener("orientationchange", computeIsPortrait); } catch {}
   stopPolling();
 });
 </script>
@@ -2344,6 +2576,31 @@ onBeforeUnmount(() => {
     0 0 18px rgba(255,43,214,0.18);
 }
 .loadHint{ margin-top: 12px; font-size: 11px; opacity: 0.78; line-height: 1.4; }
+
+.rotateOverlay{
+  position: fixed;
+  inset: 0;
+  z-index: 65;
+  display: grid;
+  place-items: center;
+  padding: 18px;
+  background: rgba(0,0,0,0.78);
+  backdrop-filter: blur(10px);
+}
+.rotateCard{
+  width: min(420px, 92vw);
+  border-radius: 18px;
+  border: 1px solid rgba(255,255,255,0.12);
+  background:
+    radial-gradient(800px 320px at 50% 0%, rgba(0,229,255,0.16), transparent 70%),
+    radial-gradient(800px 320px at 50% 100%, rgba(255,43,214,0.14), transparent 70%),
+    rgba(255,255,255,0.04);
+  box-shadow: 0 20px 70px rgba(0,0,0,0.65);
+  padding: 16px 16px 14px;
+  text-align: center;
+}
+.rotateTitle{ font-weight: 1000; letter-spacing: 1.2px; text-transform: uppercase; font-size: 16px; }
+.rotateSub{ margin-top: 6px; opacity: 0.85; font-weight: 700; }
 
 @keyframes popIn{
   from{ transform: translateY(8px) scale(0.98); opacity: 0; }
@@ -2470,6 +2727,13 @@ onBeforeUnmount(() => {
   cursor: pointer;
   user-select: none;
 }
+
+.topbar .right{
+  display:flex;
+  align-items:center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
 .logoMark {
   width: 44px;
   height: 44px;
@@ -2570,12 +2834,15 @@ onBeforeUnmount(() => {
 .menuShell{ max-width: 640px; margin: 0 auto; display: grid; gap: 14px; padding: 6px 0 16px; }
 .menuCard{ padding: 18px; border-radius: 20px; border: 1px solid rgba(255,255,255,.10); background: rgba(10,10,16,.55); backdrop-filter: blur(10px); }
 .menuStack{ display: grid; gap: 10px; }
+.menuSplitRow{ display:flex; gap: 10px; flex-wrap: wrap; margin-top: 2px; }
 .menuBtn{ width: 100%; display:flex;
   line-height: 1.15;
   overflow: visible; justify-content:space-between; align-items:center; padding: 12px 14px; border-radius: 18px; border: 1px solid rgba(255,255,255,.14); background: linear-gradient(180deg, rgba(255,255,255,.07), rgba(255,255,255,.05)); color:#eaeaea; cursor:pointer; font-weight:900; transition: transform .08s ease, box-shadow .18s ease, border-color .18s ease, background .18s ease; box-shadow: 0 12px 34px rgba(0,0,0,.40), 0 0 0 1px rgba(0,0,0,.25) inset; }
 .menuBtn:hover{ transform: translateY(-1px); border-color: rgba(255,255,255,.20); box-shadow: 0 14px 38px rgba(0,0,0,.46), 0 0 22px rgba(0,229,255,.10); }
 .menuBtn:active{ transform: translateY(0px) scale(0.99); }
 .menuBtn.primary{ background: linear-gradient(180deg, rgba(0,229,255,.16), rgba(0,229,255,.10)); border-color: rgba(0,229,255,.22); }
+.menuBtn.alt{ background: linear-gradient(180deg, rgba(255,43,214,.16), rgba(255,64,96,.10)); border-color: rgba(255,43,214,.22); }
+.menuBtn.alt:hover{ box-shadow: 0 14px 38px rgba(0,0,0,.46), 0 0 22px rgba(255,43,214,.12); }
 .menuBtn.disabled{ opacity:.45; cursor:not-allowed; }
 .menuBtnLeft{ display:flex; gap: 12px; align-items:center; min-width:0; }
 .menuBtnIcon{ width: 38px; height: 38px; display:grid; place-items:center; border-radius: 12px; background: rgba(255,255,255,.06); }
@@ -2588,6 +2855,21 @@ onBeforeUnmount(() => {
 .heroDesc{ opacity:.8; }
 .rgbText{ background: linear-gradient(90deg, rgba(0,229,255,1), rgba(255,43,214,1)); -webkit-background-clip:text; background-clip:text; color: transparent; }
 .divider{ height: 1px; background: rgba(255,255,255,.10); margin: 12px 0; }
+.chip{ display:inline-flex; align-items:center; gap: 8px; }
+.chip.code{ gap: 10px; }
+.miniBtn{
+  display:inline-flex;
+  align-items:center;
+  justify-content:center;
+  padding: 7px 10px;
+  border-radius: 12px;
+  border: 1px solid rgba(255,255,255,0.14);
+  background: rgba(0,0,0,0.22);
+  color: #eaeaea;
+  font-weight: 900;
+  cursor: pointer;
+}
+.miniBtn:hover{ background: rgba(255,255,255,0.08); }
 .field{ display:flex; gap: 12px; align-items:center; padding: 10px 12px; border-radius: 14px; border: 1px solid rgba(255,255,255,.10); background: rgba(255,255,255,.04); }
 .form{ display:grid; gap: 10px; }
 .input{ width: 100%; padding: 10px 12px; border-radius: 12px; border: 1px solid rgba(255,255,255,.12); background: rgba(0,0,0,.25); color:#eaeaea; }
@@ -2642,6 +2924,22 @@ onBeforeUnmount(() => {
   background: linear-gradient(90deg, rgba(255,64,96,1), rgba(255,215,0,0.9));
   -webkit-background-clip: text;
   background-clip: text;
+}
+
+/* Couch results: solid winner colors (no gradient) */
+.resultHero.couchP1 .resultTitle{
+  background: none;
+  -webkit-background-clip: initial;
+  background-clip: initial;
+  color: rgba(0,229,255,1);
+  -webkit-text-fill-color: rgba(0,229,255,1);
+}
+.resultHero.couchP2 .resultTitle{
+  background: none;
+  -webkit-background-clip: initial;
+  background-clip: initial;
+  color: rgba(255,64,96,1);
+  -webkit-text-fill-color: rgba(255,64,96,1);
 }
 .resultSub{
   font-size: 14px;
@@ -2750,8 +3048,79 @@ onBeforeUnmount(() => {
 
 /* You already have these elsewhere in your CSS normally */
 .gameLayout{ display:grid; grid-template-columns: 420px 1fr; gap: 14px; }
+@media (max-width: 980px){
+  .gameLayout{ grid-template-columns: 1fr; }
+  .leftPanel{ order: 2; }
+  .rightPanel{ order: 1; }
+  .rightPanel{ display:flex; flex-direction: column; align-items: stretch; }
+  .leftPanel{ display:flex; flex-direction: column; gap: 12px; }
+}
+@media (max-width: 520px){
+  .panelHead, .panel{ border-radius: 16px; }
+}
+
 .leftPanel,.rightPanel{ min-width:0; }
 .panelHead{ padding: 14px; border-radius: 18px; border: 1px solid rgba(255,255,255,.10); background: rgba(10,10,16,.55); backdrop-filter: blur(10px); }
+.hudPanel{ padding: 16px; }
+.hudTop{ display:flex; justify-content:space-between; align-items:flex-start; gap: 12px; flex-wrap: wrap; }
+.hudMode{ min-width: 0; }
+.hudKicker{ font-size: 11px; opacity: .74; font-weight: 900; letter-spacing: 1.4px; }
+.hudLine{ display:flex; gap: 10px; align-items: baseline; flex-wrap: wrap; margin-top: 2px; }
+.hudModeName{ font-size: 18px; font-weight: 900; }
+.hudYou{ font-size: 12px; font-weight: 900; padding: 4px 9px; border-radius: 999px; border: 1px solid rgba(255,255,255,0.14); background: rgba(255,255,255,0.06); }
+
+.hudPhase{ margin-top: 10px; padding-top: 10px; border-top: 1px solid rgba(255,255,255,0.10); }
+.hudPhaseMain{ font-size: 22px; font-weight: 900; text-transform: uppercase; letter-spacing: 1.2px; }
+.hudPhaseSub{ margin-top: 3px; font-size: 13px; opacity: .82; font-weight: 700; }
+
+.hudGrid{ margin-top: 12px; display:grid; grid-template-columns: repeat(2, minmax(0,1fr)); gap: 10px; }
+@media (max-width: 920px){ .hudGrid{ grid-template-columns: 1fr; } }
+
+.hudStat{ display:flex; align-items:center; gap: 10px; padding: 10px 12px; border-radius: 16px; border: 1px solid rgba(255,255,255,0.12); background: linear-gradient(180deg, rgba(255,255,255,0.06), rgba(0,0,0,0.18)); box-shadow: 0 10px 26px rgba(0,0,0,0.32), 0 0 0 1px rgba(0,0,0,0.25) inset; }
+.statLabel{ font-size: 11px; opacity: .72; font-weight: 900; letter-spacing: 1.2px; }
+.statValue{ font-size: 14px; font-weight: 900; }
+.hudStat.turn .statValue{ font-weight: 800; }
+.hudStat.turn .statValue{ white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
+.hudStat.timer .statValue{ font-variant-numeric: tabular-nums; }
+
+.pingDot{ width: 10px; height: 10px; border-radius: 999px; background: rgba(150,150,150,0.9); box-shadow: 0 0 12px rgba(255,255,255,0.10); }
+.hudStat.ping.good{ border-color: rgba(0,255,128,0.22); }
+.hudStat.ping.good .pingDot{ background: rgba(0,255,128,0.92); box-shadow: 0 0 14px rgba(0,255,128,0.18); }
+.hudStat.ping.mid{ border-color: rgba(255,215,0,0.22); }
+.hudStat.ping.mid .pingDot{ background: rgba(255,215,0,0.92); box-shadow: 0 0 14px rgba(255,215,0,0.16); }
+.hudStat.ping.bad{ border-color: rgba(255,64,96,0.25); }
+.hudStat.ping.bad .pingDot{ background: rgba(255,64,96,0.92); box-shadow: 0 0 14px rgba(255,64,96,0.18); }
+.hudStat.ping.na .pingDot{ opacity: .55; }
+
+.hudStat.ping{ padding: 8px 10px; }
+
+/* CODE tile: single-line HUD row (prevents tall empty ping row) */
+.hudStat.code{ padding: 8px 10px; display: grid; grid-template-columns: auto 1fr auto; align-items: center; gap: 10px; }
+.hudStat.code .statLabel{ margin-right: 2px; }
+.hudStat.code .statValue{ font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, 'Liberation Mono', 'Courier New', monospace; letter-spacing: 0.6px; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+.copyBtn{ margin-left: 0; display:inline-flex; align-items:center; justify-content:center; padding: 6px 10px; border-radius: 12px; border: 1px solid rgba(255,255,255,0.14); background: rgba(0,0,0,0.24); color: #eaeaea; font-weight: 900; font-size: 12px; cursor: pointer; flex: 0 0 auto; white-space: nowrap; }
+.copyBtn:hover{ background: rgba(255,255,255,0.08); }
+.copyBtn:active{ transform: translateY(0px) scale(0.99); }
+
+.hudStat.timer{ gap: 10px; }
+.clockBadge{ display:inline-flex; align-items:center; justify-content:center; padding: 4px 10px; border-radius: 999px; font-weight: 900; font-size: 12px; border: 1px solid rgba(255,255,255,0.14); background: rgba(255,255,255,0.06); }
+.clockBadge.p1{ border-color: rgba(0,229,255,.28); background: rgba(0,229,255,.10); }
+.clockBadge.p2{ border-color: rgba(255,64,96,.28); background: rgba(255,64,96,.10); }
+.clockValue{ font-size: 16px; letter-spacing: 0.3px; }
+.hudStat.timer.p1{ border-color: rgba(0,229,255,.22); box-shadow: 0 10px 26px rgba(0,0,0,0.32), 0 0 0 1px rgba(0,229,255,0.10) inset; }
+.hudStat.timer.p2{ border-color: rgba(255,64,96,.22); box-shadow: 0 10px 26px rgba(0,0,0,0.32), 0 0 0 1px rgba(255,64,96,0.10) inset; }
+
+@keyframes timeUrgentBlink{
+  0%, 100%{ border-color: rgba(255,64,96,.35); box-shadow: 0 10px 26px rgba(0,0,0,0.32), 0 0 0 1px rgba(255,64,96,0.12) inset, 0 0 18px rgba(255,64,96,0.10); }
+  50%{ border-color: rgba(255,64,96,.70); box-shadow: 0 10px 26px rgba(0,0,0,0.32), 0 0 0 1px rgba(255,64,96,0.22) inset, 0 0 26px rgba(255,64,96,0.18); }
+}
+.hudStat.timer.urgent{ animation: timeUrgentBlink 0.85s ease-in-out infinite; }
+
+.hudKeys{ margin-top: 12px; padding-top: 10px; border-top: 1px solid rgba(255,255,255,0.10); display:flex; justify-content:space-between; align-items:center; gap: 10px; flex-wrap: wrap; }
+.hudKeysLine{ font-size: 13px; font-weight: 800; opacity: .9; }
+.sepDot{ opacity: .6; padding: 0 6px; }
+
 .panel{ margin-top: 12px; padding: 14px; border-radius: 18px; border: 1px solid rgba(255,255,255,.10); background: rgba(10,10,16,.55); backdrop-filter: blur(10px); }
 .panelTitle{ margin: 0 0 10px 0; }
 .hintSmall{ margin-top: 10px; opacity:.75; font-size: 12px; }
