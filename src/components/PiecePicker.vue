@@ -26,7 +26,7 @@
             @pointerdown="onPiecePointerDown(1, k, $event)"
             :title="canSelect(1) ? 'Select piece' : 'Enemy piece (visible only)'"
           >
-            <PiecePreview :pieceKey="k" :cell="20" />
+            <PiecePreview :pieceKey="k" :cell="cell" />
           </button>
 
           <div v-if="game.remaining[1].length === 0" class="emptyNote">
@@ -60,7 +60,7 @@
             @pointerdown="onPiecePointerDown(2, k, $event)"
             :title="canSelect(2) ? 'Select piece' : 'Enemy piece (visible only)'"
           >
-            <PiecePreview :pieceKey="k" :cell="20" />
+            <PiecePreview :pieceKey="k" :cell="cell" />
           </button>
 
           <div v-if="game.remaining[2].length === 0" class="emptyNote">
@@ -73,7 +73,7 @@
 </template>
 
 <script setup>
-import { onBeforeUnmount, ref } from "vue";
+import { onBeforeUnmount, onMounted, ref } from "vue";
 import { useGameStore } from "../store/game";
 import { playBuzz } from "../lib/sfx";
 import PiecePreview from "./PiecePreview.vue";
@@ -85,6 +85,24 @@ const props = defineProps({
 });
 
 const game = useGameStore();
+
+// Fit-to-viewport: shrink preview tiles on shorter screens (no scroll in-game)
+const cell = ref(18);
+function computeCell() {
+  const h = window.innerHeight || 800;
+  // More aggressive shrink so bottom Controls never get pushed off-screen
+  if (h <= 700) return 12;
+  if (h <= 780) return 14;
+  if (h <= 860) return 16;
+  return 18;
+}
+function onResize() {
+  cell.value = computeCell();
+}
+onMounted(() => {
+  onResize();
+  window.addEventListener("resize", onResize, { passive: true });
+});
 
 function canSelect(player) {
   if (game.phase !== "place") return false;
@@ -195,6 +213,7 @@ function onPiecePointerUp(e) {
 
 onBeforeUnmount(() => {
   cleanupPointerListeners();
+  try { window.removeEventListener("resize", onResize); } catch {}
 });
 
 </script>

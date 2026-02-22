@@ -8,45 +8,56 @@
       @dragover.prevent="onDragOver"
       @drop.prevent="onShellDrop"
     >
-      <div class="neonFrame" aria-hidden="true"></div>
-      <div class="scanlines" aria-hidden="true"></div>
+      <!--
+        boardSizer makes the board always take the *maximum possible* space
+        inside the right panel while keeping the 10x6 aspect ratio.
+      -->
+      <div class="boardSizer" :style="sizerStyle">
+        <div class="neonFrame" aria-hidden="true"></div>
+        <div class="scanlines" aria-hidden="true"></div>
 
-      <div class="board" :style="gridStyle" :class="{ draftMode: game.phase === 'draft' }">
-        <button
-          v-for="cell in flat"
-          :key="cell.key"
-          class="cell"
-          :class="cellClass(cell)"
-          :style="cellInlineStyle(cell)"
-          @mouseenter="setHover(cell.x, cell.y)"
-          @click="onCellClick(cell.x, cell.y, $event)"
-          @dragenter.prevent="setHover(cell.x, cell.y)"
-          @drop.prevent="onDrop(cell.x, cell.y)"
-          :title="cellTitle(cell)"
-        >
-          <span
-            v-if="game.phase === 'draft' && cell.v?.draftedBy"
-            class="cornerTag"
-            :class="cell.v.draftedBy === 1 ? 'p1' : 'p2'"
-            aria-hidden="true"
-          >
-            P{{ cell.v.draftedBy }}
-          </span>
-        </button>
-      </div>
-
-      <div
-        v-if="ghostOverlay.visible"
-        class="ghostOverlay"
-        :class="{ ok: ghostOverlay.ok, bad: !ghostOverlay.ok }"
-        aria-hidden="true"
-      >
         <div
-          v-for="(b, i) in ghostOverlay.blocks"
-          :key="i"
-          class="ghostBlock"
-          :style="ghostBlockStyle(b)"
-        />
+          ref="boardEl"
+          class="board"
+          :style="gridStyle"
+          :class="{ draftMode: game.phase === 'draft' }"
+        >
+          <button
+            v-for="cell in flat"
+            :key="cell.key"
+            class="cell"
+            :class="cellClass(cell)"
+            :style="cellInlineStyle(cell)"
+            @mouseenter="setHover(cell.x, cell.y)"
+            @click="onCellClick(cell.x, cell.y, $event)"
+            @dragenter.prevent="setHover(cell.x, cell.y)"
+            @drop.prevent="onDrop(cell.x, cell.y)"
+            :title="cellTitle(cell)"
+          >
+            <span
+              v-if="game.phase === 'draft' && cell.v?.draftedBy"
+              class="cornerTag"
+              :class="cell.v.draftedBy === 1 ? 'p1' : 'p2'"
+              aria-hidden="true"
+            >
+              P{{ cell.v.draftedBy }}
+            </span>
+          </button>
+        </div>
+
+        <div
+          v-if="ghostOverlay.visible"
+          class="ghostOverlay"
+          :class="{ ok: ghostOverlay.ok, bad: !ghostOverlay.ok }"
+          aria-hidden="true"
+        >
+          <div
+            v-for="(b, i) in ghostOverlay.blocks"
+            :key="i"
+            class="ghostBlock"
+            :style="ghostBlockStyle(b)"
+          />
+        </div>
       </div>
     </div>
 
@@ -70,7 +81,7 @@
 </template>
 
 <script setup>
-import { computed, ref, watch } from "vue";
+import { computed, onBeforeUnmount, onMounted, ref, watch } from "vue";
 import { useGameStore } from "../store/game";
 import { getPieceStyle } from "../lib/pieceStyles";
 import { playBuzz } from "../lib/sfx";
@@ -84,10 +95,54 @@ const props = defineProps({
 
 const game = useGameStore();
 const shell = ref(null);
+const boardEl = ref(null);
 const hover = ref(null);
 const targetCell = ref(null);
 
+// Must match .board padding in CSS
 const BOARD_PADDING = 10;
+// Leave a little breathing room around the board so it never feels "flattened".
+const SIZER_MARGIN = 14;
+
+const sizerPx = ref({ w: 0, h: 0 });
+let ro = null;
+
+function recomputeSizer() {
+  const host = shell.value;
+  if (!host) return;
+
+  const rect = host.getBoundingClientRect();
+  const availW = Math.max(0, rect.width - SIZER_MARGIN * 2);
+  const availH = Math.max(0, rect.height - SIZER_MARGIN * 2);
+
+  // Fit (contain) preserving the board aspect ratio exactly.
+  const cell = Math.min(availW / game.boardW, availH / game.boardH);
+  const w = Math.floor(cell * game.boardW);
+  const h = Math.floor(cell * game.boardH);
+  sizerPx.value = { w, h };
+}
+
+const sizerStyle = computed(() => {
+  const w = sizerPx.value.w;
+  const h = sizerPx.value.h;
+  if (!w || !h) return {};
+  return { width: `${w}px`, height: `${h}px` };
+});
+
+onMounted(() => {
+  const host = shell.value;
+  if (!host) return;
+  ro = new ResizeObserver(() => recomputeSizer());
+  ro.observe(host);
+  recomputeSizer();
+});
+
+onBeforeUnmount(() => {
+  try {
+    ro?.disconnect?.();
+  } catch {}
+  ro = null;
+});
 
 const warningMessage = ref("");
 let warnTimer = null;
@@ -172,7 +227,7 @@ function updateHoverFromClientXY(clientX, clientY) {
   if (!game.ui?.enableClickPlace) return;
   if (!game.selectedPieceKey) return;
 
-  const el = shell.value;
+  const el = boardEl.value;
   if (!el) return;
 
   const rect = el.getBoundingClientRect();
@@ -482,13 +537,45 @@ function ghostBlockStyle(b) {
   display: flex;
   flex-direction: column;
   gap: 14px;
-  align-items: flex-start;
+  /* Let the board consume all remaining space in the right panel */
+  flex: 1 1 auto;
+  min-height: 0;
+  align-items: stretch;
 }
 
 .boardShell {
   position: relative;
-  width: min(720px, 92vw);
+  /* Fill the right panel; the inner sizer keeps the aspect ratio. */
+  flex: 1 1 auto;
+  min-height: 0;
+  width: 100%;
   border-radius: 18px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+/* Small devices: keep the board from collapsing too far and tighten auxiliary UI.
+   (This is paired with enabling scroll in App.vue for narrow/short viewports.) */
+@media (max-width: 520px){
+  .boardWrap{ gap: 10px; }
+  .boardShell{ min-height: 240px; }
+  .legend{ flex-wrap: wrap; gap: 10px; font-size: 12px; }
+}
+
+@media (max-height: 620px){
+  .boardWrap{ gap: 10px; }
+  .boardShell{ min-height: 220px; }
+  .legend{ flex-wrap: wrap; gap: 10px; font-size: 12px; }
+}
+
+.boardSizer{
+  position: relative;
+  /*
+    JS sets width/height so the board scales *uniformly* (contain)
+    and never gets "flattened".
+  */
+  margin: 0 auto;
 }
 
 .neonFrame {
@@ -544,7 +631,7 @@ function ghostBlockStyle(b) {
   z-index: 2;
 
   width: 100%;
-  aspect-ratio: 10 / 6;
+  height: 100%;
   display: grid;
   gap: 3px;
   padding: 10px;

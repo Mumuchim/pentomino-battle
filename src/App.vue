@@ -105,7 +105,12 @@
           <div class="tetrHero">
             <div class="tetrHeroTop"></div>
 
-            <div class="tetrHeroTitle">FLIP | ROTATE | DOMINATE</div>
+            <!-- WELCOME hero title (AAA-style) -->
+            <div class="tetrHeroTitle tetrWelcomeTitle" aria-label="PentoBattle">
+              <img :src="logoUrl" class="tetrWelcomeLogo" alt="" />
+              <span class="tetrWelcomeWord">PENTO</span>
+              <span class="tetrWelcomeWord strong">BATTLE</span>
+            </div>
           </div>
 
           <div class="tetrTiles">
@@ -140,7 +145,7 @@
       ========================== -->
       <section v-else-if="screen === 'mode'" class="menuShell tetrShell">
         <div class="tetrHeaderRow">
-          <div class="tetrPageTitle">HOME</div>
+          <div class="tetrPageTitle">WELCOME</div>
         </div>
 
         <div class="tetrPane">
@@ -354,8 +359,8 @@
       <!-- =========================
            RANKED
       ========================== -->
-      <section v-else-if="screen === 'ranked'" class="menuShell">
-        <div class="hero compact">
+	  <section v-else-if="screen === 'ranked'" class="menuShell">
+	    <div class="hero compact heroAnim" :key="'hero-'+screen">
           <div class="heroBadge">RANKED</div>
           <h1 class="heroTitle small">Matchmaking</h1>
           <p class="heroDesc small">Placeholder screen for now.</p>
@@ -383,8 +388,8 @@
       <!-- =========================
            SETTINGS
       ========================== -->
-      <section v-else-if="screen === 'settings'" class="menuShell">
-        <div class="hero compact">
+	  <section v-else-if="screen === 'settings'" class="menuShell">
+	    <div class="hero compact heroAnim" :key="'hero-'+screen">
           <div class="heroBadge">SETTINGS</div>
           <h1 class="heroTitle small">Preferences</h1>
           <p class="heroDesc small">Applies to local modes.</p>
@@ -432,8 +437,8 @@
       <!-- =========================
            CREDITS
       ========================== -->
-      <section v-else-if="screen === 'credits'" class="menuShell">
-        <div class="hero compact">
+	  <section v-else-if="screen === 'credits'" class="menuShell">
+	    <div class="hero compact heroAnim" :key="'hero-'+screen">
           <div class="heroBadge">CREDITS</div>
           <h1 class="heroTitle small">PentoBattle</h1>
           <p class="heroDesc small">by Mumuchxm</p>
@@ -556,7 +561,8 @@
 
 <!-- TETR-like bottom bar (menus) -->
 <footer v-if="showBottomBar" class="tetrBottomBar" aria-hidden="true">
-  <div class="tetrBottomLeft">
+  <!-- Hide the redundant bottom-left brand on WELCOME only (hero already shows the title) -->
+  <div v-if="screen !== 'auth'" class="tetrBottomLeft">
     <img :src="logoUrl" alt="" class="tetrBottomLogo" />
     <div class="tetrBottomBrand">PentoBattle</div>
   </div>
@@ -734,7 +740,7 @@ const canGoBack = computed(() =>
 const isMenuScreen = computed(() => !isInGame.value);
 const topPageTitle = computed(() => {
   if (screen.value === "auth") return "WELCOME"; // Welcome page
-  if (screen.value === "mode") return "MENU";    // After Play as Guest
+  if (screen.value === "mode") return "WELCOME"; // Main menu page
   if (screen.value === "lobby") return "LOBBY";
   if (screen.value === "ranked") return "RANKED";
   if (screen.value === "settings") return "CONFIG";
@@ -2799,12 +2805,15 @@ onBeforeUnmount(() => {
    RGB GAME VIBES
 ========================= */
 .app {
+  /* Keep the whole app locked to the viewport height so you can't scroll into
+     "empty gradient space" on short menu pages. */
   min-height: 100vh;
+  height: 100dvh;
   color: #eaeaea;
   display: flex;
   flex-direction: column;
   position: relative;
-  overflow: visible;
+  overflow: hidden;
   background: #06060a;
   font-family: 'Rajdhani', Inter, system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif;
 }
@@ -3101,8 +3110,7 @@ onBeforeUnmount(() => {
   line-height: 1.35;
 }
 
-/* Minimal helpers so it doesn't look unstyled if your old CSS was longer */
-.main{ position: relative; z-index: 1; padding: 18px; }
+/* Main layout */
 
 /* Minor UI: menus had too much gap below the top bar */
 .topbar.tetrBar ~ .main{ padding-top: 8px; }
@@ -3112,11 +3120,31 @@ onBeforeUnmount(() => {
   padding-bottom: 84px;
 }
 
-/* Menus should fit on-screen without scrolling */
-.app:not(.inGame) .main{
-  /* Use normal page scroll only (no nested scroll containers) */
-  min-height: auto;
-  overflow: visible;
+/* Main content is the only scroll container (prevents double-scroll + empty scroll). */
+.main{
+  position: relative;
+  z-index: 1;
+  padding: 18px;
+  flex: 1 1 auto;
+  /* Allow vertical scrolling, but never allow horizontal scrollbars
+     (menu tiles intentionally overhang to the right for the AAA "off-panel" effect). */
+  overflow-y: auto;
+  overflow-x: hidden;
+}
+
+/* In-game: lock the canvas; UI already fits the viewport. */
+.app.inGame .main{ overflow: hidden; }
+
+/* On very small/narrow devices (especially portrait), the in-game UI can't reliably
+   fit without clipping. Allow scrolling there while keeping desktop locked. */
+@media (max-width: 980px){
+  .app.inGame .main{ overflow: auto; -webkit-overflow-scrolling: touch; }
+  .gameLayout{ height: auto; }
+}
+
+@media (max-height: 620px){
+  .app.inGame .main{ overflow: auto; -webkit-overflow-scrolling: touch; }
+  .gameLayout{ height: auto; }
 }
 
 .btn{
@@ -3188,6 +3216,38 @@ onBeforeUnmount(() => {
 .menuHint{ font-size: 12px; opacity:.7; font-weight: 700; }
 .heroTitle{ margin: 0; }
 .heroDesc{ opacity:.8; }
+
+/* AAA-style title entrance (auto slide + fade) */
+.heroAnim .heroBadge{
+  animation: heroBadgeIn .55s cubic-bezier(.2,.9,.2,1) both, heroBadgeIdle 5.5s ease-in-out 1.0s infinite;
+}
+.heroAnim .heroTitle{
+  animation: heroTitleIn .62s cubic-bezier(.2,.9,.2,1) .05s both, heroTitleIdle 6.0s ease-in-out 1.1s infinite;
+}
+.heroAnim .heroDesc{
+  animation: heroDescIn .65s cubic-bezier(.2,.9,.2,1) .10s both;
+}
+
+@keyframes heroBadgeIn{
+  from{ opacity: 0; transform: translateY(-10px); filter: blur(2px); }
+  to{ opacity: 1; transform: translateY(0px); filter: blur(0px); }
+}
+@keyframes heroTitleIn{
+  from{ opacity: 0; transform: translateY(10px); filter: blur(3px); }
+  to{ opacity: 1; transform: translateY(0px); filter: blur(0px); }
+}
+@keyframes heroDescIn{
+  from{ opacity: 0; transform: translateY(8px); }
+  to{ opacity: .8; transform: translateY(0px); }
+}
+@keyframes heroBadgeIdle{
+  0%,100%{ transform: translateY(0px); opacity: 1; }
+  50%{ transform: translateY(-1px); opacity: .92; }
+}
+@keyframes heroTitleIdle{
+  0%,100%{ transform: translateY(0px); }
+  50%{ transform: translateY(-2px); }
+}
 .rgbText{ background: linear-gradient(90deg, rgba(0,229,255,1), rgba(255,43,214,1)); -webkit-background-clip:text; background-clip:text; color: transparent; }
 .divider{ height: 1px; background: rgba(255,255,255,.10); margin: 12px 0; }
 .chip{ display:inline-flex; align-items:center; gap: 8px; }
@@ -3381,8 +3441,15 @@ onBeforeUnmount(() => {
   to{ transform: translateY(0) scale(1); opacity: 1; filter: saturate(1.0); }
 }
 
-/* You already have these elsewhere in your CSS normally */
-.gameLayout{ display:grid; grid-template-columns: 420px 1fr; gap: 14px; }
+/* Fit-to-viewport in-game (no scroll): keep the whole layout within the main area */
+.gameLayout{
+  display:grid;
+  grid-template-columns: 420px 1fr;
+  gap: 14px;
+  height: 100%;
+  min-height: 0;
+  align-items: stretch;
+}
 @media (max-width: 980px){
   .gameLayout{ grid-template-columns: 1fr; }
   .leftPanel{ order: 2; }
@@ -3395,6 +3462,8 @@ onBeforeUnmount(() => {
 }
 
 .leftPanel,.rightPanel{ min-width:0; }
+.leftPanel{ display:flex; flex-direction: column; gap: 12px; min-height: 0; }
+.rightPanel{ display:flex; flex-direction: column; gap: 10px; min-height: 0; }
 .panelHead{ padding: 14px; border-radius: 18px; border: 1px solid rgba(255,255,255,.10); background: rgba(10,10,16,.55); backdrop-filter: blur(10px); }
 .hudPanel{ padding: 16px; }
 .hudTop{ display:flex; justify-content:space-between; align-items:flex-start; gap: 12px; flex-wrap: wrap; }
@@ -3466,14 +3535,32 @@ onBeforeUnmount(() => {
 .modeRow{ display:flex; justify-content:space-between; align-items:center; gap: 10px; flex-wrap: wrap; }
 .statusTag,.keysTag{ margin-top: 10px; font-size: 12px; opacity: .85; font-weight: 700; }
 
+/* Fit-to-viewport: avoid pushing Controls off-screen at 100% zoom */
+@media (max-height: 820px){
+  .gameLayout{ gap: 12px; }
+  .leftPanel{ gap: 10px; }
+  .panel{ margin-top: 10px; padding: 12px; }
+  .panelHead{ padding: 13px; }
+  .hudPanel{ padding: 14px; }
+  .hudPhaseMain{ font-size: 20px; }
+}
+
 
 /* =========================
    TETR-INSPIRED MENU (ONLY MENUS)
 ========================= */
 .tetrShell {
-  /* Keep all menu content visible (no scrolling) */
-  width: min(1020px, calc(100vw - 40px));
-  margin: 0 20px 0 auto; /* push the menu block to the right like the reference */
+  /*
+    AAA menu layout goal:
+    - tiles feel larger than their pane
+    - far right edge disappears off-screen (no visible "panel edge")
+    - DO NOT crop vertical content (so lower items stay visible)
+
+    The main scroll container (.main) has padding: 18px.
+    We cancel ONLY the right padding here so the menu can reach the viewport edge.
+  */
+  width: min(1020px, calc(100vw - 18px));
+  margin: 0 -18px 0 auto; /* cancel .main right padding so tiles can overhang to the edge */
   padding: 0 0 14px;
   /* Let the browser handle scrolling (prevents double scrollbars) */
 /* topbar (~72px) + breathing room */
@@ -3574,6 +3661,30 @@ onBeforeUnmount(() => {
   font-size: clamp(26px, 4.6vh, 40px);
   text-transform: uppercase;
 }
+
+/* WELCOME: big AAA-style title with logo mark */
+.tetrWelcomeTitle{
+  display: inline-flex;
+  align-items: center;
+  gap: clamp(10px, 2vh, 18px);
+  font-size: clamp(34px, 6.2vh, 64px);
+  letter-spacing: clamp(2px, 0.5vh, 6px);
+  text-shadow:
+    0 18px 50px rgba(0,0,0,0.55),
+    0 0 26px rgba(0,229,255,0.10),
+    0 0 22px rgba(255,43,214,0.08);
+}
+.tetrWelcomeLogo{
+  width: clamp(44px, 7vh, 86px);
+  height: clamp(44px, 7vh, 86px);
+  object-fit: contain;
+  filter:
+    drop-shadow(0 14px 34px rgba(0,0,0,0.62))
+    drop-shadow(0 0 22px rgba(0,229,255,0.18))
+    drop-shadow(0 0 18px rgba(255,43,214,0.14));
+}
+.tetrWelcomeWord{ opacity: 0.98; }
+.tetrWelcomeWord.strong{ opacity: 1; }
 .tetrHeroSub{
   margin-top: 6px;
   opacity: .78;
@@ -3584,41 +3695,101 @@ onBeforeUnmount(() => {
 .tetrTiles{
   display:flex;
   flex-direction:column;
-  gap: clamp(8px, 1.6vh, 14px);
+  gap: clamp(10px, 1.9vh, 16px);
   flex: 1;
   min-height: 0;
   justify-content: flex-start;
+
+  /* Let the main scroll container handle vertical overflow.
+     (Previously this was overflow:hidden which cropped lower menu items like Couch/AI/Settings/Credits.) */
+  overflow: visible;
+  padding-right: 0;
 }
 
 .tetrTile{
-  flex: 1 1 auto;
-  min-height: clamp(86px, 12vh, 140px);
+  /* Big, uniform tile sizing (AAA menu feel) */
+  height: clamp(120px, 18vh, 190px);
+  flex: 0 0 auto;
+
+  /* AAA "off-panel" illusion without cropping:
+     push the tile slightly to the right (beyond viewport), so its far edge is not visible.
+     We keep the left edge fully visible (no negative left margin), avoiding cut text/glyphs. */
+  width: 100%;
+  /* Push farther past the right edge so there is NO visible pane edge (Valorant/TETR vibe) */
+  margin-right: clamp(-140px, -12vw, -260px);
 
   position: relative;
   text-align:left;
-  border: 1px solid rgba(255,255,255,0.10);
-  border-radius: 10px;
-  background: rgba(0,0,0,.38);
+  border: 1px solid rgba(255,255,255,0.12);
+  border-radius: 14px;
+  background: rgba(0,0,0,.36);
   padding: 0;
   cursor: pointer;
-  overflow: visible;
-  transition: transform .28s cubic-bezier(.2,.85,.2,1), box-shadow .28s cubic-bezier(.2,.85,.2,1), filter .28s cubic-bezier(.2,.85,.2,1);
+
+  /* Keep inner VFX inside the tile, but shadows still render outside */
+  overflow: hidden;
+
+  box-shadow:
+    0 14px 40px rgba(0,0,0,.55),
+    0 0 0 1px rgba(0,0,0,0.35) inset;
+
+  transition:
+    transform .28s cubic-bezier(.2,.85,.2,1),
+    box-shadow .28s cubic-bezier(.2,.85,.2,1),
+    filter .28s cubic-bezier(.2,.85,.2,1);
 }
 .tetrTile:before{
   content:"";
   position:absolute;
   inset:0;
-  background: linear-gradient(135deg, rgba(255,255,255,.08), rgba(255,255,255,0) 55%);
-  opacity: .55;
   pointer-events:none;
+
+  /* Subtle glass + diagonal sheen */
+  background:
+    linear-gradient(135deg, rgba(255,255,255,.10), rgba(255,255,255,0) 55%),
+    radial-gradient(900px 320px at 18% 12%, rgba(0,229,255,0.14), transparent 60%),
+    radial-gradient(900px 320px at 55% 88%, rgba(255,43,214,0.12), transparent 62%);
+
+  opacity: .70;
+}
+
+/* Neon border + scanline shimmer (AAA "juicy" feel) */
+.tetrTile:after{
+  content:"";
+  position:absolute;
+  inset:0;
+  pointer-events:none;
+  border-radius: inherit;
+
+  background:
+    linear-gradient(90deg, rgba(0,229,255,0.22), rgba(255,43,214,0.18) 55%, rgba(255,255,255,0.06)),
+    repeating-linear-gradient(
+      180deg,
+      rgba(255,255,255,0.05) 0px,
+      rgba(255,255,255,0.05) 1px,
+      rgba(255,255,255,0) 6px,
+      rgba(255,255,255,0) 10px
+    );
+  mix-blend-mode: screen;
+  opacity: .18;
+  transform: translateX(-10%);
+  animation: tetrScan 4.2s linear infinite;
+}
+
+@keyframes tetrScan{
+  0%{ background-position: 0 0, 0 0; }
+  100%{ background-position: 240px 0, 0 120px; }
 }
 .tetrTile:hover{
-  transform: translateX(-18px);
-  box-shadow: 0 14px 30px rgba(0,0,0,.55);
-  filter: brightness(1.05);
+  transform: translateX(-34px);
+  box-shadow:
+    0 18px 55px rgba(0,0,0,.62),
+    0 0 0 1px rgba(0,229,255,0.10) inset,
+    0 0 0 1px rgba(255,43,214,0.07);
+  filter: brightness(1.08) saturate(1.04);
 }
 .tetrTile:active{
-  transform: translateX(-18px) scale(0.995);
+  transform: translateX(-34px) scale(0.995);
 }
 .tetrTile.disabled,
 .tetrTile:disabled{

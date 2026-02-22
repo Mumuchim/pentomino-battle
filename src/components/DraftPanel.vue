@@ -28,7 +28,7 @@
             v-for="k in game.picks[1]"
             :key="k"
             :pieceKey="k"
-            :cell="20"
+            :cell="cell"
           />
 
           <div
@@ -58,7 +58,7 @@
             v-for="k in game.picks[2]"
             :key="k"
             :pieceKey="k"
-            :cell="20"
+            :cell="cell"
           />
 
           <div
@@ -82,10 +82,31 @@
 </template>
 
 <script setup>
+import { onBeforeUnmount, onMounted, ref } from "vue";
 import { useGameStore } from "../store/game";
 import PiecePreview from "./PiecePreview.vue";
 
 const game = useGameStore();
+
+// Fit-to-viewport: shrink preview tiles on shorter screens (no scroll in-game)
+const cell = ref(20);
+function computeCell() {
+  const h = window.innerHeight || 800;
+  // These breakpoints are intentionally simple + stable.
+  if (h <= 680) return 14;
+  if (h <= 760) return 16;
+  return 20;
+}
+function onResize() {
+  cell.value = computeCell();
+}
+onMounted(() => {
+  onResize();
+  window.addEventListener("resize", onResize, { passive: true });
+});
+onBeforeUnmount(() => {
+  window.removeEventListener("resize", onResize);
+});
 </script>
 
 <style scoped>

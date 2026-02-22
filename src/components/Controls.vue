@@ -110,4 +110,12 @@ onBeforeUnmount(() => window.removeEventListener("keydown", onKeyDown));
 
 .muted { opacity: 0.75; }
 .small { font-size: 12px; }
+
+/* Fit-to-viewport: keep these buttons visible on 100% zoom / shorter screens */
+@media (max-height: 820px){
+  .controls .row{ margin: 6px 0; }
+  .label{ width: 72px; }
+  .btn{ padding: 8px 10px; font-size: 12px; border-radius: 11px; }
+  .previewRow{ margin: 8px 0; }
+}
 </style>
