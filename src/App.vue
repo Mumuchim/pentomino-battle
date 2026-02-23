@@ -1061,6 +1061,9 @@ let _onlineBgm = null;
 function _attachLoopFix(audioEl) {
   try {
     if (!audioEl?.addEventListener) return;
+    // Prevent double-binding if the app hot-reloads or mounts twice.
+    if (audioEl.__pbLoopFixAttached) return;
+    audioEl.__pbLoopFixAttached = true;
     audioEl.addEventListener("ended", () => {
       try {
         if (!audioEl.loop) return;
@@ -1074,7 +1077,14 @@ function _attachLoopFix(audioEl) {
 function ensureMenuBgm() {
   try {
     if (_menuBgm) return;
-    _menuBgm = new Audio(menuBgmUrl);
+    // Use a window-global singleton so we never end up with 2 menu BGMs after remounts.
+    const g = typeof window !== "undefined" ? window : null;
+    if (g && g.__PB_MENU_BGM instanceof Audio) {
+      _menuBgm = g.__PB_MENU_BGM;
+    } else {
+      _menuBgm = new Audio(menuBgmUrl);
+      if (g) g.__PB_MENU_BGM = _menuBgm;
+    }
     _menuBgm.loop = true;
     _menuBgm.preload = "auto";
     _menuBgm.volume = bgmVolume.value;
@@ -1087,7 +1097,13 @@ function ensureMenuBgm() {
 function ensureCouchBgm() {
   try {
     if (_couchBgm) return;
-    _couchBgm = new Audio(couchBgmUrl);
+    const g = typeof window !== "undefined" ? window : null;
+    if (g && g.__PB_COUCH_BGM instanceof Audio) {
+      _couchBgm = g.__PB_COUCH_BGM;
+    } else {
+      _couchBgm = new Audio(couchBgmUrl);
+      if (g) g.__PB_COUCH_BGM = _couchBgm;
+    }
     _couchBgm.loop = true;
     _couchBgm.preload = "auto";
     _couchBgm.volume = bgmVolume.value;
@@ -1100,7 +1116,13 @@ function ensureCouchBgm() {
 function ensureOnlineBgm() {
   try {
     if (_onlineBgm) return;
-    _onlineBgm = new Audio(onlineBgmUrl);
+    const g = typeof window !== "undefined" ? window : null;
+    if (g && g.__PB_ONLINE_BGM instanceof Audio) {
+      _onlineBgm = g.__PB_ONLINE_BGM;
+    } else {
+      _onlineBgm = new Audio(onlineBgmUrl);
+      if (g) g.__PB_ONLINE_BGM = _onlineBgm;
+    }
     _onlineBgm.loop = true;
     _onlineBgm.preload = "auto";
     _onlineBgm.volume = bgmVolume.value;
@@ -1609,6 +1631,7 @@ const online = reactive({
   lastGuestId: null,
   waitingForOpponent: true,
   hostWaitStartedAt: null,
+  lastHbSentAt: 0,
 });
 
 const publicLobbies = ref([]);
@@ -1823,6 +1846,39 @@ async function sbListPublicWaitingLobbies() {
   return await res.json();
 }
 
+async function sbFindPublicLobbyByName(term) {
+  const t = String(term || "").trim();
+  if (!t) return null;
+  const pat = `*${t}*`;
+  const q = [
+    "select=id,code,status,is_private,lobby_name,updated_at,host_id,guest_id,state,version",
+    "status=eq.waiting",
+    "is_private=eq.false",
+    "guest_id=is.null",
+    `lobby_name=ilike.${encodeURIComponent(pat)}`,
+    "order=updated_at.desc",
+    "limit=10",
+  ].join("&");
+
+  const res = await fetch(sbRestUrl(`pb_lobbies?${q}`), { headers: sbHeaders() });
+  if (!res.ok) throw new Error(`Search lobby failed (${res.status})`);
+  const rows = await res.json();
+  const list = Array.isArray(rows) ? rows : [];
+  // Return the first valid joinable lobby.
+  return (
+    list.find((l) => {
+      if (!l) return false;
+      if (isLobbyExpired(l)) return false;
+      if (lobbyPlayerCount(l) <= 0) return false;
+      const name = String(l?.lobby_name || "");
+      if (name === "__QM__") return false;
+      const meta = l?.state?.meta || {};
+      if (meta?.kind === "quickmatch") return false;
+      return true;
+    }) || null
+  );
+}
+
 async function sbCreateLobby({ isPrivate = false, lobbyName = "", extraStateMeta = null } = {}) {
   const hostId = getGuestId();
   const code = `PB-${Math.random().toString(16).slice(2, 6).toUpperCase()}${Math.random()
@@ -1916,6 +1972,12 @@ function isLobbyExpired(lobby) {
   // If it's waiting with no guest and hasn't been touched in a while, treat as abandoned.
   const upd = parseIsoMs(lobby.updated_at);
   if (String(lobby.status || "").toLowerCase() === "waiting" && !lobby.guest_id) {
+    // If host heartbeat is stale (tab closed / app crashed), expire the room sooner.
+    try {
+      const hb = lobby?.state?.meta?.heartbeat || {};
+      const hostTs = Number(hb?.host || 0);
+      if (hostTs && Date.now() - hostTs > 90_000) return true;
+    } catch {}
     if (upd && Date.now() - upd > LOBBY_WAITING_TTL_MS) return true;
   }
   return false;
@@ -2301,6 +2363,30 @@ function startPollingLobby(lobbyId, role) {
       }
 
       online.code = lobby.code || online.code;
+
+      // ✅ Lightweight presence heartbeat (even while waiting) so stale rooms can be cleaned up.
+      // Throttled to avoid spamming the DB.
+      if (online.role && (online.waitingForOpponent || game.phase === "gameover")) {
+        const now = Date.now();
+        if (!online.lastHbSentAt || now - online.lastHbSentAt > 15_000) {
+          online.lastHbSentAt = now;
+          try {
+            const st = normalizeLobbyState(lobby.state);
+            const meta = st?.meta || {};
+            const hb = { ...(meta.heartbeat || {}) };
+            hb[online.role] = now;
+            st.meta = { ...meta, heartbeat: hb };
+            const nextVersion = Number(lobby?.version || 0) + 1;
+            await sbForcePatchState(lobbyId, {
+              state: st,
+              version: nextVersion,
+              updated_at: new Date().toISOString(),
+            });
+          } catch {
+            // ignore
+          }
+        }
+      }
 
       // ✅ If someone joined an expired/abandoned room, cancel cleanly.
       if (isLobbyExpired(lobby)) {
@@ -3110,7 +3196,7 @@ function lobbyCreate() {
 async function lobbySearchOrJoin() {
   const term = String(quick.joinCode || "").trim();
   if (!term) {
-    showModal({ title: "Enter Code or Name", tone: "bad", message: "Type a lobby code (PB-...) or a lobby name." });
+    showModal({ title: "Missing Input", tone: "bad", message: "Please type code or lobby name first." });
     return;
   }
 
@@ -3130,11 +3216,20 @@ async function lobbySearchOrJoin() {
     return;
   }
 
-  showModal({
-    title: "No Match Found",
-    tone: "bad",
-    message: "Couldn't find a public room with that name. Try refreshing, or join by code for private rooms.",
-  });
+  // If not in the current list, try the server (helps when list is stale / you just refreshed).
+  try {
+    if (await ensureSupabaseReadyOrExplain()) {
+      const srv = await sbFindPublicLobbyByName(term);
+      if (srv) {
+        await joinPublicLobby(srv);
+        return;
+      }
+    }
+  } catch {
+    // ignore and fall back to "does not exist"
+  }
+
+  showModal({ title: "Not Found", tone: "bad", message: "Lobby does not exist." });
 }
 
 function copyCode(code) {
@@ -3177,6 +3272,8 @@ async function startQuickMatchAuto() {
     modal.message = `Finding opponent… ${fmt(sec)}`;
   };
 
+  let uiTimer = null;
+
   showModal({
     title: "Quick Match",
     tone: "info",
@@ -3190,13 +3287,15 @@ async function startQuickMatchAuto() {
           try {
             if (hostLobbyId) await sbDeleteLobby(hostLobbyId);
           } catch {}
+          if (uiTimer) window.clearInterval(uiTimer);
           closeModal();
+          showModal({ title: "Matchmaking", tone: "bad", message: "match making cancelled" });
         },
       },
     ],
   });
 
-  const uiTimer = window.setInterval(() => {
+  uiTimer = window.setInterval(() => {
     if (!modal.open) return;
     updateModal();
   }, 250);
@@ -3221,7 +3320,7 @@ async function startQuickMatchAuto() {
 
     // If we're the guest (found someone waiting), run the 10s accept flow first.
     if (role === "guest") {
-      window.clearInterval(uiTimer);
+      if (uiTimer) window.clearInterval(uiTimer);
       closeModal();
 
       const ok = await quickMatchAcceptFlow(lobby.id, "guest");
@@ -3242,7 +3341,7 @@ async function startQuickMatchAuto() {
       // Check if someone joined.
       const fresh = hostLobbyId ? await sbSelectLobbyById(hostLobbyId) : null;
       if (fresh?.guest_id) {
-        window.clearInterval(uiTimer);
+        if (uiTimer) window.clearInterval(uiTimer);
         closeModal();
 
         const ok = await quickMatchAcceptFlow(hostLobbyId, "host");
@@ -3257,7 +3356,7 @@ async function startQuickMatchAuto() {
     }
 
     // Timeout: no opponent.
-    window.clearInterval(uiTimer);
+    if (uiTimer) window.clearInterval(uiTimer);
     try {
       if (hostLobbyId) await sbDeleteLobby(hostLobbyId);
     } catch {}
@@ -3269,7 +3368,7 @@ async function startQuickMatchAuto() {
       actions: [{ label: "OK", tone: "primary", onClick: () => (screen.value = "mode") }],
     });
   } catch (e) {
-    window.clearInterval(uiTimer);
+    if (uiTimer) window.clearInterval(uiTimer);
     closeModal();
     showModal({ title: "Quick Match Error", tone: "bad", message: String(e?.message || e || "Something went wrong.") });
   }
@@ -3444,7 +3543,7 @@ async function sbQuickMatch() {
 
   for (const lobby of list) {
     // Clean up dead rows so they don't get reused by accident
-    if (lobbyPlayerCount(lobby) === 0) {
+    if (lobbyPlayerCount(lobby) === 0 || isLobbyExpired(lobby)) {
       cleanupLobbyIfNeeded(lobby, { reason: "qm_empty" });
       continue;
     }
