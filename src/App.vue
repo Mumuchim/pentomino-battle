@@ -92,7 +92,6 @@
           </div>
           <div class="brandText">
             <img :src="titleUrl" class="brandTitlePng floatingLogo" alt="Pento Battle" />
-            <div class="sub">Rotate • Flip • Dominate</div>
           </div>
         </div>
 
@@ -149,13 +148,6 @@
         </div>
       </template>
     </header>
-
-    <!-- Back button below the top bar (menus) -->
-    <div v-if="showMenuChrome && canGoBack" class="pbBackRow">
-      <button class="pbBackBtn imgBtn" @mouseenter="uiHover" @click="uiClick(); goBack()" aria-label="Back">
-        <img :src="backBtnUrl" class="btnPng floatingLogo" alt="Back" />
-      </button>
-    </div>
 
     <main class="main">
       <!-- =========================
@@ -715,19 +707,34 @@
 
 
 <!-- Menu-style bottom bar (menus) -->
-<footer v-if="showBottomBar" class="pbBottomBar" aria-hidden="true">
-  <!-- Hide the redundant bottom-left brand on WELCOME only (hero already shows the title) -->
-  <div v-if="screen !== 'auth'" class="pbBottomLeft">
+<footer v-if="showBottomBar" class="pbBottomBar">
+  <!-- Left: MADE BY -->
+  <div class="pbBottomLeft">
+    <div class="pbBottomHint">
+      <template v-if="useMenuPngs">
+        <img :src="madeByUrl" class="pbBottomPng" alt="MADE BY MUMUCHXM" />
+      </template>
+      <template v-else>MADE BY MUMUCHXM</template>
+    </div>
+  </div>
+
+  <!-- Center: Logo + Title -->
+  <div class="pbBottomCenter" v-if="screen !== 'auth'">
     <img :src="logoUrl" alt="" class="pbBottomLogo" />
     <img :src="titleUrl" alt="Pento Battle" class="pbBottomBrandPng" />
   </div>
+
+  <!-- Right: Back (menu pages) -->
   <div class="pbBottomRight">
-    <div class="pbBottomHint">
-    <template v-if="useMenuPngs">
-      <img :src="madeByUrl" class="pbBottomPng" alt="MADE BY MUMUCHXM" />
-    </template>
-    <template v-else>MADE BY MUMUCHXM</template>
-  </div>
+    <button
+      v-if="canGoBack"
+      class="btn ghost imgBtn pbBottomBackBtn"
+      @click="goBack"
+      aria-label="Back"
+      title="Back"
+    >
+      <img :src="backBtnUrl" class="btnPng floatingLogo" alt="Back" />
+    </button>
   </div>
 </footer>
 
@@ -4204,6 +4211,13 @@ onBeforeUnmount(() => {
   user-select: none;
 }
 
+.brandText{
+  display:flex;
+  align-items:center;
+  min-width: 0;
+  height: 44px; /* match logoMark so title can scale up without changing topbar height */
+}
+
 .topbar .right{
   display:flex;
   align-items:center;
@@ -5067,7 +5081,8 @@ onBeforeUnmount(() => {
 }
 .pbBottomPng{
   display:block;
-  height: 16px;
+  height: calc(100% - 12px);
+  max-height: 100%;
   width: auto;
   object-fit: contain;
   opacity: .85;
@@ -5693,26 +5708,32 @@ onBeforeUnmount(() => {
   backdrop-filter: blur(10px);
   pointer-events: none;
 }
-.pbBottomLeft{ display:flex; align-items:center; gap: 10px; }
+.pbBottomLeft{ display:flex; align-items:center; flex: 1; min-width: 0; height: 100%; }
+.pbBottomCenter{ display:flex; align-items:center; justify-content:center; gap: 12px; flex: 1; min-width: 0; height: 100%; }
+.pbBottomRight{ display:flex; align-items:center; justify-content:flex-end; flex: 1; min-width: 0; }
 .pbBottomLogo{
-  width: 28px; height: 28px; object-fit: contain;
+  width: 30px; height: 30px; object-fit: contain;
   filter: drop-shadow(0 10px 22px rgba(0,0,0,0.55));
 }
 .pbBottomBrand{ font-weight: 1000; letter-spacing: 2px; opacity:.75; text-transform: uppercase; }
 .pbBottomBrandPng{
-  height: 18px;
+  height: calc(100% - 12px);
+  max-height: 100%;
   width: auto;
   object-fit: contain;
   opacity: .85;
   filter: drop-shadow(0 10px 18px rgba(0,0,0,0.55));
 }
-.pbBottomRight{ opacity:.55; font-weight: 900; letter-spacing: 2px; text-transform: uppercase; }
+.pbBottomHint{ opacity:.55; font-weight: 900; letter-spacing: 2px; text-transform: uppercase; height: 100%; display:flex; align-items:center; }
+.pbBottomBackBtn{ pointer-events: auto; }
 
 /* Floating PNG buttons */
 .imgBtn{ display:inline-flex; align-items:center; justify-content:center; }
 .btnPng{ height: 22px; width: auto; object-fit: contain; pointer-events: none; }
 .pbMiniBtn.imgBtn{ padding-top: 6px; padding-bottom: 6px; }
-.brandTitlePng{ height: 22px; width: auto; object-fit: contain; }
+.brandTitlePng{ height: 100%; width: auto; object-fit: contain; max-height: 44px; }
+/* floatingLogo sets fixed 40x40; override so the title can fill the in-game top bar slot */
+.brandTitlePng.floatingLogo{ height: 100% !important; width: auto !important; max-height: 44px !important; }
 
 
 
