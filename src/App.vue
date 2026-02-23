@@ -748,8 +748,7 @@
             <span class="modalDot" :class="modalDotClass"></span>
             {{ modal.title }}
           </div>
-          <button v-if="showModalX" class="modalX" @click="closeModal" aria-label="Close">✕</button>
-          <div v-else class="modalXSpacer" aria-hidden="true"></div>
+          <div class="modalXSpacer" aria-hidden="true"></div>
         </div>
 
         <div v-if="isResultModal" class="resultHero" :class="resultHeroClass">
@@ -801,9 +800,14 @@
           <p v-if="qmAccept.statusLine" class="modalMsg muted">{{ qmAccept.statusLine }}</p>
         </div>
 
+        
         <div class="modalActions">
-          <button class="btn soft" @click="qmDecline">DECLINE</button>
-          <button class="btn primary" @click="qmAcceptClick" :disabled="qmAccept.myAccepted">ACCEPT</button>
+          <button class="btn soft imgBtn" @mouseenter="uiHover" @click="uiClick(); qmDecline()" aria-label="Decline">
+            <img :src="declineBtnUrl" class="btnPng floatingLogo" alt="Decline" />
+          </button>
+          <button class="btn primary imgBtn" @mouseenter="uiHover" @click="uiClick(); qmAcceptClick()" :disabled="qmAccept.myAccepted" aria-label="Accept">
+            <img :src="acceptBtnUrl" class="btnPng floatingLogo" alt="Accept" />
+          </button>
         </div>
       </div>
     </div>
@@ -816,7 +820,7 @@
             <span class="modalDot"></span>
             SETTINGS
           </div>
-          <button class="modalX" @click="closeInGameSettings" aria-label="Close">✕</button>
+          <div class="modalXSpacer" aria-hidden="true"></div>
         </div>
 
         <div class="modalBody">
@@ -967,6 +971,13 @@ async function qmDecline() {
     await sbSetQuickMatchAccept(qmAccept.lobbyId, qmAccept.role, false);
   } catch {}
   closeQmAccept();
+
+  showModal({
+    title: "Matchmaking",
+    tone: "info",
+    message: "You declined the matchmaking.",
+    actions: [{ label: "OK", tone: "primary", onClick: () => (screen.value = "mode") }],
+  });
 }
 
 const inGameSettingsOpen = ref(false);
@@ -1449,15 +1460,7 @@ const modalCardClass = computed(() => ({
 }));
 
 // Hide the X when it would do the exact same thing as the only action button.
-const showModalX = computed(() => {
-  if (modal.locked) return false;
-  const acts = Array.isArray(modal.actions) ? modal.actions : [];
-  if (acts.length === 1) {
-    const lbl = String(acts[0]?.label || "").trim().toLowerCase();
-    if (lbl === "ok" || lbl === "close") return false;
-  }
-  return true;
-});
+const showModalX = computed(() => false);
 
 // ✅ Result-style modal (Victory/Defeat) helpers + confetti
 const isResultModal = computed(() => {
@@ -2697,16 +2700,34 @@ async function onResetClick() {
 
 function winnerMessage(w) {
   const me = myPlayer.value;
+
+  // Local modes: keep it simple unless we have a specific end reason.
   if (!me) {
-    // Couch/AI: title already shows the winner.
+    const lm = game.lastMove?.type;
+    if (lm === "surrender") return "Opponent surrendered.";
+    if (lm === "timeout") return "Opponent timer runs out.";
     if (!isOnline.value) return "GG!";
     return `Player ${w} wins.\nGG!`;
   }
+
+  // Online: custom copy for surrender / timer.
+  const lm = game.lastMove?.type;
+  const loser = Number(game.lastMove?.player);
+
+  if (lm === "surrender") {
+    return loser === Number(me) ? "You surrendered." : "Opponent surrendered.";
+  }
+
+  if (lm === "timeout") {
+    return loser === Number(me) ? "Your timer runs out." : "Opponent timer runs out.";
+  }
+
   if (w === null || w === undefined) {
     return game.matchInvalid
       ? `Match invalid — ${game.matchInvalidReason || "dodged"}.`
       : "Match ended.";
   }
+
   return w === me ? "You win!\nGG!" : "Opponent wins.\nGG!";
 }
 
@@ -3461,6 +3482,8 @@ async function quickMatchAcceptFlow(lobbyId, role) {
 
   let done = false;
   let ok = false;
+  /** @type {"self_timeout"|"self_decline"|"opponent_not_accept"|"unknown"} */
+  let failReason = "unknown";
 
   const tick = () => {
     if (!qmAccept.open) return;
@@ -3473,18 +3496,28 @@ async function quickMatchAcceptFlow(lobbyId, role) {
   tick();
   const uiInt = window.setInterval(tick, 50);
 
+  // Snapshot before we close the modal (closeQmAccept resets state).
+  let myAcceptedSnapshot = false;
+
   try {
     while (!done) {
       tick();
 
       // Timeout
       if (Date.now() >= qmAccept.expiresAt) {
+        myAcceptedSnapshot = !!qmAccept.myAccepted;
+
         // Mark timeout as decline for this role if we didn't accept.
         if (!qmAccept.myAccepted) {
+          failReason = "self_timeout";
           try {
             await sbSetQuickMatchAccept(lobbyId, role, false);
           } catch {}
+        } else {
+          // I accepted but the other side didn't.
+          failReason = "opponent_not_accept";
         }
+
         done = true;
         ok = false;
         break;
@@ -3505,6 +3538,16 @@ async function quickMatchAcceptFlow(lobbyId, role) {
 
       // Someone declined / timed out
       if (declinedBy || hostA === false || guestA === false) {
+        myAcceptedSnapshot = !!qmAccept.myAccepted;
+
+        if (String(declinedBy || "").toLowerCase() === String(role || "").toLowerCase()) {
+          failReason = "self_decline";
+        } else if ((role === "host" && hostA === false) || (role === "guest" && guestA === false)) {
+          failReason = "self_decline";
+        } else {
+          failReason = "opponent_not_accept";
+        }
+
         done = true;
         ok = false;
         break;
@@ -3530,10 +3573,17 @@ async function quickMatchAcceptFlow(lobbyId, role) {
       await sbDeleteLobby(lobbyId);
     } catch {}
 
+    const msg =
+      failReason === "self_timeout"
+        ? "Failed to accept match making."
+        : failReason === "self_decline"
+          ? "You declined the matchmaking."
+          : "Opponent did not accept.";
+
     showModal({
       title: "Match Cancelled",
       tone: "bad",
-      message: "Opponent did not accept.",
+      message: msg,
       actions: [{ label: "OK", tone: "primary", onClick: () => (screen.value = "mode") }],
     });
   }
@@ -3738,26 +3788,65 @@ function applyInGameSettings() {
 /* =========================
    MOUNT / UNMOUNT
 ========================= */
+
+function isMobileLike() {
+  try {
+    const ua = String(navigator?.userAgent || "").toLowerCase();
+    const touch = (navigator?.maxTouchPoints || 0) > 0;
+    const small = Math.min(window.innerWidth || 0, window.innerHeight || 0) <= 820;
+    return /android|iphone|ipad|ipod|mobile/.test(ua) || (touch && small);
+  } catch {
+    return false;
+  }
+}
+
+function maybeWarnMobile() {
+  try {
+    if (!isMobileLike()) return;
+    const key = "pb_mobile_warn_ack";
+    const ack = localStorage.getItem(key);
+    if (ack === "1") return;
+
+    // Show a one-time warning. If they insist, force landscape lock.
+    showModal({
+      title: "Mobile Warning",
+      tone: "bad",
+      message:
+        "Mobile detected. This game is designed for desktop.\n\nIf you still want to play on mobile:\n• Enable Desktop Site / Desktop mode\n• Rotate to LANDSCAPE\n\nContinue anyway?",
+      actions: [
+        {
+          label: "Back",
+          tone: "soft",
+          onClick: () => {
+            try { localStorage.setItem(key, "1"); } catch {}
+            screen.value = "auth";
+          },
+        },
+        {
+          label: "Continue",
+          tone: "primary",
+          onClick: () => {
+            try { localStorage.setItem(key, "1"); } catch {}
+            try { game.ui.lockLandscape = true; } catch {}
+            closeModal();
+          },
+        },
+      ],
+    });
+  } catch {}
+}
+
 onMounted(() => {
   // ✅ Initial boot gate — prevent accidental clicks before first paint.
   startUiLock({ label: "Booting…", hint: "Loading UI, sounds, and neon vibes…", minMs: 750 });
 
   loadAudioPrefs();
 
-  // Autoplay policies: kick off BGM as soon as the user interacts anywhere (Welcome screen included).
-  // Also ensures only one track plays at a time.
-  const _primeAudioOnce = () => {
-    try { uiUnlockAudio(); } catch {}
-    try {
-      if (isInGame.value) tryPlayGameBgm();
-      else tryPlayMenuBgm();
-    } catch {}
-  };
-  try { window.addEventListener("pointerdown", _primeAudioOnce, { once: true, passive: true, capture: true }); } catch {}
-  try { window.addEventListener("keydown", _primeAudioOnce, { once: true, passive: true, capture: true }); } catch {}
+  // BGM now starts only when the player clicks a UI button (see uiClick()).
 
 
   onViewportChange();
+  try { window.setTimeout(() => maybeWarnMobile(), 900); } catch {}
   window.addEventListener("resize", onViewportChange, { passive: true });
   window.addEventListener("orientationchange", onViewportChange, { passive: true });
 
