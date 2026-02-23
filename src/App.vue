@@ -62,6 +62,9 @@
             <template v-if="useMenuPngs && String(topPageTitle).toUpperCase() === 'WELCOME'">
               <img :src="welcomeUrl" class="tetrTopTitlePng floatingLogo" alt="WELCOME" />
             </template>
+            <template v-else-if="useMenuPngs && String(topPageTitle).toUpperCase() === 'MENU'">
+              <img :src="menuTitleUrl" class="tetrTopTitlePng floatingLogo" alt="MENU" />
+            </template>
             <template v-else>{{ topPageTitle }}</template>
           </div>
         </div>
@@ -162,12 +165,7 @@
                   </template>
                   <template v-else>PLAY AS GUEST</template>
                 </div>
-                  <div class="tetrTileDesc">
-                  <template v-if="useMenuPngs">
-                    <img :src="playGuestDescUrl" class="tetrSubPng" alt="jump straight into the modes" />
-                  </template>
-                  <template v-else>jump straight into the modes</template>
-                </div>
+                  <div class="tetrTileDesc">Play Anonymous</div>
                 </div>
               </div>
             </button>
@@ -185,9 +183,9 @@
         <div class="tetrHeaderRow">
           <div class="tetrPageTitle">
           <template v-if="useMenuPngs">
-            <img :src="welcomeUrl" class="tetrHeaderPng" alt="WELCOME" />
+            <img :src="menuTitleUrl" class="tetrHeaderPng" alt="MENU" />
           </template>
-          <template v-else>WELCOME</template>
+          <template v-else>MENU</template>
         </div>
         </div>
 
@@ -204,9 +202,19 @@
               @click="uiClick(); goRanked()"
             >
               <div class="tetrTileInner">
-                <div class="tetrTileGlyph">RK</div>
+                <div class="tetrTileGlyph">
+                  <template v-if="useMenuPngs">
+                    <img :src="rkIconUrl" class="tetrGlyphPng floatingLogo" alt="RK" />
+                  </template>
+                  <template v-else>RK</template>
+                </div>
                 <div class="tetrTileText">
-                  <div class="tetrTileTitle">RANKED</div>
+                  <div class="tetrTileTitle">
+                    <template v-if="useMenuPngs">
+                      <img :src="rankedTitleUrl" class="tetrTextPng" alt="RANKED" />
+                    </template>
+                    <template v-else>RANKED</template>
+                  </div>
                   <div class="tetrTileDesc">auto finds lobby with same tier</div>
                 </div>
               </div>
@@ -214,9 +222,19 @@
 
             <button class="tetrTile accentPink" @mouseenter="uiHover" @click="uiClick(); startQuickMatchAuto()">
               <div class="tetrTileInner">
-                <div class="tetrTileGlyph">QM</div>
+                <div class="tetrTileGlyph">
+                  <template v-if="useMenuPngs">
+                    <img :src="qmIconUrl" class="tetrGlyphPng floatingLogo" alt="QM" />
+                  </template>
+                  <template v-else>QM</template>
+                </div>
                 <div class="tetrTileText">
-                  <div class="tetrTileTitle">QUICK MATCH</div>
+                  <div class="tetrTileTitle">
+                    <template v-if="useMenuPngs">
+                      <img :src="quickMatchTitleUrl" class="tetrTextPng" alt="QUICK MATCH" />
+                    </template>
+                    <template v-else>QUICK MATCH</template>
+                  </div>
                   <div class="tetrTileDesc">finding opponent · please wait</div>
                 </div>
               </div>
@@ -224,9 +242,19 @@
 
             <button class="tetrTile accentPurple2" @mouseenter="uiHover" @click="uiClick(); goLobby()">
               <div class="tetrTileInner">
-                <div class="tetrTileGlyph">LB</div>
+                <div class="tetrTileGlyph">
+                  <template v-if="useMenuPngs">
+                    <img :src="lbIconUrl" class="tetrGlyphPng floatingLogo" alt="LB" />
+                  </template>
+                  <template v-else>LB</template>
+                </div>
                 <div class="tetrTileText">
-                  <div class="tetrTileTitle">GO TO LOBBY</div>
+                  <div class="tetrTileTitle">
+                    <template v-if="useMenuPngs">
+                      <img :src="goLobbyTitleUrl" class="tetrTextPng" alt="GO TO LOBBY" />
+                    </template>
+                    <template v-else>GO TO LOBBY</template>
+                  </div>
                   <div class="tetrTileDesc">create session · browse rooms · join by code</div>
                 </div>
               </div>
@@ -234,9 +262,19 @@
 
             <button class="tetrTile accentBlue" @mouseenter="uiHover" @click="uiClick(); startCouchPlay()">
               <div class="tetrTileInner">
-                <div class="tetrTileGlyph">1P</div>
+                <div class="tetrTileGlyph">
+                  <template v-if="useMenuPngs">
+                    <img :src="onePIconUrl" class="tetrGlyphPng floatingLogo" alt="1P" />
+                  </template>
+                  <template v-else>1P</template>
+                </div>
                 <div class="tetrTileText">
-                  <div class="tetrTileTitle">COUCH PLAY</div>
+                  <div class="tetrTileTitle">
+                    <template v-if="useMenuPngs">
+                      <img :src="couchPlayTitleUrl" class="tetrTextPng" alt="COUCH PLAY" />
+                    </template>
+                    <template v-else>COUCH PLAY</template>
+                  </div>
                   <div class="tetrTileDesc">local 2-player on one device</div>
                 </div>
               </div>
@@ -244,9 +282,19 @@
 
             <button class="tetrTile disabled" disabled title="Practice vs. AI is locked for now" @mouseenter="uiHover">
               <div class="tetrTileInner">
-                <div class="tetrTileGlyph">AI</div>
+                <div class="tetrTileGlyph">
+                  <template v-if="useMenuPngs">
+                    <img :src="aiIconUrl" class="tetrGlyphPng floatingLogo" alt="AI" />
+                  </template>
+                  <template v-else>AI</template>
+                </div>
                 <div class="tetrTileText">
-                  <div class="tetrTileTitle">PRACTICE VS AI</div>
+                  <div class="tetrTileTitle">
+                    <template v-if="useMenuPngs">
+                      <img :src="practiceAiTitleUrl" class="tetrTextPng" alt="PRACTICE VS AI" />
+                    </template>
+                    <template v-else>PRACTICE VS AI</template>
+                  </div>
                   <div class="tetrTileDesc">locked for now</div>
                 </div>
               </div>
@@ -254,9 +302,19 @@
 
             <button class="tetrTile accentGrey" @mouseenter="uiHover" @click="uiClick(); screen = 'settings'">
               <div class="tetrTileInner">
-                <div class="tetrTileGlyph">ST</div>
+                <div class="tetrTileGlyph">
+                  <template v-if="useMenuPngs">
+                    <img :src="stIconUrl" class="tetrGlyphPng floatingLogo" alt="ST" />
+                  </template>
+                  <template v-else>ST</template>
+                </div>
                 <div class="tetrTileText">
-                  <div class="tetrTileTitle">SETTINGS</div>
+                  <div class="tetrTileTitle">
+                    <template v-if="useMenuPngs">
+                      <img :src="settingsTitleUrl" class="tetrTextPng" alt="SETTINGS" />
+                    </template>
+                    <template v-else>SETTINGS</template>
+                  </div>
                   <div class="tetrTileDesc">controls · preferences</div>
                 </div>
               </div>
@@ -264,9 +322,19 @@
 
             <button class="tetrTile accentGrey2" @mouseenter="uiHover" @click="uiClick(); screen = 'credits'">
               <div class="tetrTileInner">
-                <div class="tetrTileGlyph">CR</div>
+                <div class="tetrTileGlyph">
+                  <template v-if="useMenuPngs">
+                    <img :src="crIconUrl" class="tetrGlyphPng floatingLogo" alt="CR" />
+                  </template>
+                  <template v-else>CR</template>
+                </div>
                 <div class="tetrTileText">
-                  <div class="tetrTileTitle">CREDITS</div>
+                  <div class="tetrTileTitle">
+                    <template v-if="useMenuPngs">
+                      <img :src="creditsTitleUrl" class="tetrTextPng" alt="CREDITS" />
+                    </template>
+                    <template v-else>CREDITS</template>
+                  </div>
                   <div class="tetrTileDesc">about the game</div>
                 </div>
               </div>
@@ -760,12 +828,34 @@ const useSplitBrandPng = ref(true); // toggle off to fall back to text title
 
 // Extra replaceable menu PNG assets (safe placeholders included in /assets)
 const welcomeUrl = new URL("./assets/welcome.png", import.meta.url).href;
+const menuTitleUrl = new URL("./assets/menu.png", import.meta.url).href;
 const madeByUrl = new URL("./assets/madeby.png", import.meta.url).href;
 const loginTitleUrl = new URL("./assets/login.png", import.meta.url).href;
 const loginIconUrl = new URL("./assets/login_icon.png", import.meta.url).href;
 const playGuestTitleUrl = new URL("./assets/play_guest.png", import.meta.url).href;
-const playGuestDescUrl = new URL("./assets/play_guest_sub.png", import.meta.url).href;
 const playGuestIconUrl = new URL("./assets/gs_icon.png", import.meta.url).href;
+
+// MODE MENU replaceable PNGs (icons + titles)
+const rkIconUrl = new URL("./assets/rk_icon.png", import.meta.url).href;
+const rankedTitleUrl = new URL("./assets/ranked.png", import.meta.url).href;
+
+const qmIconUrl = new URL("./assets/qm_icon.png", import.meta.url).href;
+const quickMatchTitleUrl = new URL("./assets/quick_match.png", import.meta.url).href;
+
+const lbIconUrl = new URL("./assets/lb_icon.png", import.meta.url).href;
+const goLobbyTitleUrl = new URL("./assets/go_lobby.png", import.meta.url).href;
+
+const onePIconUrl = new URL("./assets/onep_icon.png", import.meta.url).href;
+const couchPlayTitleUrl = new URL("./assets/couch_play.png", import.meta.url).href;
+
+const aiIconUrl = new URL("./assets/ai_icon.png", import.meta.url).href;
+const practiceAiTitleUrl = new URL("./assets/practice_ai.png", import.meta.url).href;
+
+const stIconUrl = new URL("./assets/st_icon.png", import.meta.url).href;
+const settingsTitleUrl = new URL("./assets/settings.png", import.meta.url).href;
+
+const crIconUrl = new URL("./assets/cr_icon.png", import.meta.url).href;
+const creditsTitleUrl = new URL("./assets/credits.png", import.meta.url).href;
 
 // Toggle: replace specific menu texts with PNGs (falls back to text if turned off)
 const useMenuPngs = ref(true);
@@ -806,7 +896,7 @@ const canGoBack = computed(() =>
 const isMenuScreen = computed(() => !isInGame.value);
 const topPageTitle = computed(() => {
   if (screen.value === "auth") return "WELCOME"; // Welcome page
-  if (screen.value === "mode") return "WELCOME"; // Main menu page
+  if (screen.value === "mode") return "MENU"; // Main menu page
   if (screen.value === "lobby") return "LOBBY";
   if (screen.value === "ranked") return "RANKED";
   if (screen.value === "settings") return "CONFIG";
