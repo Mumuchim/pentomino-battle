@@ -937,6 +937,9 @@ const qmAccept = reactive({
   pulse: false,
   myAccepted: false,
   statusLine: "",
+  // internal outcome hints so the async accept loop can exit cleanly
+  outcome: null, // "self_decline" | "self_timeout" | "opponent_not_accept" | null
+  silentFail: false,
 });
 
 function closeQmAccept() {
@@ -949,6 +952,8 @@ function closeQmAccept() {
   qmAccept.pulse = false;
   qmAccept.myAccepted = false;
   qmAccept.statusLine = "";
+  qmAccept.outcome = null;
+  qmAccept.silentFail = false;
 }
 
 async function qmAcceptClick() {
@@ -970,6 +975,16 @@ async function qmDecline() {
   try {
     await sbSetQuickMatchAccept(qmAccept.lobbyId, qmAccept.role, false);
   } catch {}
+
+  // Tell the accept-loop (quickMatchAcceptFlow) to exit without showing its own modal.
+  qmAccept.outcome = "self_decline";
+  qmAccept.silentFail = true;
+
+  // Best-effort cleanup so neither side gets stuck in a half-accepted room.
+  try {
+    await sbDeleteLobby(qmAccept.lobbyId);
+  } catch {}
+
   closeQmAccept();
 
   showModal({
@@ -2125,6 +2140,9 @@ function buildSyncedState(meta = {}) {
 
       battleClockSec: deepClone(game.battleClockSec),
       battleClockLastTickAt: game.battleClockLastTickAt,
+
+      // Needed for correct gameover messaging (surrender / timeout) across both clients.
+      lastMove: deepClone(game.lastMove),
     },
   };
 }
@@ -2166,6 +2184,8 @@ function applySyncedState(state) {
       rematchDeclinedBy: g.rematchDeclinedBy,
       battleClockSec: g.battleClockSec,
       battleClockLastTickAt: g.battleClockLastTickAt,
+
+      lastMove: g.lastMove,
     });
   } finally {
     setTimeout(() => {
@@ -2229,6 +2249,7 @@ async function pushMyState(reason = "") {
     (game.lastMove.type === "draft" ||
       game.lastMove.type === "place" ||
       game.lastMove.type === "timeout" ||
+      game.lastMove.type === "surrender" ||
       game.lastMove.type === "dodged");
 
   // `watch` pushes are debounced from reactive changes.
@@ -2382,7 +2403,9 @@ function startPollingLobby(lobbyId, role) {
 
       if (!lobby) {
         stopPolling();
-        showModal({ title: "Lobby Closed", message: "The lobby no longer exists.", tone: "bad" });
+        myPlayer.value = null;
+        screen.value = "mode";
+        showModal({ title: "Lobby Closed", message: "The lobby no longer exists.\nReturning to main menu.", tone: "bad" });
         return;
       }
 
@@ -2622,6 +2645,7 @@ watch(
     String(game.matchInvalid),
     String(game.matchInvalidReason),
     String(game.winner),
+    JSON.stringify(game.lastMove),
     JSON.stringify(game.battleClockSec),
     String(game.battleClockLastTickAt),
     JSON.stringify(game.rematch),
@@ -3484,6 +3508,7 @@ async function quickMatchAcceptFlow(lobbyId, role) {
   let ok = false;
   /** @type {"self_timeout"|"self_decline"|"opponent_not_accept"|"unknown"} */
   let failReason = "unknown";
+  let skipFailModal = false;
 
   const tick = () => {
     if (!qmAccept.open) return;
@@ -3503,6 +3528,16 @@ async function quickMatchAcceptFlow(lobbyId, role) {
     while (!done) {
       tick();
 
+      // If the user manually declined (qmDecline) we close the overlay.
+      // Exit immediately and let qmDecline own the UX messaging.
+      if (!qmAccept.open && qmAccept.outcome) {
+        failReason = /** @type {any} */ (qmAccept.outcome);
+        ok = false;
+        done = true;
+        skipFailModal = !!qmAccept.silentFail;
+        break;
+      }
+
       // Timeout
       if (Date.now() >= qmAccept.expiresAt) {
         myAcceptedSnapshot = !!qmAccept.myAccepted;
@@ -3510,12 +3545,14 @@ async function quickMatchAcceptFlow(lobbyId, role) {
         // Mark timeout as decline for this role if we didn't accept.
         if (!qmAccept.myAccepted) {
           failReason = "self_timeout";
+          qmAccept.outcome = "self_timeout";
           try {
             await sbSetQuickMatchAccept(lobbyId, role, false);
           } catch {}
         } else {
           // I accepted but the other side didn't.
           failReason = "opponent_not_accept";
+          qmAccept.outcome = "opponent_not_accept";
         }
 
         done = true;
@@ -3547,6 +3584,8 @@ async function quickMatchAcceptFlow(lobbyId, role) {
         } else {
           failReason = "opponent_not_accept";
         }
+
+        qmAccept.outcome = failReason;
 
         done = true;
         ok = false;
@@ -3580,12 +3619,16 @@ async function quickMatchAcceptFlow(lobbyId, role) {
           ? "You declined the matchmaking."
           : "Opponent did not accept.";
 
-    showModal({
-      title: "Match Cancelled",
-      tone: "bad",
-      message: msg,
-      actions: [{ label: "OK", tone: "primary", onClick: () => (screen.value = "mode") }],
-    });
+    if (!skipFailModal) {
+      // Always return player to menu if accept flow fails.
+      screen.value = "mode";
+      showModal({
+        title: "Match Cancelled",
+        tone: "bad",
+        message: msg,
+        actions: [{ label: "OK", tone: "primary", onClick: () => (screen.value = "mode") }],
+      });
+    }
   }
 
   return ok;
