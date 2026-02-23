@@ -228,6 +228,9 @@ export const useGameStore = defineStore("game", {
     rematch: { 1: false, 2: false },
     rematchDeclinedBy: null,
 
+    // Local-only: simple undo stack (used for Couch Play)
+    history: [],
+
   }),
 
   getters: {
@@ -244,6 +247,83 @@ export const useGameStore = defineStore("game", {
   },
 
   actions: {
+    // Local-only snapshot helper (Couch Play undo)
+    _pushHistory(label = "") {
+      try {
+        const snap = {
+          label,
+          at: Date.now(),
+          phase: this.phase,
+          currentPlayer: this.currentPlayer,
+          pool: JSON.parse(JSON.stringify(this.pool)),
+          picks: JSON.parse(JSON.stringify(this.picks)),
+          draftTurn: this.draftTurn,
+          remaining: JSON.parse(JSON.stringify(this.remaining)),
+          placedCount: this.placedCount,
+          selectedPieceKey: this.selectedPieceKey,
+          rotation: this.rotation,
+          flipped: this.flipped,
+          allowFlip: this.allowFlip,
+          boardW: this.boardW,
+          boardH: this.boardH,
+          board: JSON.parse(JSON.stringify(this.board)),
+          draftBoard: JSON.parse(JSON.stringify(this.draftBoard)),
+          winner: this.winner,
+          lastMove: JSON.parse(JSON.stringify(this.lastMove)),
+          turnStartedAt: this.turnStartedAt,
+          matchInvalid: this.matchInvalid,
+          matchInvalidReason: this.matchInvalidReason,
+          battleClockSec: JSON.parse(JSON.stringify(this.battleClockSec)),
+          battleClockLastTickAt: this.battleClockLastTickAt,
+        };
+        if (!Array.isArray(this.history)) this.history = [];
+        this.history.push(snap);
+        // keep memory bounded
+        if (this.history.length > 50) this.history.splice(0, this.history.length - 50);
+      } catch {}
+    },
+
+    undoLastMove() {
+      try {
+        if (!Array.isArray(this.history) || this.history.length === 0) return false;
+        const snap = this.history.pop();
+        if (!snap) return false;
+
+        this.phase = snap.phase;
+        this.currentPlayer = snap.currentPlayer;
+        this.pool = snap.pool;
+        this.picks = snap.picks;
+        this.draftTurn = snap.draftTurn;
+        this.remaining = snap.remaining;
+        this.placedCount = snap.placedCount;
+        this.selectedPieceKey = snap.selectedPieceKey;
+        this.rotation = snap.rotation;
+        this.flipped = snap.flipped;
+        this.allowFlip = snap.allowFlip;
+        this.boardW = snap.boardW;
+        this.boardH = snap.boardH;
+        this.board = snap.board;
+        this.draftBoard = snap.draftBoard;
+        this.winner = snap.winner;
+        this.lastMove = snap.lastMove;
+        this.turnStartedAt = snap.turnStartedAt;
+        this.matchInvalid = snap.matchInvalid;
+        this.matchInvalidReason = snap.matchInvalidReason;
+        this.battleClockSec = snap.battleClockSec;
+        this.battleClockLastTickAt = snap.battleClockLastTickAt;
+
+        // stop any active drag state
+        if (this.drag) {
+          this.drag.active = false;
+          this.drag.pieceKey = null;
+          this.drag.target = null;
+        }
+        return true;
+      } catch {
+        return false;
+      }
+    },
+
     resetGame() {
       this.board = makeEmptyBoard(this.boardW, this.boardH);
 
@@ -278,6 +358,9 @@ export const useGameStore = defineStore("game", {
       this.rematch = { 1: false, 2: false };
       this.rematchDeclinedBy = null;
 
+      // local-only
+      this.history = [];
+
       // ✅ rebuild solved draft puzzle (randomized)
       this.draftBoard = computeDraftTiling(this.boardW, this.boardH, this.allowFlip, true)
         .map(row => row.map(cell => (cell ? { pieceKey: cell.pieceKey } : null)));
@@ -290,6 +373,9 @@ export const useGameStore = defineStore("game", {
     draftPick(pieceKey) {
       if (this.phase !== "draft") return;
       if (!this.pool.includes(pieceKey)) return;
+
+      // Couch Play undo support: snapshot BEFORE mutating
+      this._pushHistory(`draft:${pieceKey}`);
 
       // add to current draft player
       this.picks[this.draftTurn].push(pieceKey);
@@ -443,6 +529,9 @@ export const useGameStore = defineStore("game", {
 
     placeAt(anchorX, anchorY) {
       if (!this.canPlaceAt(anchorX, anchorY)) return false;
+
+      // Couch Play undo support: snapshot BEFORE mutating
+      this._pushHistory(`place:${this.selectedPieceKey || "?"}`);
 
       const abs = this.selectedCells.map(([dx, dy]) => [anchorX + dx, anchorY + dy]);
 

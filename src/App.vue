@@ -27,7 +27,7 @@
         <div class="loadTop">
           <img :src="logoUrl" class="loadLogo" alt="" />
           <div class="loadText">
-            <div class="loadTitle">PentoBattle</div>
+            <img :src="titleUrl" class="loadTitlePng floatingLogo" alt="Pento Battle" />
             <div class="loadSub">{{ uiLock.label }}</div>
           </div>
         </div>
@@ -54,25 +54,32 @@
       </div>
     </div>
 
-    <header class="topbar" :class="{ tetrBar: showTetrChrome }">
-      <!-- TETR-like top bar (menus) -->
-      <template v-if="showTetrChrome">
-        <div class="tetrTopLeft">
-          <div class="tetrTopTitle">
+    <header class="topbar" :class="{ pbBar: showMenuChrome }">
+      <!-- Menu-style top bar (menus) -->
+      <template v-if="showMenuChrome">
+        <div class="pbTopLeft">
+          <div class="pbTopTitle">
             <template v-if="useMenuPngs && String(topPageTitle).toUpperCase() === 'WELCOME'">
-              <img :src="welcomeUrl" class="tetrTopTitlePng floatingLogo" alt="WELCOME" />
+              <img :src="welcomeUrl" class="pbTopTitlePng floatingLogo" alt="WELCOME" />
             </template>
             <template v-else-if="useMenuPngs && String(topPageTitle).toUpperCase() === 'MENU'">
-              <img :src="menuTitleUrl" class="tetrTopTitlePng floatingLogo" alt="MENU" />
+              <img :src="menuTitleUrl" class="pbTopTitlePng floatingLogo" alt="MENU" />
+            </template>
+            <template v-else-if="useMenuPngs && String(topPageTitle).toUpperCase() === 'LOBBY'">
+              <img :src="lobbyTopTitleUrl" class="pbTopTitlePng floatingLogo" alt="LOBBY" />
+            </template>
+            <template v-else-if="useMenuPngs && screen === 'settings'">
+              <img :src="configTopTitleUrl" class="pbTopTitlePng floatingLogo" alt="CONFIG" />
             </template>
             <template v-else>{{ topPageTitle }}</template>
           </div>
         </div>
 
-        <div class="tetrTopRight">
-          <div class="tetrTopIgn">
-            <span class="tetrTopIgnLabel">IGN</span>
-            <span class="tetrTopIgnName">{{ displayName }}</span>
+        <div class="pbTopRight" v-if="screen !== 'auth'">
+          <img :src="guestAvatarUrl" class="pbTopAvatar" alt="Profile" />
+          <div class="pbTopIgn">
+            <span class="pbTopIgnLabel">IGN</span>
+            <span class="pbTopIgnName">{{ displayName }}</span>
           </div>
         </div>
 </template>
@@ -84,94 +91,140 @@
             <img :src="logoUrl" alt="Logo" class="logoImg floatingLogo" />
           </div>
           <div class="brandText">
-            <div class="title">PentoBattle</div>
+            <img :src="titleUrl" class="brandTitlePng floatingLogo" alt="Pento Battle" />
             <div class="sub">Rotate • Flip • Dominate</div>
           </div>
         </div>
 
         <div class="right">
-          <button class="btn ghost" v-if="canGoBack" @click="goBack">← Back</button>
-          <button class="btn ghost" v-if="screen !== 'auth'" @click="goAuth">Main Menu</button>
+          <img :src="guestAvatarUrl" class="topAvatar" alt="Profile" />
+          <!-- In-game settings (Esc) -->
+          <button
+            class="btn ghost imgBtn"
+            v-if="isInGame"
+            @click="openInGameSettings"
+            aria-label="Settings"
+            title="Settings (Esc)"
+          >
+            <img :src="stIconUrl" class="btnPng floatingLogo" alt="Settings" />
+          </button>
+
+          <button class="btn ghost imgBtn" v-if="canGoBack" @click="goBack" aria-label="Back">
+            <img :src="backBtnUrl" class="btnPng floatingLogo" alt="Back" />
+          </button>
+          <button class="btn ghost imgBtn" v-if="screen !== 'auth'" @click="goAuth" aria-label="Main Menu">
+            <img :src="mainBtnUrl" class="btnPng floatingLogo" alt="Main Menu" />
+          </button>
+
+          <!-- Couch Play: Undo last placement (local only) -->
+          <button
+            class="btn ghost imgBtn"
+            v-if="screen === 'couch'"
+            :disabled="(game.history?.length || 0) === 0"
+            @click="(game.history?.length || 0) > 0 && (uiClick(), game.undoLastMove())"
+            aria-label="Undo"
+            title="Undo"
+          >
+            <img :src="undoBtnUrl" class="btnPng floatingLogo" alt="Undo" />
+          </button>
           <button class="btn" v-if="isInGame" @click="onPrimaryMatchAction">
-            {{ primaryMatchActionLabel }}
+            <!-- SURRENDER -->
+            <template v-if="String(primaryMatchActionLabel).toLowerCase() === 'surrender'">
+              <img :src="surrenderBtnUrl" class="btnPng floatingLogo" alt="Surrender" />
+            </template>
+
+            <!-- RESET MATCH -->
+            <template v-else-if="String(primaryMatchActionLabel).toLowerCase() === 'reset match'">
+              <img :src="resetBtnUrl" class="btnPng floatingLogo" alt="Reset Match" />
+            </template>
+
+            <!-- PLAY AGAIN -->
+            <template v-else-if="String(primaryMatchActionLabel).toLowerCase() === 'play again'">
+              <img :src="playAgainBtnUrl" class="btnPng floatingLogo" alt="Play Again" />
+            </template>
+
+            <!-- FALLBACK TEXT -->
+            <template v-else>{{ primaryMatchActionLabel }}</template>
           </button>
         </div>
       </template>
     </header>
 
     <!-- Back button below the top bar (menus) -->
-    <div v-if="showTetrChrome && canGoBack" class="tetrBackRow">
-      <button class="tetrBackBtn" @mouseenter="uiHover" @click="uiClick(); goBack()">BACK</button>
+    <div v-if="showMenuChrome && canGoBack" class="pbBackRow">
+      <button class="pbBackBtn imgBtn" @mouseenter="uiHover" @click="uiClick(); goBack()" aria-label="Back">
+        <img :src="backBtnUrl" class="btnPng floatingLogo" alt="Back" />
+      </button>
     </div>
 
     <main class="main">
       <!-- =========================
            AUTH MENU
       ========================== -->
-      <section v-if="screen === 'auth'" class="menuShell tetrShell">
-        <div class="tetrPane">
-          <div class="tetrHero">
-            <div class="tetrHeroTop"></div>
+      <section v-if="screen === 'auth'" class="menuShell pbShell">
+        <div class="pbPane">
+          <div class="pbHero">
+            <div class="pbHeroTop"></div>
 
             <!-- WELCOME hero title (AAA-style) -->
-            <div class="tetrHeroTitle tetrWelcomeTitle" aria-label="PentoBattle">
+            <div class="pbHeroTitle pbWelcomeTitle" aria-label="PentoBattle">
               <template v-if="useSplitBrandPng">
-                <div class="tetrBrandRow">
-                  <img :src="logoUrl" class="tetrBrandLogo floatingLogo" alt="Logo" />
-                  <img :src="titleUrl" class="tetrTitlePng floatingLogo" alt="Pento Battle" />
+                <div class="pbBrandRow">
+                  <img :src="logoUrl" class="pbBrandLogo floatingLogo" alt="Logo" />
+                  <img :src="titleUrl" class="pbTitlePng floatingLogo" alt="Pento Battle" />
                 </div>
               </template>
               <template v-else>
-                <img :src="logoUrl" class="tetrWelcomeLogo" alt="" />
-                <span class="tetrWelcomeWord">PENTO</span>
-                <span class="tetrWelcomeWord strong">BATTLE</span>
+                <img :src="logoUrl" class="pbWelcomeLogo" alt="" />
+                <span class="pbWelcomeWord">PENTO</span>
+                <span class="pbWelcomeWord strong">BATTLE</span>
               </template>
             </div>
           </div>
 
-          <div class="tetrTiles">
-            <button class="tetrTile disabled" disabled title="Login not implemented yet" @mouseenter="uiHover">
-              <div class="tetrTileInner">
-                <div class="tetrTileGlyph">
+          <div class="pbTiles">
+            <button class="pbTile accentBlue disabled" disabled title="Login not implemented yet" @mouseenter="uiHover">
+              <div class="pbTileInner">
+                <div class="pbTileGlyph">
                   <template v-if="useMenuPngs">
-                    <img :src="loginIconUrl" class="tetrGlyphPng floatingLogo" alt="LG" />
+                    <img :src="loginIconUrl" class="pbGlyphPng floatingLogo" alt="LG" />
                   </template>
                   <template v-else>LG</template>
                 </div>
-                <div class="tetrTileText">
-                  <div class="tetrTileTitle">
+                <div class="pbTileText">
+                  <div class="pbTileTitle">
                     <template v-if="useMenuPngs">
-                      <img :src="loginTitleUrl" class="tetrTextPng" alt="LOGIN" />
+                      <img :src="loginTitleUrl" class="pbTextPng" alt="LOGIN" />
                     </template>
                     <template v-else>LOGIN</template>
                   </div>
-                  <div class="tetrTileDesc">not working yet</div>
+                  <div class="pbTileDesc">not working yet</div>
                 </div>
               </div>
             </button>
 
-            <button class="tetrTile accentPink" @mouseenter="uiHover" @click="uiClick(); playAsGuest()">
-              <div class="tetrTileInner">
-                <div class="tetrTileGlyph">
+            <button class="pbTile accentWhite" @mouseenter="uiHover" @click="uiClick(); playAsGuest()">
+              <div class="pbTileInner">
+                <div class="pbTileGlyph">
                   <template v-if="useMenuPngs">
-                    <img :src="playGuestIconUrl" class="tetrGlyphPng floatingLogo" alt="GS" />
+                    <img :src="playGuestIconUrl" class="pbGlyphPng floatingLogo" alt="GS" />
                   </template>
                   <template v-else>GS</template>
                 </div>
-                <div class="tetrTileText">
-                  <div class="tetrTileTitle">
+                <div class="pbTileText">
+                  <div class="pbTileTitle">
                   <template v-if="useMenuPngs">
-                    <img :src="playGuestTitleUrl" class="tetrTextPng" alt="PLAY AS GUEST" />
+                    <img :src="playGuestTitleUrl" class="pbTextPng" alt="PLAY AS GUEST" />
                   </template>
                   <template v-else>PLAY AS GUEST</template>
                 </div>
-                  <div class="tetrTileDesc">Play Anonymous</div>
+                  <div class="pbTileDesc">Play Anonymous</div>
                 </div>
               </div>
             </button>
           </div>
 
-          <div class="tetrFine">Tip: Q rotate • E flip</div>
+          <div class="pbFine">Tip: Q rotate • E flip</div>
         </div>
       </section>
 
@@ -179,163 +232,163 @@
       <!-- =========================
            MODE MENU (STACKED)
       ========================== -->
-      <section v-else-if="screen === 'mode'" class="menuShell tetrShell">
-        <div class="tetrHeaderRow">
-          <div class="tetrPageTitle">
+      <section v-else-if="screen === 'mode'" class="menuShell pbShell">
+        <div class="pbHeaderRow">
+          <div class="pbPageTitle">
           <template v-if="useMenuPngs">
-            <img :src="menuTitleUrl" class="tetrHeaderPng" alt="MENU" />
+            <img :src="menuTitleUrl" class="pbHeaderPng" alt="MENU" />
           </template>
           <template v-else>MENU</template>
         </div>
         </div>
 
-        <div class="tetrPane">
-          <div class="tetrHero compact">
-            <div class="tetrHeroTitle">FLIP | ROTATE | DOMINATE</div>
-          </div><div class="tetrTiles">
+        <div class="pbPane">
+          <div class="pbHero compact">
+            <div class="pbHeroTitle">FLIP | ROTATE | DOMINATE</div>
+          </div><div class="pbTiles">
             <button
-              class="tetrTile accentPurple"
+              class="pbTile accentYellow"
               :disabled="!loggedIn"
               :class="{ disabled: !loggedIn }"
               :title="!loggedIn ? 'Ranked requires login' : ''"
               @mouseenter="uiHover"
               @click="uiClick(); goRanked()"
             >
-              <div class="tetrTileInner">
-                <div class="tetrTileGlyph">
+              <div class="pbTileInner">
+                <div class="pbTileGlyph">
                   <template v-if="useMenuPngs">
-                    <img :src="rkIconUrl" class="tetrGlyphPng floatingLogo" alt="RK" />
+                    <img :src="rkIconUrl" class="pbGlyphPng floatingLogo" alt="RK" />
                   </template>
                   <template v-else>RK</template>
                 </div>
-                <div class="tetrTileText">
-                  <div class="tetrTileTitle">
+                <div class="pbTileText">
+                  <div class="pbTileTitle">
                     <template v-if="useMenuPngs">
-                      <img :src="rankedTitleUrl" class="tetrTextPng" alt="RANKED" />
+                      <img :src="rankedTitleUrl" class="pbTextPng" alt="RANKED" />
                     </template>
                     <template v-else>RANKED</template>
                   </div>
-                  <div class="tetrTileDesc">auto finds lobby with same tier</div>
+                  <div class="pbTileDesc">auto finds lobby with same tier</div>
                 </div>
               </div>
             </button>
 
-            <button class="tetrTile accentPink" @mouseenter="uiHover" @click="uiClick(); startQuickMatchAuto()">
-              <div class="tetrTileInner">
-                <div class="tetrTileGlyph">
+            <button class="pbTile accentGreen" @mouseenter="uiHover" @click="uiClick(); startQuickMatchAuto()">
+              <div class="pbTileInner">
+                <div class="pbTileGlyph">
                   <template v-if="useMenuPngs">
-                    <img :src="qmIconUrl" class="tetrGlyphPng floatingLogo" alt="QM" />
+                    <img :src="qmIconUrl" class="pbGlyphPng floatingLogo" alt="QM" />
                   </template>
                   <template v-else>QM</template>
                 </div>
-                <div class="tetrTileText">
-                  <div class="tetrTileTitle">
+                <div class="pbTileText">
+                  <div class="pbTileTitle">
                     <template v-if="useMenuPngs">
-                      <img :src="quickMatchTitleUrl" class="tetrTextPng" alt="QUICK MATCH" />
+                      <img :src="quickMatchTitleUrl" class="pbTextPng" alt="QUICK MATCH" />
                     </template>
                     <template v-else>QUICK MATCH</template>
                   </div>
-                  <div class="tetrTileDesc">finding opponent · please wait</div>
+                  <div class="pbTileDesc">finding opponent · please wait</div>
                 </div>
               </div>
             </button>
 
-            <button class="tetrTile accentPurple2" @mouseenter="uiHover" @click="uiClick(); goLobby()">
-              <div class="tetrTileInner">
-                <div class="tetrTileGlyph">
+            <button class="pbTile accentPurple" @mouseenter="uiHover" @click="uiClick(); goLobby()">
+              <div class="pbTileInner">
+                <div class="pbTileGlyph">
                   <template v-if="useMenuPngs">
-                    <img :src="lbIconUrl" class="tetrGlyphPng floatingLogo" alt="LB" />
+                    <img :src="lbIconUrl" class="pbGlyphPng floatingLogo" alt="LB" />
                   </template>
                   <template v-else>LB</template>
                 </div>
-                <div class="tetrTileText">
-                  <div class="tetrTileTitle">
+                <div class="pbTileText">
+                  <div class="pbTileTitle">
                     <template v-if="useMenuPngs">
-                      <img :src="goLobbyTitleUrl" class="tetrTextPng" alt="GO TO LOBBY" />
+                      <img :src="goLobbyTitleUrl" class="pbTextPng" alt="GO TO LOBBY" />
                     </template>
                     <template v-else>GO TO LOBBY</template>
                   </div>
-                  <div class="tetrTileDesc">create session · browse rooms · join by code</div>
+                  <div class="pbTileDesc">create session · browse rooms · join by code</div>
                 </div>
               </div>
             </button>
 
-            <button class="tetrTile accentBlue" @mouseenter="uiHover" @click="uiClick(); startCouchPlay()">
-              <div class="tetrTileInner">
-                <div class="tetrTileGlyph">
+            <button class="pbTile accentPeach" @mouseenter="uiHover" @click="uiClick(); startCouchPlay()">
+              <div class="pbTileInner">
+                <div class="pbTileGlyph">
                   <template v-if="useMenuPngs">
-                    <img :src="onePIconUrl" class="tetrGlyphPng floatingLogo" alt="1P" />
+                    <img :src="onePIconUrl" class="pbGlyphPng floatingLogo" alt="1P" />
                   </template>
                   <template v-else>1P</template>
                 </div>
-                <div class="tetrTileText">
-                  <div class="tetrTileTitle">
+                <div class="pbTileText">
+                  <div class="pbTileTitle">
                     <template v-if="useMenuPngs">
-                      <img :src="couchPlayTitleUrl" class="tetrTextPng" alt="COUCH PLAY" />
+                      <img :src="couchPlayTitleUrl" class="pbTextPng" alt="COUCH PLAY" />
                     </template>
                     <template v-else>COUCH PLAY</template>
                   </div>
-                  <div class="tetrTileDesc">local 2-player on one device</div>
+                  <div class="pbTileDesc">local 2-player on one device</div>
                 </div>
               </div>
             </button>
 
-            <button class="tetrTile disabled" disabled title="Practice vs. AI is locked for now" @mouseenter="uiHover">
-              <div class="tetrTileInner">
-                <div class="tetrTileGlyph">
+            <button class="pbTile accentBlue disabled" disabled title="Practice vs. AI is locked for now" @mouseenter="uiHover">
+              <div class="pbTileInner">
+                <div class="pbTileGlyph">
                   <template v-if="useMenuPngs">
-                    <img :src="aiIconUrl" class="tetrGlyphPng floatingLogo" alt="AI" />
+                    <img :src="aiIconUrl" class="pbGlyphPng floatingLogo" alt="AI" />
                   </template>
                   <template v-else>AI</template>
                 </div>
-                <div class="tetrTileText">
-                  <div class="tetrTileTitle">
+                <div class="pbTileText">
+                  <div class="pbTileTitle">
                     <template v-if="useMenuPngs">
-                      <img :src="practiceAiTitleUrl" class="tetrTextPng" alt="PRACTICE VS AI" />
+                      <img :src="practiceAiTitleUrl" class="pbTextPng" alt="PRACTICE VS AI" />
                     </template>
                     <template v-else>PRACTICE VS AI</template>
                   </div>
-                  <div class="tetrTileDesc">locked for now</div>
+                  <div class="pbTileDesc">locked for now</div>
                 </div>
               </div>
             </button>
 
-            <button class="tetrTile accentGrey" @mouseenter="uiHover" @click="uiClick(); screen = 'settings'">
-              <div class="tetrTileInner">
-                <div class="tetrTileGlyph">
+            <button class="pbTile accentWhite" @mouseenter="uiHover" @click="uiClick(); screen = 'settings'">
+              <div class="pbTileInner">
+                <div class="pbTileGlyph">
                   <template v-if="useMenuPngs">
-                    <img :src="stIconUrl" class="tetrGlyphPng floatingLogo" alt="ST" />
+                    <img :src="stIconUrl" class="pbGlyphPng floatingLogo" alt="ST" />
                   </template>
                   <template v-else>ST</template>
                 </div>
-                <div class="tetrTileText">
-                  <div class="tetrTileTitle">
+                <div class="pbTileText">
+                  <div class="pbTileTitle">
                     <template v-if="useMenuPngs">
-                      <img :src="settingsTitleUrl" class="tetrTextPng" alt="SETTINGS" />
+                      <img :src="settingsTitleUrl" class="pbTextPng" alt="SETTINGS" />
                     </template>
                     <template v-else>SETTINGS</template>
                   </div>
-                  <div class="tetrTileDesc">controls · preferences</div>
+                  <div class="pbTileDesc">controls · preferences</div>
                 </div>
               </div>
             </button>
 
-            <button class="tetrTile accentGrey2" @mouseenter="uiHover" @click="uiClick(); screen = 'credits'">
-              <div class="tetrTileInner">
-                <div class="tetrTileGlyph">
+            <button class="pbTile accentWhite" @mouseenter="uiHover" @click="uiClick(); screen = 'credits'">
+              <div class="pbTileInner">
+                <div class="pbTileGlyph">
                   <template v-if="useMenuPngs">
-                    <img :src="crIconUrl" class="tetrGlyphPng floatingLogo" alt="CR" />
+                    <img :src="crIconUrl" class="pbGlyphPng floatingLogo" alt="CR" />
                   </template>
                   <template v-else>CR</template>
                 </div>
-                <div class="tetrTileText">
-                  <div class="tetrTileTitle">
+                <div class="pbTileText">
+                  <div class="pbTileTitle">
                     <template v-if="useMenuPngs">
-                      <img :src="creditsTitleUrl" class="tetrTextPng" alt="CREDITS" />
+                      <img :src="creditsTitleUrl" class="pbTextPng" alt="CREDITS" />
                     </template>
                     <template v-else>CREDITS</template>
                   </div>
-                  <div class="tetrTileDesc">about the game</div>
+                  <div class="pbTileDesc">about the game</div>
                 </div>
               </div>
             </button>
@@ -347,78 +400,79 @@
             <!-- =========================
            LOBBY
       ========================== -->
-      <section v-else-if="screen === 'lobby'" class="menuShell tetrShell">
-        <div class="tetrHeaderRow">
-          <div class="tetrPageTitle">MULTIPLAYER</div>
+      <section v-else-if="screen === 'lobby'" class="menuShell pbShell pbShellCentered">
+        <div class="pbHeaderRow">
+          <div class="pbPageTitle">MULTIPLAYER</div>
         </div>
 
-        <div class="tetrPane">
-          <div class="tetrHero compact">
-            <div class="tetrHeroTitle">LOBBY</div>
-            <div class="tetrHeroSub">Create a session, browse rooms, or join by code.</div>
-          </div>
-
-          <div class="tetrCard">
-            <div class="tetrTitleRow">
-              <div class="tetrTitle">CREATE SESSION</div>
-              <div class="tetrHint">PUBLIC OR PRIVATE</div>
+        <div class="pbPane">
+          <div class="pbCard">
+            <div class="pbTitleRow">
+              <div class="pbTitle">CREATE SESSION</div>
+              <div class="pbHint">PUBLIC OR PRIVATE</div>
             </div>
 
-            <div class="tetrForm">
-              <label class="tetrField">
+            <div class="pbForm">
+              <label class="pbField">
                 <span>LOBBY NAME</span>
-                <input v-model="quick.lobbyName" class="tetrInput" placeholder="e.g., Mumuchxm room" />
+                <input v-model="quick.lobbyName" class="pbInput" placeholder="e.g., Mumuchxm room" />
               </label>
 
-              <label class="tetrField inline">
+              <label class="pbField inline">
                 <span>PRIVATE</span>
-                <input class="tetrCheck" type="checkbox" v-model="quick.isPrivate" />
+                <input class="pbCheck" type="checkbox" v-model="quick.isPrivate" />
               </label>
             </div>
 
-            <div class="tetrRow">
-              <button class="tetrMiniBtn" @mouseenter="uiHover" @click="uiClick(); refreshLobby()">REFRESH</button>
-              <button class="tetrMiniBtn primary" @mouseenter="uiHover" @click="uiClick(); lobbyCreate()">CREATE</button>
+            <div class="pbRow">
+              <button class="pbMiniBtn imgBtn" @mouseenter="uiHover" @click="uiClick(); refreshLobby()" aria-label="Refresh">
+                <img :src="refreshBtnUrl" class="btnPng floatingLogo" alt="Refresh" />
+              </button>
+              <button class="pbMiniBtn primary imgBtn" @mouseenter="uiHover" @click="uiClick(); lobbyCreate()" aria-label="Create">
+                <img :src="createBtnUrl" class="btnPng floatingLogo" alt="Create" />
+              </button>
             </div>
 
-            <div class="tetrDivider"></div>
+            <div class="pbDivider"></div>
 
-            <div class="tetrTitleRow">
-              <div class="tetrTitle">JOIN / SEARCH</div>
-              <div class="tetrHint">CODE OR NAME</div>
+            <div class="pbTitleRow">
+              <div class="pbTitle">JOIN / SEARCH</div>
+              <div class="pbHint">CODE OR NAME</div>
             </div>
 
-            <div class="tetrForm">
-              <label class="tetrField">
+            <div class="pbForm">
+              <label class="pbField">
                 <span>CODE OR NAME</span>
                 <input
                   v-model="quick.joinCode"
-                  class="tetrInput"
+                  class="pbInput"
                   placeholder="PB-XXXXYYYY or lobby name"
                   @keydown.enter.prevent="lobbySearchOrJoin"
                 />
               </label>
             </div>
 
-            <div class="tetrRow">
-              <button class="tetrMiniBtn primary" @mouseenter="uiHover" @click="uiClick(); lobbySearchOrJoin()">GO</button>
+            <div class="pbRow">
+              <button class="pbMiniBtn primary imgBtn" @mouseenter="uiHover" @click="uiClick(); lobbySearchOrJoin()" aria-label="Go">
+                <img :src="goBtnUrl" class="btnPng floatingLogo" alt="Go" />
+              </button>
             </div>
 
-            <div class="tetrDivider"></div>
+            <div class="pbDivider"></div>
 
-            <div class="tetrTitleRow">
-              <div class="tetrTitle">AVAILABLE ROOMS</div>
-              <div class="tetrHint">{{ publicLobbies.length }} FOUND</div>
+            <div class="pbTitleRow">
+              <div class="pbTitle">AVAILABLE ROOMS</div>
+              <div class="pbHint">{{ publicLobbies.length }} FOUND</div>
             </div>
 
-            <div v-if="loadingPublic" class="tetrFineLine">Loading rooms…</div>
-            <div v-else-if="!publicLobbies.length" class="tetrFineLine">No public rooms waiting right now.</div>
+            <div v-if="loadingPublic" class="pbFineLine">Loading rooms…</div>
+            <div v-else-if="!publicLobbies.length" class="pbFineLine">No public rooms waiting right now.</div>
 
-            <div v-else class="tetrLobbyList">
-              <div class="tetrLobbyRow" v-for="l in publicLobbies" :key="l.id">
-                <div class="tetrLobbyInfo">
-                  <div class="tetrLobbyName">{{ l.lobby_name || "Public Lobby" }}</div>
-                  <div class="tetrLobbyMeta">
+            <div v-else class="pbLobbyList">
+              <div class="pbLobbyRow" v-for="l in publicLobbies" :key="l.id">
+                <div class="pbLobbyInfo">
+                  <div class="pbLobbyName">{{ l.lobby_name || "Public Lobby" }}</div>
+                  <div class="pbLobbyMeta">
                     Code: <b>{{ l.code || "—" }}</b>
                     <span class="dot">•</span>
                     Players: <b>{{ lobbyCountLabel(l) }}</b>
@@ -426,7 +480,7 @@
                 </div>
 
                 <button
-                  class="tetrMiniBtn primary joinBtn"
+                  class="pbMiniBtn primary joinBtn"
                   @mouseenter="uiHover"
                   @click="uiClick(); joinPublicLobby(l)"
                 >
@@ -435,32 +489,32 @@
               </div>
             </div>
 
-            <div v-if="myPrivateLobbies.length" class="tetrDivider"></div>
+            <div v-if="myPrivateLobbies.length" class="pbDivider"></div>
 
-            <div v-if="myPrivateLobbies.length" class="tetrTitleRow">
-              <div class="tetrTitle">YOUR PRIVATE SESSIONS</div>
-              <div class="tetrHint">{{ myPrivateLobbies.length }}</div>
+            <div v-if="myPrivateLobbies.length" class="pbTitleRow">
+              <div class="pbTitle">YOUR PRIVATE SESSIONS</div>
+              <div class="pbHint">{{ myPrivateLobbies.length }}</div>
             </div>
 
-            <div v-if="myPrivateLobbies.length" class="tetrLobbyList">
-              <div class="tetrLobbyRow" v-for="l in myPrivateLobbies" :key="'p_'+l.id">
-                <div class="tetrLobbyInfo">
-                  <div class="tetrLobbyName">{{ l.lobby_name || "Private Lobby" }}</div>
-                  <div class="tetrLobbyMeta">
+            <div v-if="myPrivateLobbies.length" class="pbLobbyList">
+              <div class="pbLobbyRow" v-for="l in myPrivateLobbies" :key="'p_'+l.id">
+                <div class="pbLobbyInfo">
+                  <div class="pbLobbyName">{{ l.lobby_name || "Private Lobby" }}</div>
+                  <div class="pbLobbyMeta">
                     Code: <b>{{ l.code || "—" }}</b>
                     <span class="dot">•</span>
                     Status: <b>{{ l.status || "waiting" }}</b>
                   </div>
                 </div>
 
-                <button class="tetrMiniBtn" @mouseenter="uiHover" @click="uiClick(); copyCode(l.code)">COPY</button>
-                <button class="tetrMiniBtn primary joinBtn" @mouseenter="uiHover" @click="uiClick(); reEnterLobby(l)">
+                <button class="pbMiniBtn" @mouseenter="uiHover" @click="uiClick(); copyCode(l.code)">COPY</button>
+                <button class="pbMiniBtn primary joinBtn" @mouseenter="uiHover" @click="uiClick(); reEnterLobby(l)">
                   ENTER
                 </button>
               </div>
             </div>
 
-            <div class="tetrFineLine">
+            <div class="pbFineLine">
               Private rooms are hidden — join by code. Quick Match rooms never show up here.
             </div>
           </div>
@@ -471,11 +525,8 @@
            RANKED
       ========================== -->
 	  <section v-else-if="screen === 'ranked'" class="menuShell">
-	    <div class="hero compact heroAnim" :key="'hero-'+screen">
-          <div class="heroBadge">RANKED</div>
           <h1 class="heroTitle small">Matchmaking</h1>
           <p class="heroDesc small">Placeholder screen for now.</p>
-        </div>
 
         <div class="menuCard">
           <div class="form">
@@ -488,11 +539,6 @@
               <b>Auto find same tier</b>
             </div>
           </div>
-
-          <div class="row">
-            <button class="btn soft" @click="screen = 'mode'">← Back</button>
-            <button class="btn primary" disabled title="Not implemented yet">Find Match (soon)</button>
-          </div>
         </div>
       </section>
 
@@ -500,11 +546,8 @@
            SETTINGS
       ========================== -->
 	  <section v-else-if="screen === 'settings'" class="menuShell">
-	    <div class="hero compact heroAnim" :key="'hero-'+screen">
-          <div class="heroBadge">SETTINGS</div>
-          <h1 class="heroTitle small">Preferences</h1>
+<h1 class="heroTitle small">Preferences</h1>
           <p class="heroDesc small">Applies to local modes.</p>
-        </div>
 
         <div class="menuCard">
           <div class="form">
@@ -534,14 +577,22 @@
               <span>Landscape Only (Mobile)</span>
               <input type="checkbox" v-model="game.ui.lockLandscape" />
             </label>
-          </div>
 
-          <div class="row">
-            <button class="btn soft" @click="goMode">← Back</button>
-            <button class="btn primary" @click="applySettings">Apply</button>
-          </div>
+            <div class="divider"></div>
 
-          <div class="finePrint">Board is fixed to <b>10×6</b>.</div>
+            <label class="field">
+              <span>BGM Volume</span>
+              <input type="range" min="0" max="100" step="1" v-model.number="bgmVolumeUi" />
+              <b class="mono">{{ bgmVolumeUi }}%</b>
+            </label>
+
+            <label class="field">
+              <span>SFX Volume</span>
+              <input type="range" min="0" max="100" step="1" v-model.number="sfxVolumeUi" />
+              <b class="mono">{{ sfxVolumeUi }}%</b>
+            </label>
+          </div>
+<div class="finePrint">Board is fixed to <b>10×6</b>.</div>
         </div>
       </section>
 
@@ -549,22 +600,15 @@
            CREDITS
       ========================== -->
 	  <section v-else-if="screen === 'credits'" class="menuShell">
-	    <div class="hero compact heroAnim" :key="'hero-'+screen">
-          <div class="heroBadge">CREDITS</div>
-          <h1 class="heroTitle small">PentoBattle</h1>
-          <p class="heroDesc small">by Mumuchxm</p>
-        </div>
-
-        <div class="menuCard">
+<div class="menuCard">
           <div class="credits">
             <p><b>PentoBattle</b> — by <b>Mumuchxm</b></p>
             <p class="muted">Built with Vite + Vue.</p>
+            <p class="muted">Music track: <b>Playing Games</b> — <b>Zambolino</b></p>
           </div>
 
-          <div class="row">
-            <button class="btn soft" @click="goMode">← Back</button>
-          </div>
-        </div>
+          
+</div>
       </section>
 
       <!-- =========================
@@ -670,17 +714,17 @@
     </main>
 
 
-<!-- TETR-like bottom bar (menus) -->
-<footer v-if="showBottomBar" class="tetrBottomBar" aria-hidden="true">
+<!-- Menu-style bottom bar (menus) -->
+<footer v-if="showBottomBar" class="pbBottomBar" aria-hidden="true">
   <!-- Hide the redundant bottom-left brand on WELCOME only (hero already shows the title) -->
-  <div v-if="screen !== 'auth'" class="tetrBottomLeft">
-    <img :src="logoUrl" alt="" class="tetrBottomLogo" />
-    <div class="tetrBottomBrand">PentoBattle</div>
+  <div v-if="screen !== 'auth'" class="pbBottomLeft">
+    <img :src="logoUrl" alt="" class="pbBottomLogo" />
+    <img :src="titleUrl" alt="Pento Battle" class="pbBottomBrandPng" />
   </div>
-  <div class="tetrBottomRight">
-    <div class="tetrBottomHint">
+  <div class="pbBottomRight">
+    <div class="pbBottomHint">
     <template v-if="useMenuPngs">
-      <img :src="madeByUrl" class="tetrBottomPng" alt="MADE BY MUMUCHXM" />
+      <img :src="madeByUrl" class="pbBottomPng" alt="MADE BY MUMUCHXM" />
     </template>
     <template v-else>MADE BY MUMUCHXM</template>
   </div>
@@ -728,8 +772,71 @@
             :class="{ primary: a.tone === 'primary', soft: a.tone === 'soft', ghost: a.tone === 'ghost' }"
             @click="onModalAction(a)"
           >
-            {{ a.label }}
+            <img v-if="actionPngUrl(a)" :src="actionPngUrl(a)" class="btnPng floatingLogo" :alt="a.label || 'Action'" />
+            <span v-else>{{ a.label }}</span>
           </button>
+        </div>
+      </div>
+    </div>
+
+    
+    <!-- ✅ Quick Match Accept Modal -->
+    <div v-if="qmAccept.open" class="modalOverlay" aria-live="polite" aria-busy="true">
+      <div class="modalCard" :class="{ dangerPulse: qmAccept.pulse }" role="dialog" aria-modal="true">
+        <div class="modalTop">
+          <div class="modalTitle">
+            <span class="modalDot" :class="{ bad: qmAccept.pulse }"></span>
+            MATCH FOUND
+          </div>
+          <div class="modalXSpacer" aria-hidden="true"></div>
+        </div>
+
+        <div class="modalBody">
+          <p class="modalMsg">Opponent found. Accept within <b>{{ Math.ceil(qmAccept.remainingMs / 1000) }}</b>s.</p>
+
+          <div class="qmBar" :class="{ danger: qmAccept.pulse }" role="progressbar" aria-valuemin="0" aria-valuemax="10" :aria-valuenow="Math.max(0, Math.round(qmAccept.remainingMs/1000))">
+            <div class="qmBarFill" :style="{ width: (qmAccept.progress * 100) + '%' }"></div>
+          </div>
+
+          <p v-if="qmAccept.statusLine" class="modalMsg muted">{{ qmAccept.statusLine }}</p>
+        </div>
+
+        <div class="modalActions">
+          <button class="btn soft" @click="qmDecline">DECLINE</button>
+          <button class="btn primary" @click="qmAcceptClick" :disabled="qmAccept.myAccepted">ACCEPT</button>
+        </div>
+      </div>
+    </div>
+
+<!-- ✅ In-game Settings Modal (Esc) -->
+    <div v-if="inGameSettingsOpen" class="modalOverlay" @click.self="closeInGameSettings">
+      <div class="modalCard" role="dialog" aria-modal="true">
+        <div class="modalTop">
+          <div class="modalTitle">
+            <span class="modalDot"></span>
+            SETTINGS
+          </div>
+          <button class="modalX" @click="closeInGameSettings" aria-label="Close">✕</button>
+        </div>
+
+        <div class="modalBody">
+          <div class="form">
+            <label class="field">
+              <span>BGM Volume</span>
+              <input type="range" min="0" max="100" step="1" v-model.number="bgmVolumeUi" />
+              <b class="mono">{{ bgmVolumeUi }}%</b>
+            </label>
+
+            <label class="field">
+              <span>SFX Volume</span>
+              <input type="range" min="0" max="100" step="1" v-model.number="sfxVolumeUi" />
+              <b class="mono">{{ sfxVolumeUi }}%</b>
+            </label>
+          </div>
+        </div>
+
+        <div class="modalActions">
+          <button class="btn primary" @click="closeInGameSettings">Close</button>
         </div>
       </div>
     </div>
@@ -776,11 +883,12 @@ function uiBeep({ freq = 700, dur = 0.03, gain = 0.03 } = {}) {
     const g = ctx.createGain();
     o.type = "square";
     o.frequency.value = freq;
-    g.gain.value = gain;
+    const vol = Math.max(0, Math.min(1, Number(sfxVolume?.value ?? 1)));
+    g.gain.value = gain * vol;
     o.connect(g);
     g.connect(ctx.destination);
     const t = ctx.currentTime;
-    g.gain.setValueAtTime(gain, t);
+    g.gain.setValueAtTime(gain * vol, t);
     g.gain.exponentialRampToValueAtTime(0.0001, t + dur);
     o.start(t);
     o.stop(t + dur + 0.01);
@@ -792,6 +900,9 @@ function uiHover() {
 }
 function uiClick() {
   uiBeep({ freq: 420, dur: 0.04, gain: 0.03 });
+
+  // Autoplay policies: start menu BGM only after a user gesture.
+  if (showMenuChrome.value) tryPlayMenuBgm();
 }
 
 
@@ -810,6 +921,63 @@ function computeIsPortrait() {
 }
 const landscapeLockActive = computed(() => isInGame.value && !!game.ui?.lockLandscape && isPortrait.value);
 
+// In-game settings modal (Esc)
+
+const qmAccept = reactive({
+  open: false,
+  lobbyId: null,
+  role: null, // "host" | "guest"
+  expiresAt: 0,
+  remainingMs: 0,
+  progress: 1,
+  pulse: false,
+  myAccepted: false,
+  statusLine: "",
+});
+
+function closeQmAccept() {
+  qmAccept.open = false;
+  qmAccept.lobbyId = null;
+  qmAccept.role = null;
+  qmAccept.expiresAt = 0;
+  qmAccept.remainingMs = 0;
+  qmAccept.progress = 1;
+  qmAccept.pulse = false;
+  qmAccept.myAccepted = false;
+  qmAccept.statusLine = "";
+}
+
+async function qmAcceptClick() {
+  if (!qmAccept.open || !qmAccept.lobbyId || qmAccept.myAccepted) return;
+  qmAccept.myAccepted = true;
+  qmAccept.statusLine = "Waiting for opponent…";
+  try {
+    await sbSetQuickMatchAccept(qmAccept.lobbyId, qmAccept.role, true);
+  } catch {
+    // If patch fails, allow re-click
+    qmAccept.myAccepted = false;
+    qmAccept.statusLine = "";
+  }
+}
+
+async function qmDecline() {
+  if (!qmAccept.open || !qmAccept.lobbyId) return;
+  qmAccept.statusLine = "Declining…";
+  try {
+    await sbSetQuickMatchAccept(qmAccept.lobbyId, qmAccept.role, false);
+  } catch {}
+  closeQmAccept();
+}
+
+const inGameSettingsOpen = ref(false);
+function openInGameSettings() {
+  if (!isInGame.value) return;
+  inGameSettingsOpen.value = true;
+}
+function closeInGameSettings() {
+  inGameSettingsOpen.value = false;
+}
+
 // Viewport sizing: we rely on responsive CSS + natural page scroll.
 // Keep portrait detection for optional landscape lock UI.
 const appRoot = ref(null);
@@ -820,16 +988,185 @@ function onViewportChange() {
 
 
 const logoUrl = new URL("./assets/logo.png", import.meta.url).href;
+const guestAvatarUrl = new URL("./assets/guest_avatar.png", import.meta.url).href;
 // Split brand assets (replaceable):
 // - ./assets/logo.png  (icon)
 // - ./assets/title.png (PENTO BATTLE text)
 const titleUrl = new URL("./assets/title.png", import.meta.url).href;
 const useSplitBrandPng = ref(true); // toggle off to fall back to text title
 
+// Replaceable button PNGs (safe placeholders included in /assets)
+const backBtnUrl = new URL("./assets/back.png", import.meta.url).href;
+const undoBtnUrl = new URL("./assets/undo.png", import.meta.url).href;
+const applyBtnUrl = new URL("./assets/apply.png", import.meta.url).href;
+const refreshBtnUrl = new URL("./assets/refresh.png", import.meta.url).href;
+const goBtnUrl = new URL("./assets/go.png", import.meta.url).href;
+const createBtnUrl = new URL("./assets/create.png", import.meta.url).href;
+const mainBtnUrl = new URL("./assets/main.png", import.meta.url).href;
+const surrenderBtnUrl = new URL("./assets/surrender.png", import.meta.url).href;
+// Modal / action button PNGs (safe placeholders included in /assets)
+const okBtnUrl = new URL("./assets/ok.png", import.meta.url).href;
+const closeBtnUrl = new URL("./assets/close.png", import.meta.url).href;
+const cancelBtnUrl = new URL("./assets/cancel.png", import.meta.url).href;
+const cancelWaitingBtnUrl = new URL("./assets/cancel_waiting.png", import.meta.url).href;
+const confirmBtnUrl = new URL("./assets/confirm.png", import.meta.url).href;
+const acceptBtnUrl = new URL("./assets/accept.png", import.meta.url).href;
+const declineBtnUrl = new URL("./assets/decline.png", import.meta.url).href;
+const joinBtnUrl = new URL("./assets/join.png", import.meta.url).href;
+const copyBtnUrl = new URL("./assets/copy.png", import.meta.url).href;
+const playAgainBtnUrl = new URL("./assets/play_again.png", import.meta.url).href;
+const resetBtnUrl = new URL("./assets/reset.png", import.meta.url).href;
+
+
 // Extra replaceable menu PNG assets (safe placeholders included in /assets)
 const welcomeUrl = new URL("./assets/welcome.png", import.meta.url).href;
 const menuTitleUrl = new URL("./assets/menu.png", import.meta.url).href;
 const madeByUrl = new URL("./assets/madeby.png", import.meta.url).href;
+
+// Top bar titles (replaceable)
+const lobbyTopTitleUrl = new URL("./assets/lobby.png", import.meta.url).href;
+const configTopTitleUrl = new URL("./assets/config.png", import.meta.url).href;
+
+// Audio
+// - Menu BGM (starts on first click due to autoplay restrictions)
+// - Separate BGM for Couch/AI and Online matches
+const menuBgmUrl = new URL("./assets/audio/bgm.mp3", import.meta.url).href;
+const couchBgmUrl = new URL("./assets/audio/couch_bgm.mp3", import.meta.url).href;
+const onlineBgmUrl = new URL("./assets/audio/online_bgm.mp3", import.meta.url).href;
+
+// Audio settings (0..100 UI)
+const bgmVolumeUi = ref(100);
+const sfxVolumeUi = ref(100);
+const bgmVolume = computed(() => Math.max(0, Math.min(1, (Number(bgmVolumeUi.value) || 0) / 100)));
+const sfxVolume = computed(() => Math.max(0, Math.min(1, (Number(sfxVolumeUi.value) || 0) / 100)));
+function loadAudioPrefs() {
+  try {
+    const b = Number(localStorage.getItem("pb_bgm_vol"));
+    const s = Number(localStorage.getItem("pb_sfx_vol"));
+    if (Number.isFinite(b)) bgmVolumeUi.value = Math.max(0, Math.min(100, Math.round(b)));
+    if (Number.isFinite(s)) sfxVolumeUi.value = Math.max(0, Math.min(100, Math.round(s)));
+  } catch {}
+}
+function saveAudioPrefs() {
+  try {
+    localStorage.setItem("pb_bgm_vol", String(bgmVolumeUi.value));
+    localStorage.setItem("pb_sfx_vol", String(sfxVolumeUi.value));
+  } catch {}
+}
+
+let _menuBgm = null;
+let _couchBgm = null;
+let _onlineBgm = null;
+
+function _attachLoopFix(audioEl) {
+  try {
+    if (!audioEl?.addEventListener) return;
+    audioEl.addEventListener("ended", () => {
+      try {
+        if (!audioEl.loop) return;
+        audioEl.currentTime = 0;
+        audioEl.play?.().catch?.(() => {});
+      } catch {}
+    });
+  } catch {}
+}
+
+function ensureMenuBgm() {
+  try {
+    if (_menuBgm) return;
+    _menuBgm = new Audio(menuBgmUrl);
+    _menuBgm.loop = true;
+    _menuBgm.preload = "auto";
+    _menuBgm.volume = bgmVolume.value;
+    _attachLoopFix(_menuBgm);
+  } catch {
+    _menuBgm = null;
+  }
+}
+
+function ensureCouchBgm() {
+  try {
+    if (_couchBgm) return;
+    _couchBgm = new Audio(couchBgmUrl);
+    _couchBgm.loop = true;
+    _couchBgm.preload = "auto";
+    _couchBgm.volume = bgmVolume.value;
+    _attachLoopFix(_couchBgm);
+  } catch {
+    _couchBgm = null;
+  }
+}
+
+function ensureOnlineBgm() {
+  try {
+    if (_onlineBgm) return;
+    _onlineBgm = new Audio(onlineBgmUrl);
+    _onlineBgm.loop = true;
+    _onlineBgm.preload = "auto";
+    _onlineBgm.volume = bgmVolume.value;
+    _attachLoopFix(_onlineBgm);
+  } catch {
+    _onlineBgm = null;
+  }
+}
+
+function tryPlayMenuBgm() {
+  ensureMenuBgm();
+  // Ensure only ONE BGM plays at a time.
+  stopCouchBgm();
+  stopOnlineBgm();
+  try {
+    if (!_menuBgm) return;
+    if (isInGame.value) return;
+    if (bgmVolume.value <= 0) return;
+    if (!_menuBgm.paused) return;
+    _menuBgm.play?.().catch?.(() => {});
+  } catch {}
+}
+
+function stopMenuBgm() {
+  try {
+    if (!_menuBgm) return;
+    _menuBgm.pause?.();
+    _menuBgm.currentTime = 0;
+  } catch {}
+}
+
+function stopCouchBgm() {
+  try {
+    if (!_couchBgm) return;
+    _couchBgm.pause?.();
+    _couchBgm.currentTime = 0;
+  } catch {}
+}
+
+function stopOnlineBgm() {
+  try {
+    if (!_onlineBgm) return;
+    _onlineBgm.pause?.();
+    _onlineBgm.currentTime = 0;
+  } catch {}
+}
+
+function tryPlayGameBgm() {
+  try {
+    if (!isInGame.value) return;
+    if (bgmVolume.value <= 0) return;
+
+    // ensure menu bgm is off
+    stopMenuBgm();
+
+    if (isOnline.value) {
+      ensureOnlineBgm();
+      stopCouchBgm();
+      if (_onlineBgm && _onlineBgm.paused) _onlineBgm.play?.().catch?.(() => {});
+    } else {
+      ensureCouchBgm();
+      stopOnlineBgm();
+      if (_couchBgm && _couchBgm.paused) _couchBgm.play?.().catch?.(() => {});
+    }
+  } catch {}
+}
 const loginTitleUrl = new URL("./assets/login.png", import.meta.url).href;
 const loginIconUrl = new URL("./assets/login_icon.png", import.meta.url).href;
 const playGuestTitleUrl = new URL("./assets/play_guest.png", import.meta.url).href;
@@ -892,8 +1229,39 @@ const canGoBack = computed(() =>
 );
 
 
-// TETR-like chrome (menus only)
+// Menu-style chrome (menus only)
 const isMenuScreen = computed(() => !isInGame.value);
+
+// Stop menu BGM as soon as a match starts.
+watch(isInGame, (v) => {
+  if (v) {
+    stopMenuBgm();
+    // best-effort start game bgm (may require user gesture)
+    tryPlayGameBgm();
+  } else {
+    stopCouchBgm();
+    stopOnlineBgm();
+    // If the user has already interacted once, we can resume menu BGM.
+    tryPlayMenuBgm();
+  }
+});
+
+// Keep volumes in sync (also persists to localStorage)
+watch([bgmVolumeUi, sfxVolumeUi], () => {
+  saveAudioPrefs();
+  try {
+    if (_menuBgm) _menuBgm.volume = bgmVolume.value;
+    if (_couchBgm) _couchBgm.volume = bgmVolume.value;
+    if (_onlineBgm) _onlineBgm.volume = bgmVolume.value;
+  } catch {}
+
+  // If muted, stop bgm.
+  if (bgmVolume.value <= 0) {
+    stopMenuBgm();
+    stopCouchBgm();
+    stopOnlineBgm();
+  }
+});
 const topPageTitle = computed(() => {
   if (screen.value === "auth") return "WELCOME"; // Welcome page
   if (screen.value === "mode") return "MENU"; // Main menu page
@@ -903,8 +1271,8 @@ const topPageTitle = computed(() => {
   if (screen.value === "credits") return "ABOUT";
   return "MENU";
 });
-const showTetrChrome = computed(() => isMenuScreen.value && ["auth","mode","lobby","ranked","settings","credits"].includes(screen.value));
-const showBottomBar = computed(() => showTetrChrome.value);
+const showMenuChrome = computed(() => isMenuScreen.value && ["auth","mode","lobby","ranked","settings","credits"].includes(screen.value));
+const showBottomBar = computed(() => showMenuChrome.value);
 
 // ✅ Online match
 const isOnline = computed(() => screen.value === "online");
@@ -1183,6 +1551,29 @@ function closeModal() {
   modal.locked = false;
 }
 
+
+function actionPngUrl(action) {
+  const lab = String(action?.label || "").trim().toLowerCase();
+  if (!lab) return "";
+  // Normalize some common labels
+  const norm = lab
+    .replace(/\s+/g, " ")
+    .replace(/…/g, "...")
+    .replace(/\u2013|\u2014/g, "-");
+  if (norm === "ok") return okBtnUrl;
+  if (norm === "close") return closeBtnUrl;
+  if (norm === "cancel") return cancelBtnUrl;
+  if (norm === "cancel waiting") return cancelWaitingBtnUrl;
+  if (norm === "confirm") return confirmBtnUrl;
+  if (norm === "accept") return acceptBtnUrl;
+  if (norm === "decline") return declineBtnUrl;
+  if (norm === "join") return joinBtnUrl;
+  if (norm === "copy code" || norm === "copy") return copyBtnUrl;
+  if (norm === "play again") return playAgainBtnUrl;
+  if (norm === "reset" || norm === "reset match") return resetBtnUrl;
+  return "";
+}
+
 function onModalAction(a) {
   try {
     if (a && typeof a.onClick === "function") return a.onClick();
@@ -1196,6 +1587,7 @@ function onModalAction(a) {
 ========================= */
 let originalAlert = null;
 let tickTimer = null;
+let escHandler = null;
 
 // Layout changes handled by normal responsive CSS.
 
@@ -1889,6 +2281,9 @@ function startPollingLobby(lobbyId, role) {
   game.allowFlip = allowFlip.value;
   game.resetGame();
 
+  // User gesture initiated -> safe to try starting match BGM.
+  tryPlayGameBgm();
+
   let firstPollDone = false;
 
   online.pollTimer = setInterval(async () => {
@@ -2300,6 +2695,20 @@ function requestPlayAgain() {
 function onPrimaryMatchAction() {
   if (!isInGame.value) return;
 
+  const lab = String(primaryMatchActionLabel.value || "").trim().toLowerCase();
+
+  // ✅ Reset confirm (local modes / any reset label)
+  if (lab.includes("reset")) {
+    confirmInGame({
+      title: "Reset Game?",
+      message: "Are you sure you want to reset the game?",
+      yesLabel: "YES",
+      noLabel: "NO",
+      onYes: () => onResetClick(),
+    });
+    return;
+  }
+
   if (isOnline.value) {
     if (!myPlayer.value) return;
 
@@ -2308,12 +2717,25 @@ function onPrimaryMatchAction() {
       return;
     }
 
-    game.surrender(myPlayer.value);
-    online.localDirty = true;
-    pushMyState("surrender");
+    // ✅ Surrender confirm (online)
+    if (lab.includes("surrender") || !lab) {
+      confirmInGame({
+        title: "Surrender?",
+        message: "Are you sure you want to surrender?",
+        yesLabel: "YES",
+        noLabel: "NO",
+        onYes: () => {
+          game.surrender(myPlayer.value);
+          online.localDirty = true;
+          pushMyState("surrender");
+        },
+      });
+      return;
+    }
     return;
   }
 
+  // Local modes fallback (should already be handled by reset branch above)
   onResetClick();
 }
 
@@ -2738,16 +3160,52 @@ function copyCode(code) {
 async function startQuickMatchAuto() {
   if (!(await ensureSupabaseReadyOrExplain())) return;
 
+  // Visible timer + 60s timeout.
+  const t0 = Date.now();
+  let hostLobbyId = null;
+  let cancelled = false;
+
+  const fmt = (s) => {
+    const ss = Math.max(0, Math.floor(s));
+    const mm = String(Math.floor(ss / 60)).padStart(2, "0");
+    const rr = String(ss % 60).padStart(2, "0");
+    return `${mm}:${rr}`;
+  };
+
+  const updateModal = () => {
+    const sec = (Date.now() - t0) / 1000;
+    modal.message = `Finding opponent… ${fmt(sec)}`;
+  };
+
+  showModal({
+    title: "Quick Match",
+    tone: "info",
+    message: "Finding opponent… 00:00",
+    actions: [
+      {
+        label: "CANCEL",
+        tone: "soft",
+        onClick: async () => {
+          cancelled = true;
+          try {
+            if (hostLobbyId) await sbDeleteLobby(hostLobbyId);
+          } catch {}
+          closeModal();
+        },
+      },
+    ],
+  });
+
+  const uiTimer = window.setInterval(() => {
+    if (!modal.open) return;
+    updateModal();
+  }, 250);
+
+  // Guard against rare hangs / stalled fetches.
+  const withTimeout = (p, ms) =>
+    Promise.race([p, new Promise((_, rej) => setTimeout(() => rej(new Error("Quick Match timed out")), ms))]);
+
   try {
-    showModal({ title: "Quick Match", tone: "info", message: "Finding opponent, please wait…" });
-
-    // Guard against rare hangs / stalled fetches.
-    const withTimeout = (p, ms) =>
-      Promise.race([
-        p,
-        new Promise((_, rej) => setTimeout(() => rej(new Error("Quick Match timed out")), ms)),
-      ]);
-
     let result;
     try {
       result = await withTimeout(sbQuickMatch(), 9000);
@@ -2757,25 +3215,212 @@ async function startQuickMatchAuto() {
       result = await withTimeout(sbQuickMatch(), 9000);
     }
 
+    if (cancelled) return;
+
     const { lobby, role } = result;
 
+    // If we're the guest (found someone waiting), run the 10s accept flow first.
+    if (role === "guest") {
+      window.clearInterval(uiTimer);
+      closeModal();
+
+      const ok = await quickMatchAcceptFlow(lobby.id, "guest");
+      if (!ok) return;
+
+      screen.value = "online";
+      startPollingLobby(lobby.id, "guest");
+      return;
+    }
+
+    // If we're the host, stay in the modal until someone joins (no more "Match Found" → waiting confusion).
+    hostLobbyId = lobby?.id || null;
+
+    const waitUntil = Date.now() + 60_000;
+    while (!cancelled && Date.now() < waitUntil) {
+      updateModal();
+
+      // Check if someone joined.
+      const fresh = hostLobbyId ? await sbSelectLobbyById(hostLobbyId) : null;
+      if (fresh?.guest_id) {
+        window.clearInterval(uiTimer);
+        closeModal();
+
+        const ok = await quickMatchAcceptFlow(hostLobbyId, "host");
+        if (!ok) return;
+
+        screen.value = "online";
+        startPollingLobby(hostLobbyId, "host");
+        return;
+      }
+
+      await new Promise((r) => setTimeout(r, 850));
+    }
+
+    // Timeout: no opponent.
+    window.clearInterval(uiTimer);
+    try {
+      if (hostLobbyId) await sbDeleteLobby(hostLobbyId);
+    } catch {}
     closeModal();
     showModal({
-      title: "Match Found",
-      tone: "good",
-      message: role === "host" ? `Created quick match room.
-Waiting for opponent…` : `Opponent found!
-Joining…`,
+      title: "No Opponent",
+      tone: "bad",
+      message: "No one is playing right now.",
+      actions: [{ label: "OK", tone: "primary", onClick: () => (screen.value = "mode") }],
     });
-
-    // Jump to online immediately
-    screen.value = "online";
-    startPollingLobby(lobby.id, role);
   } catch (e) {
+    window.clearInterval(uiTimer);
     closeModal();
     showModal({ title: "Quick Match Error", tone: "bad", message: String(e?.message || e || "Something went wrong.") });
   }
 }
+
+
+async function sbEnsureQuickMatchAcceptState(lobbyId) {
+  const fresh = await sbSelectLobbyById(lobbyId);
+  if (!fresh) throw new Error("Lobby not found");
+  const now = Date.now();
+  const st = normalizeLobbyState(fresh.state);
+  const qa = st.qmAccept;
+
+  // Start a new accept window if missing / invalid / expired.
+  if (!qa || !qa.expiresAt || Number(qa.expiresAt) <= now) {
+    const startedAt = now;
+    const expiresAt = now + 10_000;
+    st.qmAccept = { startedAt, expiresAt, host: null, guest: null, declinedBy: null };
+
+    const nextVersion = Number(fresh.version || 0) + 1;
+    await sbPatchStateWithVersionGuard(fresh.id, fresh.version, {
+      state: st,
+      version: nextVersion,
+      updated_at: new Date().toISOString(),
+    });
+
+    return { ...st.qmAccept, version: nextVersion };
+  }
+
+  return { ...qa, version: Number(fresh.version || 0) };
+}
+
+async function sbSetQuickMatchAccept(lobbyId, role, accepted) {
+  const fresh = await sbSelectLobbyById(lobbyId);
+  if (!fresh) return null;
+  const st = normalizeLobbyState(fresh.state);
+
+  // Ensure accept window exists
+  if (!st.qmAccept || !st.qmAccept.expiresAt) {
+    st.qmAccept = { startedAt: Date.now(), expiresAt: Date.now() + 10_000, host: null, guest: null, declinedBy: null };
+  }
+
+  if (accepted === true) {
+    st.qmAccept[role] = true;
+  } else {
+    st.qmAccept[role] = false;
+    st.qmAccept.declinedBy = role;
+  }
+
+  const nextVersion = Number(fresh.version || 0) + 1;
+  return await sbPatchStateWithVersionGuard(fresh.id, fresh.version, {
+    state: st,
+    version: nextVersion,
+    updated_at: new Date().toISOString(),
+  });
+}
+
+async function quickMatchAcceptFlow(lobbyId, role) {
+  // Ensure we have a shared 10s accept window.
+  const qa = await sbEnsureQuickMatchAcceptState(lobbyId);
+  const expiresAt = Number(qa.expiresAt) || (Date.now() + 10_000);
+
+  qmAccept.open = true;
+  qmAccept.lobbyId = lobbyId;
+  qmAccept.role = role;
+  qmAccept.expiresAt = expiresAt;
+  qmAccept.myAccepted = false;
+  qmAccept.statusLine = "";
+
+  let done = false;
+  let ok = false;
+
+  const tick = () => {
+    if (!qmAccept.open) return;
+    const rem = Math.max(0, qmAccept.expiresAt - Date.now());
+    qmAccept.remainingMs = rem;
+    qmAccept.progress = Math.max(0, Math.min(1, rem / 10_000));
+    qmAccept.pulse = rem <= 5_000;
+  };
+
+  tick();
+  const uiInt = window.setInterval(tick, 50);
+
+  try {
+    while (!done) {
+      tick();
+
+      // Timeout
+      if (Date.now() >= qmAccept.expiresAt) {
+        // Mark timeout as decline for this role if we didn't accept.
+        if (!qmAccept.myAccepted) {
+          try {
+            await sbSetQuickMatchAccept(lobbyId, role, false);
+          } catch {}
+        }
+        done = true;
+        ok = false;
+        break;
+      }
+
+      const fresh = await sbSelectLobbyById(lobbyId);
+      if (!fresh) {
+        done = true;
+        ok = false;
+        break;
+      }
+
+      const st = normalizeLobbyState(fresh.state);
+      const q = st.qmAccept || {};
+      const hostA = q.host;
+      const guestA = q.guest;
+      const declinedBy = q.declinedBy;
+
+      // Someone declined / timed out
+      if (declinedBy || hostA === false || guestA === false) {
+        done = true;
+        ok = false;
+        break;
+      }
+
+      // Both accepted
+      if (hostA === true && guestA === true) {
+        done = true;
+        ok = true;
+        break;
+      }
+
+      await new Promise((r) => setTimeout(r, 250));
+    }
+  } finally {
+    window.clearInterval(uiInt);
+    closeQmAccept();
+  }
+
+  if (!ok) {
+    // Cleanup lobby so it doesn't get stuck.
+    try {
+      await sbDeleteLobby(lobbyId);
+    } catch {}
+
+    showModal({
+      title: "Match Cancelled",
+      tone: "bad",
+      message: "Opponent did not accept.",
+      actions: [{ label: "OK", tone: "primary", onClick: () => (screen.value = "mode") }],
+    });
+  }
+
+  return ok;
+}
+
 
 async function sbQuickMatch() {
   // Quick Match rooms are hidden from the lobby browser by lobby_name="__QM__"
@@ -2842,6 +3487,20 @@ async function sbQuickMatch() {
 /* =========================
    NAV
 ========================= */
+
+function confirmInGame({ title, message, yesLabel = "YES", noLabel = "NO", onYes } = {}) {
+  if (!isInGame.value) return onYes?.();
+  showModal({
+    title: title || "Confirm",
+    tone: "info",
+    message: message || "Are you sure?",
+    actions: [
+      { label: noLabel, tone: "soft" },
+      { label: yesLabel, tone: "primary", onClick: () => onYes?.() },
+    ],
+  });
+}
+
 function goBack() {
   if (["lobby", "settings", "credits", "ranked"].includes(screen.value)) {
     screen.value = "mode";
@@ -2855,6 +3514,22 @@ function goBack() {
 }
 
 async function goAuth() {
+  // ✅ If the player is currently in a match, confirm first.
+  if (isInGame.value) {
+    return confirmInGame({
+      title: "Go to Main Menu?",
+      message: "Are you sure you want to go back to main menu?",
+      yesLabel: "YES",
+      noLabel: "NO",
+      onYes: async () => {
+        if (isOnline.value) await leaveOnlineLobby("main_menu");
+        stopPolling();
+        myPlayer.value = null;
+        screen.value = "auth";
+      },
+    });
+  }
+
   if (isOnline.value) await leaveOnlineLobby("main_menu");
   stopPolling();
   myPlayer.value = null;
@@ -2888,6 +3563,8 @@ function startCouchPlay() {
   game.boardH = 6;
   game.allowFlip = allowFlip.value;
   game.resetGame();
+
+  tryPlayGameBgm();
 }
 
 function startPracticeAi() {
@@ -2898,16 +3575,43 @@ function startPracticeAi() {
   game.boardH = 6;
   game.allowFlip = allowFlip.value;
   game.resetGame();
+
+  tryPlayGameBgm();
 }
 
 function applySettings() {
+  saveAudioPrefs();
+  // Apply volumes immediately
+  try {
+    if (_menuBgm) _menuBgm.volume = bgmVolume.value;
+    if (_couchBgm) _couchBgm.volume = bgmVolume.value;
+    if (_onlineBgm) _onlineBgm.volume = bgmVolume.value;
+  } catch {}
+
   showModal({
     title: "Settings Applied",
     message: `Allow Flip: ${allowFlip.value ? "ON" : "OFF"}
-Drag: ${game.ui.enableDragPlace ? "ON" : "OFF"} · Click: ${game.ui.enableClickPlace ? "ON" : "OFF"} · Hover: ${game.ui.enableHoverPreview ? "ON" : "OFF"}`,
+Drag: ${game.ui.enableDragPlace ? "ON" : "OFF"} · Click: ${game.ui.enableClickPlace ? "ON" : "OFF"} · Hover: ${game.ui.enableHoverPreview ? "ON" : "OFF"}
+BGM: ${bgmVolumeUi.value}% · SFX: ${sfxVolumeUi.value}%`,
     tone: "info",
   });
   screen.value = "mode";
+}
+
+function applyInGameSettings() {
+  saveAudioPrefs();
+  try {
+    if (_menuBgm) _menuBgm.volume = bgmVolume.value;
+    if (_couchBgm) _couchBgm.volume = bgmVolume.value;
+    if (_onlineBgm) _onlineBgm.volume = bgmVolume.value;
+  } catch {}
+  closeInGameSettings();
+
+  // Best-effort resume the correct BGM after applying.
+  try {
+    if (isInGame.value) tryPlayGameBgm();
+    else tryPlayMenuBgm();
+  } catch {}
 }
 
 /* =========================
@@ -2917,9 +3621,38 @@ onMounted(() => {
   // ✅ Initial boot gate — prevent accidental clicks before first paint.
   startUiLock({ label: "Booting…", hint: "Loading UI, sounds, and neon vibes…", minMs: 750 });
 
+  loadAudioPrefs();
+
+  // Autoplay policies: kick off BGM as soon as the user interacts anywhere (Welcome screen included).
+  // Also ensures only one track plays at a time.
+  const _primeAudioOnce = () => {
+    try { uiUnlockAudio(); } catch {}
+    try {
+      if (isInGame.value) tryPlayGameBgm();
+      else tryPlayMenuBgm();
+    } catch {}
+  };
+  try { window.addEventListener("pointerdown", _primeAudioOnce, { once: true, passive: true, capture: true }); } catch {}
+  try { window.addEventListener("keydown", _primeAudioOnce, { once: true, passive: true, capture: true }); } catch {}
+
+
   onViewportChange();
   window.addEventListener("resize", onViewportChange, { passive: true });
   window.addEventListener("orientationchange", onViewportChange, { passive: true });
+
+  // Esc opens in-game settings.
+  escHandler = (e) => {
+    try {
+      if (e.key !== "Escape") return;
+      // Don't steal escape from typing in inputs.
+      const tag = String(e.target?.tagName || "").toLowerCase();
+      if (tag === "input" || tag === "textarea" || tag === "select") return;
+      if (!isInGame.value) return;
+      e.preventDefault?.();
+      inGameSettingsOpen.value = !inGameSettingsOpen.value;
+    } catch {}
+  };
+  window.addEventListener("keydown", escHandler, { passive: false });
   stopUiLockAfterPaint(750);
 
   originalAlert = window.alert;
@@ -2950,12 +3683,16 @@ onBeforeUnmount(() => {
   if (tickTimer) window.clearInterval(tickTimer);
   try { window.removeEventListener("resize", onViewportChange); } catch {}
   try { window.removeEventListener("orientationchange", onViewportChange); } catch {}
+  try { if (escHandler) window.removeEventListener("keydown", escHandler); } catch {}
   try { if (_fitRaf) cancelAnimationFrame(_fitRaf); } catch {}
   stopPolling();
 });
 </script>
 
 <style scoped>
+
+
+
 @import url('https://fonts.googleapis.com/css2?family=Orbitron:wght@600;700;800&family=Rajdhani:wght@400;500;600;700&display=swap');
 /* =========================
    RGB GAME VIBES
@@ -2971,7 +3708,8 @@ onBeforeUnmount(() => {
   position: relative;
   overflow: hidden;
   background: #06060a;
-  font-family: 'Rajdhani', Inter, system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif;
+  /* Use ONLY 2 fonts: Orbitron (main) + Rajdhani (secondary). */
+  font-family: 'Orbitron', system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif;
 }
 
 /* When the fixed bottom bar is visible, keep layout at exactly 100vh (no extra scroll).
@@ -3202,8 +3940,8 @@ onBeforeUnmount(() => {
 }
 
 /* In-game header: keep buttons on the top-right */
-.topbar:not(.tetrBar){ justify-content: space-between; }
-.topbar:not(.tetrBar) .right{ margin-left: auto; }
+.topbar:not(.pbBar){ justify-content: space-between; }
+.topbar:not(.pbBar) .right{ margin-left: auto; }
 
 .brand {
   display: flex;
@@ -3269,7 +4007,7 @@ onBeforeUnmount(() => {
 /* Main layout */
 
 /* Minor UI: menus had too much gap below the top bar */
-.topbar.tetrBar ~ .main{ padding-top: 8px; }
+.topbar.pbBar ~ .main{ padding-top: 8px; }
 
 /* Only add bottom padding when the fixed bottom bar is visible */
 .app.hasBottomBar .main{
@@ -3304,6 +4042,9 @@ onBeforeUnmount(() => {
 }
 
 .btn{
+  /* Shared button look (matches the gray/white menu tile theme) */
+  --btnAcc: 255,255,255;
+
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -3313,38 +4054,43 @@ onBeforeUnmount(() => {
   overflow: visible;
   padding: 10px 12px;
   border-radius: 14px;
-  border: 1px solid rgba(255,255,255,0.14);
-  background: rgba(255,255,255,0.06);
+  border: 1px solid rgba(255,255,255,0.12);
+  background: linear-gradient(180deg, rgba(22,24,34,0.92), rgba(16,18,26,0.88));
   color: #eaeaea;
   font-weight: 900;
   font-family: 'Orbitron', 'Rajdhani', Inter, system-ui, sans-serif;
   letter-spacing: 0.6px;
   cursor: pointer;
-  transition: transform .08s ease, box-shadow .18s ease, border-color .18s ease, background .18s ease, opacity .18s ease;
+  transition: transform .08s ease, box-shadow .18s ease, border-color .18s ease, background .18s ease, opacity .18s ease, filter .18s ease;
   box-shadow:
-    0 8px 22px rgba(0,0,0,0.35),
+    0 12px 32px rgba(0,0,0,0.55),
     0 0 0 1px rgba(255,255,255,0.06) inset;
 }
 .btn:hover{
   transform: translateY(-1px);
-  border-color: rgba(255,255,255,0.20);
+  border-color: rgba(var(--btnAcc),0.26);
   box-shadow:
-    0 10px 26px rgba(0,0,0,0.42),
+    0 16px 40px rgba(0,0,0,0.62),
     0 0 0 1px rgba(255,255,255,0.07) inset,
-    0 0 18px rgba(0,229,255,0.10);
+    0 0 18px rgba(var(--btnAcc),0.10);
+  filter: brightness(1.03);
 }
 .btn:active{ transform: translateY(0px) scale(0.99); }
 
 .btn.primary{
-  background: linear-gradient(180deg, rgba(0,229,255,0.18), rgba(0,229,255,0.10));
-  border-color: rgba(0,229,255,0.28);
+  /* "Primary" stays within the same gray/white theme, just brighter. */
+  background:
+    linear-gradient(180deg, rgba(255,255,255,0.10), rgba(255,255,255,0.04)),
+    linear-gradient(180deg, rgba(22,24,34,0.92), rgba(16,18,26,0.88));
+  border-color: rgba(255,255,255,0.18);
   box-shadow:
-    0 12px 30px rgba(0,0,0,0.45),
-    0 0 0 1px rgba(0,229,255,0.10) inset,
-    0 0 22px rgba(0,229,255,0.12);
+    0 16px 42px rgba(0,0,0,0.62),
+    0 0 0 1px rgba(255,255,255,0.08) inset;
 }
+.btn.accentBlue{ --btnAcc: 80,170,255; }
+
 .btn.soft{
-  background: rgba(255,255,255,0.05);
+  background: linear-gradient(180deg, rgba(255,255,255,0.06), rgba(255,255,255,0.02));
 }
 .btn.ghost{
   background: transparent;
@@ -3394,7 +4140,7 @@ onBeforeUnmount(() => {
 /* Big neon menu tiles (keep your Valorant-ish layout & hover feel, but neon theming) */
 .menuBtn{
   width: 100%;
-  display:flex;
+  display: flex;
   justify-content: space-between;
   align-items: center;
   padding: 16px 16px;
@@ -3402,76 +4148,58 @@ onBeforeUnmount(() => {
   cursor: pointer;
   font-weight: 900;
   color: #eaeaea;
-  position: relative;
-  isolation: isolate;
   border: 1px solid rgba(255,255,255,.12);
-  background: linear-gradient(180deg, var(--neo-ink), var(--neo-ink2));
-  /* Chamfer/cut corners like the reference image */
-  clip-path: polygon(18px 0, calc(100% - 18px) 0, 100% 18px, 100% calc(100% - 18px), calc(100% - 18px) 100%, 18px 100%, 0 calc(100% - 18px), 0 18px);
-  transition: transform .08s ease, box-shadow .18s ease, border-color .18s ease, filter .18s ease;
-  box-shadow:
-    0 14px 44px rgba(0,0,0,.44),
-    0 0 0 1px rgba(0,0,0,.25) inset;
+  border-radius: 14px;
+  background: linear-gradient(135deg, rgba(74,108,255,0.95), rgba(156,92,255,0.92));
+  box-shadow: none;
+  filter: none;
+  position: relative;
+  transform: translateX(0);
+  opacity: 1;
+  transition: transform 140ms ease, opacity 140ms ease, border-color 140ms ease;
 }
 
 /* inner grid + subtle scan sheen */
 .menuBtn::after{
-  content:"";
-  position:absolute;
-  inset:0;
-  z-index:-1;
-  opacity: 0.18;
-  background:
-    radial-gradient(900px 320px at 25% 0%, rgba(255,255,255,0.06), transparent 60%),
-    repeating-linear-gradient(90deg, rgba(255,255,255,0.10) 0 1px, transparent 1px 52px),
-    repeating-linear-gradient(0deg, rgba(255,255,255,0.08) 0 1px, transparent 1px 52px);
-  mix-blend-mode: overlay;
-  pointer-events:none;
+
+  content: none;
+
 }
 
 /* neon edge glow layer */
 .menuBtn::before{
-  content:"";
-  position:absolute;
-  inset:-2px;
-  z-index:-2;
-  background: linear-gradient(90deg, rgba(0,229,255,0.0), rgba(0,229,255,0.35), rgba(255,43,214,0.30), rgba(255,43,214,0.0));
-  filter: blur(16px);
-  opacity: 0.55;
-  pointer-events:none;
+
+  content: none;
+
 }
 
 .menuBtn:hover{
-  transform: translateY(-1px);
+  transform: translateX(-8px);
+  opacity: 0.95;
   border-color: rgba(255,255,255,.18);
-  box-shadow:
-    0 18px 56px rgba(0,0,0,.52),
-    0 0 0 1px rgba(255,255,255,0.06) inset,
-    0 0 30px rgba(0,229,255,.14);
-  filter: saturate(1.05);
+  box-shadow: none;
+  filter: none;
 }
-.menuBtn:active{ transform: translateY(0px) scale(0.99); }
+.menuBtn:active{
 
-.menuBtn.primary{
-  border-color: rgba(0,229,255,.22);
-  box-shadow:
-    0 14px 44px rgba(0,0,0,.44),
-    0 0 0 1px rgba(0,229,255,0.08) inset,
-    0 0 22px rgba(0,229,255,0.10);
+  transform: translateX(-4px) scale(0.99);
+
 }
 .menuBtn.primary::before{
-  background: linear-gradient(90deg, rgba(0,229,255,0.0), rgba(0,229,255,0.42), rgba(0,229,255,0.18), rgba(0,229,255,0.0));
+
+  content: none;
+
 }
 
 .menuBtn.alt{
-  border-color: rgba(255,43,214,.22);
-  box-shadow:
-    0 14px 44px rgba(0,0,0,.44),
-    0 0 0 1px rgba(255,43,214,0.08) inset,
-    0 0 22px rgba(255,43,214,0.10);
+  border-color: rgba(255,255,255,.16);
+  background: linear-gradient(135deg, rgba(255,64,160,0.92), rgba(156,92,255,0.92));
+  box-shadow: none;
 }
 .menuBtn.alt::before{
-  background: linear-gradient(90deg, rgba(255,43,214,0.0), rgba(255,43,214,0.42), rgba(255,43,214,0.18), rgba(255,43,214,0.0));
+
+  content: none;
+
 }
 .menuBtn.alt:hover{
   box-shadow:
@@ -3791,8 +4519,34 @@ onBeforeUnmount(() => {
 .hudStat.code .statLabel{ margin-right: 2px; }
 .hudStat.code .statValue{ font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, 'Liberation Mono', 'Courier New', monospace; letter-spacing: 0.6px; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
-.copyBtn{ margin-left: 0; display:inline-flex; align-items:center; justify-content:center; padding: 6px 10px; border-radius: 12px; border: 1px solid rgba(255,255,255,0.14); background: rgba(0,0,0,0.24); color: #eaeaea; font-weight: 900; font-size: 12px; cursor: pointer; flex: 0 0 auto; white-space: nowrap; }
-.copyBtn:hover{ background: rgba(255,255,255,0.08); }
+.copyBtn{
+  display:inline-flex;
+  align-items:center;
+  justify-content:center;
+  padding: 8px 10px;
+  border-radius: 12px;
+  border: 1px solid rgba(255,255,255,0.12);
+  background: linear-gradient(180deg, rgba(22,24,34,0.92), rgba(16,18,26,0.88));
+  color: #eaeaea;
+  font-weight: 1000;
+  font-size: 12px;
+  letter-spacing: 0.8px;
+  cursor: pointer;
+  flex: 0 0 auto;
+  white-space: nowrap;
+  box-shadow:
+    0 12px 28px rgba(0,0,0,0.55),
+    0 0 0 1px rgba(255,255,255,0.06) inset;
+  transition: transform .08s ease, box-shadow .18s ease, border-color .18s ease, background .18s ease, filter .18s ease;
+}
+.copyBtn:hover{
+  transform: translateY(-1px);
+  border-color: rgba(255,255,255,0.22);
+  box-shadow:
+    0 16px 36px rgba(0,0,0,0.62),
+    0 0 0 1px rgba(255,255,255,0.07) inset;
+  filter: brightness(1.03);
+}
 .copyBtn:active{ transform: translateY(0px) scale(0.99); }
 
 .hudStat.timer{ gap: 10px; }
@@ -3835,9 +4589,9 @@ onBeforeUnmount(() => {
 
 
 /* =========================
-   TETR-INSPIRED MENU (ONLY MENUS)
+   ARCADE-INSPIRED MENU (ONLY MENUS)
 ========================= */
-.tetrShell {
+.pbShell {
   /*
     AAA menu layout goal:
     - tiles feel larger than their pane
@@ -3856,13 +4610,19 @@ onBeforeUnmount(() => {
   flex-direction: column;
 }
 
-.tetrHeaderRow{
-  /* Page title is now handled by the top bar (TETR-like),
+/* Certain pages (e.g., Lobby) should be centered instead of right-aligned */
+.pbShellCentered{
+  width: min(1020px, calc(100vw - 36px));
+  margin: 0 auto;
+}
+
+.pbHeaderRow{
+  /* Page title is now handled by the top bar (Menu-style),
      so we hide the extra in-pane header to avoid duplicates. */
   display:none;
 }
 
-.tetrPageTitle{
+.pbPageTitle{
   font-weight: 1000;
   letter-spacing: 2px;
   font-size: clamp(28px, 5vh, 44px);
@@ -3871,7 +4631,7 @@ onBeforeUnmount(() => {
   text-shadow: 0 2px 18px rgba(0,0,0,.55);
 }
 
-.tetrPane{
+.pbPane{
   background: transparent;
   border: none;
   box-shadow: none;
@@ -3884,16 +4644,16 @@ onBeforeUnmount(() => {
   flex-direction: column;
 }
 
-.tetrHero{
+.pbHero{
   padding: 2px 6px clamp(8px, 1.6vh, 12px);
   border-bottom: 1px solid rgba(255,255,255,0.08);
   margin-bottom: 10px;
 }
-.tetrHero.compact{
+.pbHero.compact{
   padding-bottom: 12px;
 }
 
-.tetrHeroTop{
+.pbHeroTop{
   display:flex;
   align-items:center;
   justify-content:space-between;
@@ -3901,7 +4661,7 @@ onBeforeUnmount(() => {
   margin-bottom: 8px;
 }
 
-.tetrBadge{
+.pbBadge{
   display:inline-flex;
   align-items:center;
   gap:8px;
@@ -3914,12 +4674,12 @@ onBeforeUnmount(() => {
   border: 1px solid rgba(255,255,255,0.10);
   text-transform: uppercase;
 }
-.tetrBadge.green{
+.pbBadge.green{
   border-color: rgba(80,255,160,0.25);
   box-shadow: 0 0 0 1px rgba(80,255,160,0.12) inset;
 }
 
-.tetrIgn{
+.pbIgn{
   display:flex;
   align-items:baseline;
   gap:10px;
@@ -3928,22 +4688,22 @@ onBeforeUnmount(() => {
   background: rgba(0,0,0,.35);
   border: 1px solid rgba(255,255,255,0.10);
 }
-.tetrIgnLabel{
+.pbIgnLabel{
   font-size: 11px;
   letter-spacing: 2px;
   opacity:.65;
 }
-.tetrIgnName{
+.pbIgnName{
   font-weight: 1000;
   letter-spacing: 1px;
 }
 
-.tetrHintRight{
+.pbHintRight{
   font-size: 12px;
   opacity: .75;
 }
 
-.tetrHeroTitle{
+.pbHeroTitle{
   font-weight: 1000;
   letter-spacing: 4px;
   font-size: clamp(26px, 4.6vh, 40px);
@@ -3951,7 +4711,7 @@ onBeforeUnmount(() => {
 }
 
 /* WELCOME: big AAA-style title with logo mark */
-.tetrWelcomeTitle{
+.pbWelcomeTitle{
   display: inline-flex;
   align-items: center;
   gap: clamp(10px, 2vh, 18px);
@@ -3962,7 +4722,7 @@ onBeforeUnmount(() => {
     0 0 26px rgba(0,229,255,0.10),
     0 0 22px rgba(255,43,214,0.08);
 }
-.tetrWelcomeLogo{
+.pbWelcomeLogo{
   width: clamp(44px, 7vh, 86px);
   height: clamp(44px, 7vh, 86px);
   object-fit: contain;
@@ -3972,7 +4732,7 @@ onBeforeUnmount(() => {
     drop-shadow(0 0 18px rgba(255,43,214,0.14));
 }
 
-.tetrBrandPng{
+.pbBrandPng{
   width: clamp(180px, 36vh, 520px);
   height: auto;
   object-fit: contain;
@@ -3984,14 +4744,14 @@ onBeforeUnmount(() => {
 }
 
 /* Split brand (logo + title PNG) */
-.tetrBrandRow{
+.pbBrandRow{
   display:flex;
   align-items:center;
   justify-content:center;
   gap: clamp(10px, 2.2vh, 18px);
   max-width: min(92vw, 720px);
 }
-.tetrBrandLogo{
+.pbBrandLogo{
   width: clamp(44px, 7vh, 86px);
   height: clamp(44px, 7vh, 86px);
   object-fit: contain;
@@ -4000,7 +4760,7 @@ onBeforeUnmount(() => {
     drop-shadow(0 0 22px rgba(0,229,255,0.18))
     drop-shadow(0 0 18px rgba(255,43,214,0.14));
 }
-.tetrTitlePng{
+.pbTitlePng{
   width: clamp(220px, 42vh, 620px);
   height: auto;
   object-fit: contain;
@@ -4012,7 +4772,7 @@ onBeforeUnmount(() => {
 }
 
 /* Menu text PNG helpers (optional) */
-.tetrTextPng{
+.pbTextPng{
   display:block;
   height: 22px;
   width: auto;
@@ -4022,7 +4782,7 @@ onBeforeUnmount(() => {
     drop-shadow(0 0 18px rgba(0,229,255,0.16))
     drop-shadow(0 0 14px rgba(255,43,214,0.12));
 }
-.tetrSubPng{
+.pbSubPng{
   display:block;
   height: 14px;
   width: auto;
@@ -4032,7 +4792,7 @@ onBeforeUnmount(() => {
     drop-shadow(0 8px 22px rgba(0,0,0,0.5))
     drop-shadow(0 0 14px rgba(0,229,255,0.12));
 }
-.tetrGlyphPng{
+.pbGlyphPng{
   display:block;
   width: 34px;
   height: 34px;
@@ -4042,7 +4802,7 @@ onBeforeUnmount(() => {
     drop-shadow(0 0 16px rgba(255,43,214,0.14))
     drop-shadow(0 0 14px rgba(0,229,255,0.14));
 }
-.tetrHeaderPng{
+.pbHeaderPng{
   display:block;
   height: 32px;
   width: auto;
@@ -4052,7 +4812,7 @@ onBeforeUnmount(() => {
     drop-shadow(0 0 18px rgba(0,229,255,0.16))
     drop-shadow(0 0 16px rgba(255,43,214,0.12));
 }
-.tetrBottomPng{
+.pbBottomPng{
   display:block;
   height: 16px;
   width: auto;
@@ -4063,16 +4823,16 @@ onBeforeUnmount(() => {
     drop-shadow(0 0 14px rgba(0,229,255,0.12));
 }
 
-.tetrWelcomeWord{ opacity: 0.98; }
-.tetrWelcomeWord.strong{ opacity: 1; }
-.tetrHeroSub{
+.pbWelcomeWord{ opacity: 0.98; }
+.pbWelcomeWord.strong{ opacity: 1; }
+.pbHeroSub{
   margin-top: 6px;
   opacity: .78;
   font-size: 14px;
   letter-spacing: .4px;
 }
 
-.tetrTiles{
+.pbTiles{
   display:flex;
   flex-direction:column;
   gap: clamp(10px, 1.9vh, 16px);
@@ -4086,7 +4846,7 @@ onBeforeUnmount(() => {
   padding-right: 0;
 }
 
-.tetrTile{
+.pbTile{
   /* Big, uniform tile sizing (AAA menu feel) */
   height: clamp(120px, 18vh, 190px);
   flex: 0 0 auto;
@@ -4096,25 +4856,21 @@ onBeforeUnmount(() => {
   --c2: 255,43,214;  /* magenta */
   --c3: 255,215,0;   /* gold */
 
-  /* AAA "off-panel" illusion (Valorant/TETR style):
+  /* AAA "off-panel" illusion (Valorant/ARCADE style):
      Make each tile *wider than its panel* and offset it so its far/right edge is always off-screen.
      This also prevents a visible gap on hover when the tile slides left. */
-  --tetrOverhang: clamp(260px, 26vw, 560px);
-  width: calc(100% + var(--tetrOverhang));
-  margin-right: calc(var(--tetrOverhang) * -1);
+  --pbOverhang: clamp(260px, 26vw, 560px);
+  width: calc(100% + var(--pbOverhang));
+  margin-right: calc(var(--pbOverhang) * -1);
 
   position: relative;
   text-align:left;
   border: 1px solid rgba(255,255,255,0.12);
   border-radius: 14px;
 
-  /* Rich, colorful glass (keeps readability while feeling "Pentomino-colorful") */
+  /* Menu-style: dark panel base (accents are on the glyph/text, not the whole card) */
   background:
-    radial-gradient(1200px 420px at 16% 0%, rgba(255,255,255,.06), transparent 55%),
-    radial-gradient(900px 360px at 18% 12%, rgba(var(--c1), .22), transparent 62%),
-    radial-gradient(900px 360px at 58% 92%, rgba(var(--c2), .18), transparent 64%),
-    radial-gradient(760px 320px at 92% 18%, rgba(var(--c3), .12), transparent 58%),
-    linear-gradient(180deg, rgba(0,0,0,.52), rgba(0,0,0,.32));
+    linear-gradient(90deg, rgba(22,24,34,0.96), rgba(16,18,26,0.92));
   padding: 0;
   cursor: pointer;
 
@@ -4122,100 +4878,138 @@ onBeforeUnmount(() => {
   overflow: hidden;
 
   box-shadow:
-    0 14px 40px rgba(0,0,0,.58),
-    0 0 0 1px rgba(0,0,0,0.35) inset,
-    0 0 18px rgba(var(--c1), .10),
-    0 0 18px rgba(var(--c2), .08);
+    0 14px 44px rgba(0,0,0,.62),
+    0 0 0 1px rgba(255,255,255,0.06) inset;
 
   transition:
-    transform .28s cubic-bezier(.2,.85,.2,1),
-    box-shadow .28s cubic-bezier(.2,.85,.2,1),
-    filter .28s cubic-bezier(.2,.85,.2,1);
+    transform .18s cubic-bezier(.2,.9,.2,1),
+    box-shadow .22s cubic-bezier(.2,.9,.2,1),
+    filter .22s cubic-bezier(.2,.9,.2,1);
 }
-.tetrTile:before{
+.pbTile:before{
   content:"";
   position:absolute;
   inset:0;
   pointer-events:none;
 
-  /* Subtle glass + diagonal sheen */
+  /* Menu-style diagonal cut + subtle sheen */
   background:
-    linear-gradient(135deg, rgba(255,255,255,.14), rgba(255,255,255,0) 52%),
-    radial-gradient(1100px 360px at 12% 10%, rgba(var(--c1),0.26), transparent 62%),
-    radial-gradient(980px 340px at 54% 92%, rgba(var(--c2),0.22), transparent 64%),
-    radial-gradient(820px 320px at 92% 18%, rgba(var(--c3),0.16), transparent 60%),
-    radial-gradient(900px 300px at 30% 50%, rgba(255,255,255,0.06), transparent 65%);
-
-  opacity: .78;
+    linear-gradient(135deg,
+      rgba(255,255,255,0.10) 0%,
+      rgba(255,255,255,0.05) 28%,
+      rgba(0,0,0,0.00) 58%);
+  clip-path: polygon(0 0, 42% 0, 30% 100%, 0 100%);
+  opacity: 0.95;
 }
 
+
+/* =========================
+   MENU TILE ACCENTS (safe)
+   ========================= */
+.pbTile.accentPeach{ --acc: 255, 182, 150; }   /* peach */
+.pbTile.accentWhite{ --acc: 255, 255, 255; }   /* white */
+.pbTile.accentYellow{ --acc: 255, 220, 90; }   /* yellow */
+.pbTile.accentGreen{ --acc: 95, 255, 145; }    /* green */
+.pbTile.accentPurple{ --acc: 200, 150, 255; }  /* purple */
+.pbTile.accentBlue{ --acc: 80, 170, 255; }    /* blue */
+
+/* Hover glow blink (only while hovered) */
+@keyframes pbGlowBlink {
+  0%{
+    box-shadow:
+      0 20px 62px rgba(0,0,0,.66),
+      0 0 0 1px rgba(255,255,255,0.08) inset,
+      0 0 0 1px rgba(var(--acc,255,255,255),0.14),
+      0 0 16px rgba(var(--acc,255,255,255),0.10),
+      0 0 34px rgba(var(--acc,255,255,255),0.08);
+  }
+  50%{
+    box-shadow:
+      0 22px 66px rgba(0,0,0,.70),
+      0 0 0 1px rgba(255,255,255,0.10) inset,
+      0 0 0 1px rgba(var(--acc,255,255,255),0.24),
+      0 0 22px rgba(var(--acc,255,255,255),0.22),
+      0 0 46px rgba(var(--acc,255,255,255),0.14);
+  }
+  100%{
+    box-shadow:
+      0 20px 62px rgba(0,0,0,.66),
+      0 0 0 1px rgba(255,255,255,0.08) inset,
+      0 0 0 1px rgba(var(--acc,255,255,255),0.16),
+      0 0 18px rgba(var(--acc,255,255,255),0.12),
+      0 0 38px rgba(var(--acc,255,255,255),0.10);
+  }
+}
+@keyframes pbGlowOverlay {
+  0%{ opacity: 0.62; }
+  50%{ opacity: 0.92; }
+  100%{ opacity: 0.70; }
+}
 /* Neon border + scanline shimmer (AAA "juicy" feel) */
-.tetrTile:after{
+.pbTile:after{
   content:"";
   position:absolute;
   inset:0;
   pointer-events:none;
   border-radius: inherit;
 
-  /* Neon edge + rainbow scan shimmer */
+  /* Accent wash (very subtle) */
   background:
     linear-gradient(90deg,
-      rgba(var(--c1),0.26),
-      rgba(var(--c2),0.22) 48%,
-      rgba(var(--c3),0.18) 78%,
-      rgba(255,255,255,0.06)
-    ),
-    repeating-linear-gradient(
-      180deg,
-      rgba(255,255,255,0.07) 0px,
-      rgba(255,255,255,0.07) 1px,
-      rgba(255,255,255,0) 6px,
-      rgba(255,255,255,0) 10px
-    );
+      rgba(var(--acc, 255,255,255), 0.22) 0%,
+      rgba(var(--acc, 255,255,255), 0.08) 28%,
+      rgba(0,0,0,0.00) 60%);
   mix-blend-mode: screen;
-  opacity: .20;
-  transform: translateX(-10%);
-  animation: tetrScan 4.2s linear infinite;
+  opacity: 0.55;
+  transform: none;
+  animation: none;
+}
+.pbTile:hover:after{
+  opacity: 0.78;
+  transform: none;
+  animation: pbGlowOverlay 1.05s infinite;
 }
 
-@keyframes tetrScan{
-  0%{ background-position: 0 0, 0 0; }
-  100%{ background-position: 240px 0, 0 120px; }
-}
-.tetrTile:hover{
-  transform: translateX(-34px);
+.pbTile:hover{
+  transform: translateX(-34px) translateY(-6px) scale(1.01);
   box-shadow:
-    0 18px 55px rgba(0,0,0,.62),
-    0 0 0 1px rgba(var(--c1),0.10) inset,
-    0 0 0 1px rgba(var(--c2),0.08),
-    0 0 26px rgba(var(--c1),0.14),
-    0 0 22px rgba(var(--c2),0.10);
-  filter: brightness(1.10) saturate(1.18);
+    0 20px 62px rgba(0,0,0,.66),
+    0 0 0 1px rgba(255,255,255,0.08) inset,
+    0 0 0 1px rgba(var(--acc,255,255,255),0.18);
+  animation: pbGlowBlink 1.05s infinite;
+  filter: brightness(1.04) saturate(1.06);
 }
-.tetrTile:active{
-  transform: translateX(-34px) scale(0.995);
+.pbTile:active{
+  transform: translateX(-34px) translateY(-2px) scale(0.985);
 }
-.tetrTile.disabled,
-.tetrTile:disabled{
+.pbTile.disabled,
+.pbTile:disabled{
   cursor:not-allowed;
   opacity:.55;
   filter: grayscale(.2);
 }
-.tetrTile.disabled:hover,
-.tetrTile:disabled:hover{
+.pbTile.disabled:hover,
+.pbTile:disabled:hover{
   transform:none;
   box-shadow:none;
   filter:none;
+  animation:none;
+}
+.pbTile.disabled:hover:after,
+.pbTile:disabled:hover:after{
+  animation:none;
+  opacity: 0.55;
 }
 
-.tetrTileInner{
+.pbTileInner{
   display:flex;
   align-items:center;
   gap: clamp(12px, 2vh, 18px);
   padding: clamp(10px, 1.9vh, 18px) clamp(12px, 2.2vh, 18px);
 }
 
-.tetrTileGlyph{
+.pbTileGlyph{
+  position: relative;
   width: clamp(68px, 10vh, 96px);
   height: clamp(44px, 7vh, 58px);
   display:flex;
@@ -4228,13 +5022,17 @@ onBeforeUnmount(() => {
   text-shadow: 0 3px 16px rgba(0,0,0,.6);
 }
 
-.tetrTileText{
+/* Glyph should float: no visible plate/container behind the PNGs */
+.pbTileGlyph::before{ content: none; }
+.pbTileGlyph > *{ position: relative; z-index: 1; }
+
+.pbTileText{
   display:flex;
   flex-direction:column;
   gap: 4px;
   min-width:0;
 }
-.tetrTileTitle{
+.pbTileTitle{
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -4245,7 +5043,7 @@ onBeforeUnmount(() => {
   text-transform: uppercase;
   line-height:1.05;
 }
-.tetrTileDesc{
+.pbTileDesc{
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -4256,7 +5054,7 @@ onBeforeUnmount(() => {
   text-transform: uppercase;
 }
 
-.tetrFine{
+.pbFine{
   margin-top: 14px;
   opacity: .7;
   font-size: 12px;
@@ -4266,29 +5064,60 @@ onBeforeUnmount(() => {
   padding-top: 12px;
 }
 
-.tetrBottomRow{
+.pbBottomRow{
   display:flex;
   gap: 12px;
   margin-top: 14px;
 }
-.tetrMiniBtn{
+.pbMiniBtn{
+  --miniAcc: 255,255,255;
   flex:1;
   border-radius: 10px;
   padding: 12px 14px;
   font-weight: 1000;
   letter-spacing: 2px;
   text-transform: uppercase;
-  border: 1px solid rgba(255,255,255,0.10);
-  background: rgba(0,0,0,.35);
+  border: 1px solid rgba(255,255,255,0.12);
+  background: linear-gradient(180deg, rgba(22,24,34,0.92), rgba(16,18,26,0.88));
+  color: #eaeaea;
   cursor:pointer;
-  transition: transform .12s ease, filter .12s ease;
+  transition: transform .12s ease, filter .12s ease, box-shadow .18s ease, border-color .18s ease, background .18s ease;
+  box-shadow:
+    0 12px 30px rgba(0,0,0,0.55),
+    0 0 0 1px rgba(255,255,255,0.06) inset;
 }
-.tetrMiniBtn:hover{ transform: translateX(-6px); filter: brightness(1.05); }
+.pbMiniBtn:hover{
+  transform: translateY(-1px);
+  filter: brightness(1.03);
+  border-color: rgba(var(--miniAcc),0.26);
+  box-shadow:
+    0 16px 38px rgba(0,0,0,0.62),
+    0 0 0 1px rgba(255,255,255,0.07) inset,
+    0 0 16px rgba(var(--miniAcc),0.10);
+}
+
+/* Image mini buttons (GO / CREATE / REFRESH): keep the same theme + subtle lift */
+.pbMiniBtn.imgBtn{
+  transition: transform .12s ease, background .12s ease, filter .12s ease, box-shadow .18s ease, border-color .18s ease;
+}
+.pbMiniBtn.imgBtn:hover{
+  background:
+    linear-gradient(180deg, rgba(255,255,255,0.08), rgba(255,255,255,0.03)),
+    linear-gradient(180deg, rgba(22,24,34,0.92), rgba(16,18,26,0.88));
+  transform: translateY(-1px);
+  filter: none;
+}
+.pbMiniBtn.imgBtn:active{
+  transform: translateY(0px) scale(0.98);
+}
 
 
-/* ===== Lobby (TETR-inspired card + form) ===== */
-.tetrCard{
+/* ===== Lobby (ARCADE-inspired card + form) ===== */
+.pbCard{
   margin-top: 6px;
+  margin-left: auto;
+  margin-right: auto;
+  max-width: 660px;
   border-radius: 14px;
   border: 1px solid rgba(255,255,255,0.12);
   background:
@@ -4301,53 +5130,53 @@ onBeforeUnmount(() => {
   padding: 14px 14px 12px;
   backdrop-filter: blur(10px);
 }
-.tetrTitleRow{
+.pbTitleRow{
   display:flex;
   justify-content:space-between;
   align-items:baseline;
   gap: 12px;
   margin-top: 4px;
 }
-.tetrTitle{
+.pbTitle{
   font-weight: 1000;
   letter-spacing: 2.2px;
   text-transform: uppercase;
   font-size: 14px;
   opacity: .92;
 }
-.tetrHint{
+.pbHint{
   font-weight: 900;
   letter-spacing: 1.8px;
   text-transform: uppercase;
   font-size: 11px;
   opacity: .65;
 }
-.tetrDivider{
+.pbDivider{
   height: 1px;
   background: rgba(255,255,255,0.10);
   margin: 12px 0;
 }
-.tetrForm{
+.pbForm{
   display:grid;
   gap: 10px;
   margin-top: 10px;
 }
-.tetrField{
+.pbField{
   display:grid;
   gap: 6px;
 }
-.tetrField > span{
+.pbField > span{
   font-size: 11px;
   letter-spacing: 2px;
   text-transform: uppercase;
   opacity: .75;
   font-weight: 900;
 }
-.tetrField.inline{
+.pbField.inline{
   grid-template-columns: 1fr auto;
   align-items:center;
 }
-.tetrInput{
+.pbInput{
   width: 100%;
   border-radius: 10px;
   padding: 12px 12px;
@@ -4359,36 +5188,41 @@ onBeforeUnmount(() => {
   letter-spacing: .6px;
   box-shadow: 0 0 0 1px rgba(0,0,0,0.28) inset;
 }
-.tetrInput:focus{
+.pbInput:focus{
   border-color: rgba(0,229,255,0.26);
   box-shadow: 0 0 0 1px rgba(0,229,255,0.10) inset, 0 0 22px rgba(0,229,255,0.10);
 }
-.tetrCheck{
+.pbCheck{
   width: 18px;
   height: 18px;
   accent-color: rgb(200,160,255);
 }
-.tetrRow{
+.pbRow{
   display:flex;
   gap: 10px;
   margin-top: 10px;
 }
-.tetrMiniBtn.primary{
-  border-color: rgba(0,229,255,0.18);
-  background: linear-gradient(180deg, rgba(0,229,255,0.18), rgba(0,229,255,0.08));
+.pbMiniBtn.primary{
+  background:
+    linear-gradient(180deg, rgba(255,255,255,0.10), rgba(255,255,255,0.04)),
+    linear-gradient(180deg, rgba(22,24,34,0.92), rgba(16,18,26,0.88));
+  border-color: rgba(255,255,255,0.18);
+  box-shadow:
+    0 16px 40px rgba(0,0,0,0.62),
+    0 0 0 1px rgba(255,255,255,0.08) inset;
 }
-.tetrFineLine{
+.pbFineLine{
   margin-top: 10px;
   opacity: .75;
   font-size: 12px;
   letter-spacing: .8px;
 }
-.tetrLobbyList{
+.pbLobbyList{
   display:grid;
   gap: 10px;
   margin-top: 10px;
 }
-.tetrLobbyRow{
+.pbLobbyRow{
   display:flex;
   align-items:center;
   justify-content:space-between;
@@ -4399,18 +5233,18 @@ onBeforeUnmount(() => {
   background: rgba(0,0,0,0.28);
   transition: transform .14s ease, border-color .14s ease, background .14s ease;
 }
-.tetrLobbyRow:hover{
+.pbLobbyRow:hover{
   transform: translateX(-10px);
   border-color: rgba(255,255,255,0.16);
   background: rgba(0,0,0,0.34);
 }
-.tetrLobbyInfo{
+.pbLobbyInfo{
   min-width: 0;
   display:flex;
   flex-direction:column;
   gap: 4px;
 }
-.tetrLobbyName{
+.pbLobbyName{
   font-weight: 1000;
   letter-spacing: 1.4px;
   text-transform: uppercase;
@@ -4418,14 +5252,14 @@ onBeforeUnmount(() => {
   overflow: hidden;
   text-overflow: ellipsis;
 }
-.tetrLobbyMeta{
+.pbLobbyMeta{
   font-size: 12px;
   opacity: .75;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
 }
-.tetrLobbyMeta .dot{
+.pbLobbyMeta .dot{
   margin: 0 8px;
   opacity: .55;
 }
@@ -4434,101 +5268,28 @@ onBeforeUnmount(() => {
   min-width: 110px;
 }
 
-.tetrBackBtn{
-  border-radius: 10px;
-  padding: 12px 18px;
-  font-weight: 1000;
-  letter-spacing: 2px;
-  text-transform: uppercase;
-  border: 1px solid rgba(255,255,255,0.10);
-  background: rgba(0,0,0,.35);
-  cursor:pointer;
-  transition: transform .12s ease, filter .12s ease;
-}
-.tetrBackBtn:hover{ transform: translateX(-6px); filter: brightness(1.05); }
-
-.tetrTile.accentPink{
-  --c1: 255,60,210;
-  --c2: 255,155,60;
-  --c3: 0,240,255;
-  box-shadow: 0 0 0 1px rgba(255,155,60,0.10) inset;
-}
-.tetrTile.accentPink .tetrTileGlyph,
-.tetrTile.accentPink .tetrTileTitle{
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  color: rgba(255,200,235,0.98);
-  text-shadow: 0 10px 28px rgba(0,0,0,0.55), 0 0 18px rgba(255,155,60,0.10);
-}
-
-.tetrTile.accentPurple{
-  --c1: 160,120,255;
-  --c2: 0,229,255;
-  --c3: 255,215,0;
-  box-shadow: 0 0 0 1px rgba(0,229,255,0.10) inset;
-}
-.tetrTile.accentPurple .tetrTileGlyph,
-.tetrTile.accentPurple .tetrTileTitle{
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  color: rgba(230,215,255,0.98);
-  text-shadow: 0 10px 28px rgba(0,0,0,0.55), 0 0 18px rgba(0,229,255,0.10);
-}
-
-.tetrTile.accentPurple2{
-  --c1: 120,110,255;
-  --c2: 255,43,214;
-  --c3: 0,229,255;
-  box-shadow: 0 0 0 1px rgba(255,43,214,0.10) inset;
-}
-.tetrTile.accentPurple2 .tetrTileGlyph,
-.tetrTile.accentPurple2 .tetrTileTitle{
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  color: rgba(220,205,255,0.98);
-  text-shadow: 0 10px 28px rgba(0,0,0,0.55), 0 0 18px rgba(255,43,214,0.10);
-}
-
-.tetrTile.accentBlue{
-  --c1: 0,200,255;
-  --c2: 80,255,160;
-  --c3: 255,215,0;
-  box-shadow: 0 0 0 1px rgba(80,255,160,0.10) inset;
-}
-.tetrTile.accentBlue .tetrTileGlyph,
-.tetrTile.accentBlue .tetrTileTitle{
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  color: rgba(205,235,255,0.98);
-  text-shadow: 0 10px 28px rgba(0,0,0,0.55), 0 0 18px rgba(80,255,160,0.10);
-}
-
 /* Responsive: keep everything visible on smaller screens */
 @media (max-width: 700px) {
-  .tetrPageTitle{ font-size: 34px; }
-  .tetrHeroTitle{ font-size: 30px; }
-  .tetrTileGlyph{ width: 74px; font-size: 34px; }
-  .tetrTileTitle{
+  .pbPageTitle{ font-size: 34px; }
+  .pbHeroTitle{ font-size: 30px; }
+  .pbTileGlyph{ width: 74px; font-size: 34px; }
+  .pbTileTitle{
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
  font-size: 26px; }
-  .tetrTileInner{ padding: 14px 14px; gap: 14px; }
+  .pbTileInner{ padding: 14px 14px; gap: 14px; }
 }
 @media (max-width: 420px) {
-  .tetrHeaderRow{ flex-wrap: wrap; }
-  .tetrIgn{ width: 100%; justify-content: flex-start; }
+  .pbHeaderRow{ flex-wrap: wrap; }
+  .pbIgn{ width: 100%; justify-content: flex-start; }
 }
 
 /* Short viewports: tighten the menu to avoid scrolling */
 @media (max-height: 820px) {
-  .tetrShell{ padding: 10px 0 12px; max-height: calc(100vh - 86px); }
-  .tetrHeroSub{ font-size: 13px; }
-  .tetrTileDesc{
+  .pbShell{ padding: 10px 0 12px; max-height: calc(100vh - 86px); }
+  .pbHeroSub{ font-size: 13px; }
+  .pbTileDesc{
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -4537,8 +5298,8 @@ onBeforeUnmount(() => {
 
 
 
-/* TETR-like top & bottom bars (menus) */
-.topbar.tetrBar{
+/* Menu-style top & bottom bars (menus) */
+.topbar.pbBar{
   min-height: 64px;
   height: auto;
   padding: 10px 18px 10px;
@@ -4547,15 +5308,15 @@ onBeforeUnmount(() => {
   justify-content: space-between;
   align-items: flex-start;
 }
-.tetrTopLeft{ display:flex; flex-direction:column; align-items:flex-start; gap: 6px; min-width: 0; }
-.tetrTopTitle{
+.pbTopLeft{ display:flex; flex-direction:column; align-items:flex-start; gap: 6px; min-width: 0; }
+.pbTopTitle{
   font-weight: 1000;
   letter-spacing: 2.2px;
   font-size: 34px;
   opacity: .75;
   text-transform: uppercase;
 }
-.tetrTopTitlePng{
+.pbTopTitlePng{
   height: 34px;
   width: auto;
   display: block;
@@ -4563,8 +5324,26 @@ onBeforeUnmount(() => {
   image-rendering: pixelated;
   filter: drop-shadow(0 2px 6px rgba(0,0,0,.45));
 }
-.tetrTopRight{ display:flex; align-items:center; gap: 12px; margin-left:auto; }
-.tetrTopIgn{
+.pbTopRight{ display:flex; align-items:center; gap: 12px; margin-left:auto; }
+.pbTopAvatar{
+  width: 36px;
+  height: 36px;
+  border-radius: 10px;
+  object-fit: cover;
+  border: 1px solid rgba(255,255,255,0.14);
+  background: rgba(0,0,0,.35);
+  box-shadow: 0 10px 24px rgba(0,0,0,.45);
+}
+.topAvatar{
+  width: 34px;
+  height: 34px;
+  border-radius: 10px;
+  object-fit: cover;
+  border: 1px solid rgba(255,255,255,0.14);
+  background: rgba(0,0,0,.35);
+  margin-right: 8px;
+}
+.pbTopIgn{
   display:flex;
   align-items:baseline;
   gap:10px;
@@ -4573,27 +5352,30 @@ onBeforeUnmount(() => {
   background: rgba(0,0,0,.35);
   border: 1px solid rgba(255,255,255,0.10);
 }
-.tetrTopIgnLabel{ font-size: 11px; letter-spacing: 2px; opacity:.65; }
-.tetrTopIgnName{ font-weight: 1000; letter-spacing: 1px; }
-.tetrTopBtn{
+.pbTopIgnLabel{ font-size: 11px; letter-spacing: 2px; opacity:.65; }
+.pbTopIgnName{ font-weight: 1000; letter-spacing: 1px; }
+.pbTopBtn{
   border-radius: 10px;
   padding: 10px 14px;
   font-weight: 1000;
   letter-spacing: 2px;
   text-transform: uppercase;
-  border: 1px solid rgba(255,255,255,0.10);
-  background: rgba(0,0,0,.35);
+  border: 1px solid rgba(255,255,255,0.12);
+  background: linear-gradient(180deg, rgba(22,24,34,0.92), rgba(16,18,26,0.88));
   color: #eaeaea;
+  box-shadow:
+    0 12px 32px rgba(0,0,0,0.55),
+    0 0 0 1px rgba(255,255,255,0.06) inset;
   cursor: pointer;
-  transition: transform .12s ease, filter .12s ease;
+  transition: transform .08s ease, box-shadow .18s ease, border-color .18s ease, background .18s ease, filter .18s ease;
 }
 
-.tetrBackRow{
+.pbBackRow{
   /* IMPORTANT: The back button must NOT push the menu down when it appears.
      Keep it visually below the top bar, but take it out of document flow. */
   position: absolute;
   left: 0;
-  top: 70px; /* sits right under the TETR top bar */
+  top: 70px; /* sits right under the ARCADE top bar */
   width: 100%;
 
   padding: 10px 18px 0;
@@ -4603,30 +5385,48 @@ onBeforeUnmount(() => {
   z-index: 3;
   pointer-events: none;
 }
-.tetrBackBtn{
+.pbBackBtn{
   border-radius: 12px;
   padding: 12px 18px;
   font-weight: 1000;
   letter-spacing: 2px;
   text-transform: uppercase;
-  border: 1px solid rgba(255,255,255,0.14);
-  background: rgba(255,255,255,0.06);
+  border: 1px solid rgba(255,255,255,0.12);
+  background: linear-gradient(180deg, rgba(22,24,34,0.92), rgba(16,18,26,0.88));
   color: #eaeaea;
-  box-shadow: 0 10px 26px rgba(0,0,0,0.32), 0 0 0 1px rgba(0,0,0,0.25) inset;
+  box-shadow:
+    0 12px 32px rgba(0,0,0,0.55),
+    0 0 0 1px rgba(255,255,255,0.06) inset;
   cursor: pointer;
   pointer-events: auto;
 }
-.tetrBackBtn:hover{ background: rgba(255,255,255,0.10); transform: translateY(-1px); }
+.pbBackBtn:hover{
+  transform: translateY(-1px);
+  border-color: rgba(255,255,255,0.26);
+  box-shadow:
+    0 16px 40px rgba(0,0,0,0.62),
+    0 0 0 1px rgba(255,255,255,0.07) inset,
+    0 0 18px rgba(255,255,255,0.10);
+  filter: brightness(1.03);
+}
 
-.tetrTopBtn:hover{ transform: translateX(-6px); filter: brightness(1.05); }
-.tetrTopBtn.under{
+.pbTopBtn:hover{
+  transform: translateY(-1px);
+  border-color: rgba(255,255,255,0.26);
+  box-shadow:
+    0 16px 40px rgba(0,0,0,0.62),
+    0 0 0 1px rgba(255,255,255,0.07) inset,
+    0 0 18px rgba(255,255,255,0.10);
+  filter: brightness(1.03);
+}
+.pbTopBtn.under{
   padding: 8px 12px;
   border-radius: 10px;
 }
-.tetrTopBtn.under:hover{ transform: translateX(-10px); }
+.pbTopBtn.under:hover{ transform: translateY(-1px); }
 
 
-.tetrBottomBar{
+.pbBottomBar{
   position: fixed;
   left: 0; right: 0; bottom: 0;
   height: 62px;
@@ -4640,12 +5440,92 @@ onBeforeUnmount(() => {
   backdrop-filter: blur(10px);
   pointer-events: none;
 }
-.tetrBottomLeft{ display:flex; align-items:center; gap: 10px; }
-.tetrBottomLogo{
+.pbBottomLeft{ display:flex; align-items:center; gap: 10px; }
+.pbBottomLogo{
   width: 28px; height: 28px; object-fit: contain;
   filter: drop-shadow(0 10px 22px rgba(0,0,0,0.55));
 }
-.tetrBottomBrand{ font-weight: 1000; letter-spacing: 2px; opacity:.75; text-transform: uppercase; }
-.tetrBottomRight{ opacity:.55; font-weight: 900; letter-spacing: 2px; text-transform: uppercase; }
+.pbBottomBrand{ font-weight: 1000; letter-spacing: 2px; opacity:.75; text-transform: uppercase; }
+.pbBottomBrandPng{
+  height: 18px;
+  width: auto;
+  object-fit: contain;
+  opacity: .85;
+  filter: drop-shadow(0 10px 18px rgba(0,0,0,0.55));
+}
+.pbBottomRight{ opacity:.55; font-weight: 900; letter-spacing: 2px; text-transform: uppercase; }
+
+/* Floating PNG buttons */
+.imgBtn{ display:inline-flex; align-items:center; justify-content:center; }
+.btnPng{ height: 22px; width: auto; object-fit: contain; pointer-events: none; }
+.pbMiniBtn.imgBtn{ padding-top: 6px; padding-bottom: 6px; }
+.brandTitlePng{ height: 22px; width: auto; object-fit: contain; }
+
+
+
+/* Lag-free overrides (menu buttons) */
+.menuBtn, .menuBtn.primary, .menuBtn.alt { box-shadow: none !important; filter: none !important; }
+.menuBtn::before, .menuBtn::after { content: none !important; }
+
+
+
+/* Hard overrides to remove heavy effects on menu buttons */
+.menuBtn, .menuBtn:hover, .menuBtn:active,
+.menuBtn.primary, .menuBtn.primary:hover, .menuBtn.primary:active,
+.menuBtn.alt, .menuBtn.alt:hover, .menuBtn.alt:active {
+  box-shadow: none !important;
+  filter: none !important;
+  backdrop-filter: none !important;
+}
+
+.menuBtn::before, .menuBtn::after,
+.menuBtn.primary::before, .menuBtn.primary::after,
+.menuBtn.alt::before, .menuBtn.alt::after {
+  content: none !important;
+  display: none !important;
+}
+
+
+/* =========================
+   ✅ Quick Match Accept UI
+========================= */
+.qmBar{
+  width: 100%;
+  height: 12px;
+  border-radius: 999px;
+  background: rgba(255,255,255,0.08);
+  border: 1px solid rgba(255,255,255,0.14);
+  overflow: hidden;
+  box-shadow: inset 0 0 0 1px rgba(0,0,0,0.25);
+  margin-top: 10px;
+}
+.qmBarFill{
+  height: 100%;
+  width: 100%;
+  border-radius: 999px;
+  background: linear-gradient(90deg, rgba(36,255,204,0.85), rgba(180,90,255,0.9), rgba(255,70,180,0.9));
+  transition: width 80ms linear;
+}
+.qmBar.danger{
+  border-color: rgba(255,60,60,0.45);
+  background: rgba(255,60,60,0.08);
+}
+.dangerPulse{
+  animation: qmPulse 420ms ease-in-out infinite;
+  box-shadow: 0 0 0 1px rgba(255,80,80,0.25), 0 10px 40px rgba(255,0,80,0.12);
+}
+@keyframes qmPulse{
+  0%,100%{ transform: scale(1); }
+  50%{ transform: scale(1.02); }
+}
+.modalDot.bad{
+  background: rgba(255,60,60,0.85);
+  box-shadow: 0 0 10px rgba(255,60,60,0.55);
+}
+.loadTitlePng{
+  height: 22px;
+  width: auto;
+  image-rendering: pixelated;
+}
 
 </style>
