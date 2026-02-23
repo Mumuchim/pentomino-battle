@@ -1836,6 +1836,7 @@ async function sbListPublicWaitingLobbies() {
     "select=id,code,status,is_private,lobby_name,updated_at,host_id,guest_id,state",
     "status=eq.waiting",
     "is_private=eq.false",
+    "mode=eq.custom",
     "guest_id=is.null",
     "order=updated_at.desc",
     "limit=25",
@@ -1854,7 +1855,8 @@ async function sbFindPublicLobbyByName(term) {
     "select=id,code,status,is_private,lobby_name,updated_at,host_id,guest_id,state,version",
     "status=eq.waiting",
     "is_private=eq.false",
-    "guest_id=is.null",
+    "mode=eq.custom",
+         "guest_id=is.null",
     `lobby_name=ilike.${encodeURIComponent(pat)}`,
     "order=updated_at.desc",
     "limit=10",
@@ -1879,8 +1881,9 @@ async function sbFindPublicLobbyByName(term) {
   );
 }
 
-async function sbCreateLobby({ isPrivate = false, lobbyName = "", extraStateMeta = null } = {}) {
+async function sbCreateLobby({ isPrivate = false, lobbyName = "", extraStateMeta = null, mode = null } = {}) {
   const hostId = getGuestId();
+  const lobbyMode = String(mode || (extraStateMeta?.kind === "quickmatch" ? "quick" : "custom") || "custom");
   const code = `PB-${Math.random().toString(16).slice(2, 6).toUpperCase()}${Math.random()
     .toString(16)
     .slice(2, 6)
@@ -1891,6 +1894,7 @@ async function sbCreateLobby({ isPrivate = false, lobbyName = "", extraStateMeta
     status: "waiting",
     is_private: !!isPrivate,
     lobby_name: String(lobbyName || "").slice(0, 40),
+    mode: lobbyMode,
     host_id: hostId,
     guest_id: null,
     host_ready: false,
@@ -1958,6 +1962,23 @@ function parseIsoMs(iso) {
   return Number.isFinite(t) ? t : 0;
 }
 
+
+
+function normalizeLobbyState(state) {
+  // Supabase can return null for jsonb; normalize to a safe shape.
+  let st = state;
+  if (!st || typeof st !== "object") st = {};
+  // Avoid mutating shared references from reactive payloads.
+  try {
+    st = structuredClone(st);
+  } catch {
+    try { st = JSON.parse(JSON.stringify(st)); } catch {}
+  }
+  if (!st || typeof st !== "object") st = {};
+  if (!st.meta || typeof st.meta !== "object") st.meta = {};
+  if (!st.game || typeof st.game !== "object") st.game = {};
+  return st;
+}
 function isLobbyExpired(lobby) {
   if (!lobby) return true;
   if (String(lobby.status || "").toLowerCase() === "closed") return true;
@@ -3331,36 +3352,12 @@ async function startQuickMatchAuto() {
       return;
     }
 
-    // If we're the host, stay in the modal until someone joins.
-    // ✅ Also handle the "double-host" race: if two players start at the same time,
-    // both might create their own QM lobby and then wait forever.
-    // While waiting, we opportunistically try to claim the oldest other QM lobby.
+    // If we're the host, stay in the modal until someone joins (no more "Match Found" → waiting confusion).
     hostLobbyId = lobby?.id || null;
 
     const waitUntil = Date.now() + 60_000;
     while (!cancelled && Date.now() < waitUntil) {
       updateModal();
-
-      // ✅ Double-host race fixer: if there's an older QM room than ours, join it as guest.
-      // (Oldest room stays "host"; newer host flips to "guest".)
-      if (hostLobbyId) {
-        try {
-          const flipped = await sbTryFlipQuickMatchHostToGuest(hostLobbyId);
-          if (flipped?.id) {
-            if (uiTimer) window.clearInterval(uiTimer);
-            closeModal();
-
-            const ok = await quickMatchAcceptFlow(flipped.id, "guest");
-            if (!ok) return;
-
-            screen.value = "online";
-            startPollingLobby(flipped.id, "guest");
-            return;
-          }
-        } catch {
-          // ignore flip errors; we still keep waiting on our room
-        }
-      }
 
       // Check if someone joined.
       const fresh = hostLobbyId ? await sbSelectLobbyById(hostLobbyId) : null;
@@ -3396,50 +3393,6 @@ async function startQuickMatchAuto() {
     closeModal();
     showModal({ title: "Quick Match Error", tone: "bad", message: String(e?.message || e || "Something went wrong.") });
   }
-}
-
-
-// ✅ Quick Match race-fix helper
-// If I'm currently hosting a QM lobby and another (older) QM lobby exists waiting,
-// join that older one as guest and delete my own. This prevents "both hosting forever".
-async function sbTryFlipQuickMatchHostToGuest(myLobbyId) {
-  const me = getGuestId();
-  const mine = await sbSelectLobbyById(myLobbyId);
-  if (!mine || mine.guest_id) return null;
-
-  const q = [
-    "select=id,code,status,is_private,lobby_name,updated_at,host_id,guest_id,state,version",
-    "status=eq.waiting",
-    "is_private=eq.false",
-    "guest_id=is.null",
-    "lobby_name=eq.__QM__",
-    "order=updated_at.asc",
-    "limit=6",
-  ].join("&");
-
-  const res = await fetch(sbRestUrl(`pb_lobbies?${q}`), { headers: sbHeaders() });
-  if (!res.ok) return null;
-  const rows = await res.json().catch(() => []);
-  const list = Array.isArray(rows) ? rows : [];
-
-  // Find the oldest room that isn't mine.
-  const target = list.find((l) => l?.id && String(l.id) !== String(myLobbyId) && l.host_id !== me);
-  if (!target?.id) return null;
-
-  // Try to join it (atomic guard inside sbJoinLobby).
-  const joined = await sbJoinLobby(target.id);
-  if (!joined?.id) return null;
-
-  // Delete my own room so it doesn't linger.
-  try {
-    await sbDeleteLobby(myLobbyId);
-  } catch {
-    try {
-      await sbCloseAndNukeLobby(myLobbyId, { terminateReason: "qm_flipped", reason: "qm_flip" });
-    } catch {}
-  }
-
-  return joined;
 }
 
 
@@ -3599,7 +3552,7 @@ async function sbQuickMatch() {
     "status=eq.waiting",
     "is_private=eq.false",
     "guest_id=is.null",
-    "lobby_name=eq.__QM__",
+    "mode=eq.quick",
     "order=updated_at.asc",
     "limit=6",
   ].join("&");
@@ -3643,6 +3596,7 @@ async function sbQuickMatch() {
   const created = await sbCreateLobby({
     isPrivate: false,
     lobbyName: "__QM__",
+    mode: "quick",
     extraStateMeta: { kind: "quickmatch", hidden: true },
   });
 
