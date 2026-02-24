@@ -1032,8 +1032,21 @@ async function sbFindPublicLobbyByName(term) {
   );
 }
 
-async function sbCreateLobby({ isPrivate = false, region = null } = {}) {
+async function sbCreateLobby({
+  isPrivate = false,
+  region = null,
+  lobbyName = "",
+  mode = null,
+  extraStateMeta = null,
+} = {}) {
   const hostKey = String(getGuestId());
+
+  const meta = {
+    ...(extraStateMeta && typeof extraStateMeta === "object" ? extraStateMeta : null),
+  };
+  const nm = String(lobbyName || "").trim();
+  if (nm) meta.lobbyName = nm;
+  if (mode) meta.mode = String(mode);
 
   const payloadBase = {
     code: makeCode(),
@@ -1045,9 +1058,9 @@ async function sbCreateLobby({ isPrivate = false, region = null } = {}) {
     host_ready: false,
     guest_ready: false,
     last_seq: 0,
+    state: { meta },
   };
 
-  // Retry a few times in case of code collisions
   let payload = { ...payloadBase };
   for (let i = 0; i < 5; i++) {
     const res = await fetch(sbRestUrl("pb_lobbies"), {
@@ -1060,7 +1073,8 @@ async function sbCreateLobby({ isPrivate = false, region = null } = {}) {
       return rows?.[0] || null;
     }
     const txt = await res.text().catch(() => "");
-    if (!String(txt).toLowerCase().includes("duplicate")) throw new Error(`Create lobby failed (${res.status})\n${txt}`);
+    if (!String(txt).toLowerCase().includes("duplicate")) throw new Error(`Create lobby failed (${res.status})
+${txt}`);
     payload = { ...payloadBase, code: makeCode() };
   }
   throw new Error("Failed to create lobby (code collision). Try again.");

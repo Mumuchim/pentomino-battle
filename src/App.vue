@@ -463,7 +463,7 @@
             <div v-else class="pbLobbyList">
               <div class="pbLobbyRow" v-for="l in publicLobbies" :key="l.id">
                 <div class="pbLobbyInfo">
-                  <div class="pbLobbyName">{{ l.code ? ('Lobby ' + l.code) : 'Public Lobby' }}</div>
+                  <div class="pbLobbyName">{{ lobbyDisplayName(l) }}</div>
                   <div class="pbLobbyMeta">
                     Code: <b>{{ l.code || "—" }}</b>
                     <span class="dot">•</span>
@@ -491,7 +491,7 @@
             <div v-if="myPrivateLobbies.length" class="pbLobbyList">
               <div class="pbLobbyRow" v-for="l in myPrivateLobbies" :key="'p_'+l.id">
                 <div class="pbLobbyInfo">
-                  <div class="pbLobbyName">{{ l.code ? ('Lobby ' + l.code) : 'Private Lobby' }}</div>
+                  <div class="pbLobbyName">{{ lobbyDisplayName(l, true) }}</div>
                   <div class="pbLobbyMeta">
                     Code: <b>{{ l.code || "—" }}</b>
                     <span class="dot">•</span>
@@ -937,6 +937,7 @@ const landscapeLockActive = computed(() => isInGame.value && !!game.ui?.lockLand
 
 const qmAccept = reactive({
   open: false,
+  startedAt: 0,
   lobbyId: null,
   role: null, // "host" | "guest"
   expiresAt: 0,
@@ -948,9 +949,14 @@ const qmAccept = reactive({
   // internal outcome hints so the async accept loop can exit cleanly
   outcome: null, // "self_decline" | "self_timeout" | "opponent_not_accept" | null
   silentFail: false,
+  _resolve: null,
+  _tickTimer: null,
 });
 
 function closeQmAccept() {
+  try { if (qmAccept._tickTimer) clearInterval(qmAccept._tickTimer); } catch {}
+  qmAccept._tickTimer = null;
+  qmAccept._resolve = null;
   qmAccept.open = false;
   qmAccept.lobbyId = null;
   qmAccept.role = null;
@@ -964,43 +970,19 @@ function closeQmAccept() {
   qmAccept.silentFail = false;
 }
 
-async function qmAcceptClick() {
+function qmAcceptClick() {
   if (!qmAccept.open || !qmAccept.lobbyId || qmAccept.myAccepted) return;
   qmAccept.myAccepted = true;
-  qmAccept.statusLine = "Waiting for opponent…";
-  try {
-    await sbSetQuickMatchAccept(qmAccept.lobbyId, qmAccept.role, true);
-  } catch {
-    // If patch fails, allow re-click
-    qmAccept.myAccepted = false;
-    qmAccept.statusLine = "";
-  }
+  qmAccept.statusLine = "Accepted… waiting for opponent…";
+  try { qmAccept._resolve && qmAccept._resolve(true); } catch {}
 }
 
-async function qmDecline() {
+function qmDecline() {
   if (!qmAccept.open || !qmAccept.lobbyId) return;
-  qmAccept.statusLine = "Declining…";
-  try {
-    await sbSetQuickMatchAccept(qmAccept.lobbyId, qmAccept.role, false);
-  } catch {}
-
-  // Tell the accept-loop (quickMatchAcceptFlow) to exit without showing its own modal.
+  qmAccept.statusLine = "Declined.";
   qmAccept.outcome = "self_decline";
   qmAccept.silentFail = true;
-
-  // Best-effort cleanup so neither side gets stuck in a half-accepted room.
-  try {
-    await sbDeleteLobby(qmAccept.lobbyId);
-  } catch {}
-
-  closeQmAccept();
-
-  showModal({
-    title: "Matchmaking",
-    tone: "info",
-    message: "You declined the matchmaking.",
-    actions: [{ label: "OK", tone: "primary", onClick: () => (screen.value = "mode") }],
-  });
+  try { qmAccept._resolve && qmAccept._resolve(false); } catch {}
 }
 
 const inGameSettingsOpen = ref(false);
@@ -1843,7 +1825,7 @@ async function sbSelectLobbyByCode(code) {
 async function sbListPublicWaitingLobbies() {
   const q = [
     // include host/guest so we can show 1/2 or 2/2 and clean up 0/2 rows
-    "select=id,code,status,is_private,updated_at,host_key,guest_key",
+    "select=id,code,status,is_private,updated_at,host_key,guest_key,state",
     "status=eq.waiting",
     "is_private=eq.false",
         "guest_key=is.null",
@@ -1861,7 +1843,7 @@ async function sbFindPublicLobbyByName(term) {
   if (!t) return null;
   const pat = `*${t}*`;
   const q = [
-    "select=id,code,status,is_private,updated_at,host_key,guest_key",
+    "select=id,code,status,is_private,updated_at,host_key,guest_key,state",
     "status=eq.waiting",
     "is_private=eq.false",
              "guest_key=is.null",
@@ -1889,8 +1871,22 @@ async function sbFindPublicLobbyByName(term) {
   );
 }
 
-async function sbCreateLobby({ isPrivate = false, region = null } = {}) {
+async function sbCreateLobby({
+  isPrivate = false,
+  region = null,
+  lobbyName = "",
+  mode = null, // "quick" | null
+  extraStateMeta = null, // { ... } merged into state.meta
+} = {}) {
   const hostKey = String(getGuestId());
+
+  const meta = {
+    ...(extraStateMeta && typeof extraStateMeta === "object" ? extraStateMeta : null),
+  };
+
+  const nm = String(lobbyName || "").trim();
+  if (nm) meta.lobbyName = nm;
+  if (mode) meta.mode = String(mode);
 
   const payloadBase = {
     code: makeCode(),
@@ -1902,6 +1898,8 @@ async function sbCreateLobby({ isPrivate = false, region = null } = {}) {
     host_ready: false,
     guest_ready: false,
     last_seq: 0,
+    // ✅ Store optional lobby name / metadata in the existing JSON state column (schema-safe).
+    state: { meta },
   };
 
   // Retry a few times in case of code collisions
@@ -1917,7 +1915,8 @@ async function sbCreateLobby({ isPrivate = false, region = null } = {}) {
       return rows?.[0] || null;
     }
     const txt = await res.text().catch(() => "");
-    if (!String(txt).toLowerCase().includes("duplicate")) throw new Error(`Create lobby failed (${res.status})\n${txt}`);
+    if (!String(txt).toLowerCase().includes("duplicate")) throw new Error(`Create lobby failed (${res.status})
+${txt}`);
     payload = { ...payloadBase, code: makeCode() };
   }
   throw new Error("Failed to create lobby (code collision). Try again.");
@@ -1961,6 +1960,21 @@ function lobbyPlayerCount(lobby) {
 function lobbyCountLabel(lobby) {
   return `${lobbyPlayerCount(lobby)}/2`;
 }
+
+
+function lobbyDisplayName(lobby, isPrivate = false) {
+  const code = String(lobby?.code || "").trim();
+  const meta = lobby?.state?.meta || {};
+  const nm = String(meta?.lobbyName || "").trim();
+
+  // Quick Match rooms are hidden; if they leak in, show generic.
+  if (code === "__QM__" || meta?.kind === "quickmatch") return "Quick Match";
+
+  if (nm) return nm;
+  if (code) return `Lobby ${code}`;
+  return isPrivate ? "Private Lobby" : "Public Lobby";
+}
+
 
 function parseIsoMs(iso) {
   const t = Date.parse(String(iso || ""));
@@ -2351,6 +2365,9 @@ async function ensureOnlineInitialized(lobby) {
 }
 
 function startPollingLobby(lobbyId, role) {
+  // Ensure we're in the online room screen when attaching to a lobby.
+  if (screen.value !== "online") screen.value = "online";
+
   // Back-compat name: we now rely on Realtime moves, with light lobby polling for presence/closure.
   stopPolling();
 
@@ -2841,7 +2858,7 @@ async function refreshMyPrivateLobbies() {
     const me = getGuestId();
     // Your own waiting private lobbies (so you can re-enter / copy code)
     const q = [
-      "select=id,code,status,is_private,updated_at,host_key,guest_key",
+      "select=id,code,status,is_private,updated_at,host_key,guest_key,state",
       "status=eq.waiting",
       "is_private=eq.true",
       `host_key=eq.${encodeURIComponent(me)}`,
@@ -3220,25 +3237,103 @@ async function sbSetQuickMatchAccept(lobbyId, role, accepted) {
 async function quickMatchAcceptFlow(lobbyId, role) {
   const windowInfo = await sbEnsureQuickMatchAcceptState(lobbyId);
   const startedAt = Number(windowInfo.startedAt || Date.now());
-  const expiresAt = Number(windowInfo.expiresAt || (startedAt + 10_000));
+  const expiresAt = Number(windowInfo.expiresAt || startedAt + 10_000);
 
   // Show accept modal and drive the local progress bar UI
   qmAccept.open = true;
+  qmAccept.lobbyId = lobbyId;
   qmAccept.startedAt = startedAt;
   qmAccept.expiresAt = expiresAt;
   qmAccept.role = role;
+  qmAccept.remainingMs = Math.max(0, expiresAt - Date.now());
+  qmAccept.progress = qmAccept.remainingMs / 10_000;
+  qmAccept.pulse = qmAccept.remainingMs <= 5_000;
+  qmAccept.myAccepted = false;
+  qmAccept.statusLine = "";
+  qmAccept.outcome = null;
+  qmAccept.silentFail = false;
+
+  // Tick UI countdown
+  try { if (qmAccept._tickTimer) clearInterval(qmAccept._tickTimer); } catch {}
+  qmAccept._tickTimer = setInterval(() => {
+    const rem = Math.max(0, qmAccept.expiresAt - Date.now());
+    qmAccept.remainingMs = rem;
+    qmAccept.progress = rem / 10_000;
+    qmAccept.pulse = rem <= 5_000;
+    if (rem <= 0 && qmAccept.open) {
+      qmAccept.outcome = qmAccept.outcome || "self_timeout";
+      try { qmAccept._resolve && qmAccept._resolve(false); } catch {}
+    }
+  }, 80);
 
   const myDecision = await new Promise((resolve) => {
     qmAccept._resolve = resolve;
   });
 
   qmAccept._resolve = null;
+  try { if (qmAccept._tickTimer) clearInterval(qmAccept._tickTimer); } catch {}
+  qmAccept._tickTimer = null;
   qmAccept.open = false;
 
+  // Commit my accept/decline to server
   await sbSetQuickMatchAccept(lobbyId, role, myDecision === true);
 
-  // If declined: return false so caller can show proper messaging
-  return myDecision === true;
+  if (myDecision !== true) {
+    // Cleanup (best-effort) so the other side doesn't get stuck
+    try { await sbDeleteLobby(lobbyId); } catch {}
+    const out = qmAccept.outcome || "self_decline";
+    closeQmAccept();
+
+    if (out === "self_timeout") {
+      showModal({
+        title: "Matchmaking",
+        tone: "bad",
+        message: "Failed to accept match making.",
+        actions: [{ label: "OK", tone: "primary", onClick: () => (screen.value = "mode") }],
+      });
+    } else {
+      showModal({
+        title: "Matchmaking",
+        tone: "info",
+        message: "You declined the matchmaking.",
+        actions: [{ label: "OK", tone: "primary", onClick: () => (screen.value = "mode") }],
+      });
+    }
+    return false;
+  }
+
+  // Wait for opponent decision (server is source of truth)
+  const graceMs = 1200;
+  const waitUntil = expiresAt + graceMs;
+
+  while (Date.now() < waitUntil) {
+    const lobby = await sbSelectLobbyById(lobbyId);
+    if (!lobby || String(lobby.status) === "closed") {
+      // opponent declined / lobby closed
+      try { await sbDeleteLobby(lobbyId); } catch {}
+      showModal({
+        title: "Matchmaking",
+        tone: "bad",
+        message: "Opponent did not accept.",
+        actions: [{ label: "OK", tone: "primary", onClick: () => (screen.value = "mode") }],
+      });
+      return false;
+    }
+
+    if (lobby.host_ready && lobby.guest_ready) return true;
+
+    await new Promise((r) => setTimeout(r, 250));
+  }
+
+  // Opponent never accepted in time
+  try { await sbDeleteLobby(lobbyId); } catch {}
+  showModal({
+    title: "Matchmaking",
+    tone: "bad",
+    message: "Opponent did not accept.",
+    actions: [{ label: "OK", tone: "primary", onClick: () => (screen.value = "mode") }],
+  });
+  return false;
 }
 
 
@@ -3248,7 +3343,7 @@ async function sbQuickMatch() {
 
   // 1) Try to claim the oldest waiting quickmatch room
   const q = [
-    "select=id,code,status,is_private,updated_at,host_key,guest_key",
+    "select=id,code,status,is_private,updated_at,host_key,guest_key,state",
     "status=eq.waiting",
     "is_private=eq.false",
     "guest_key=is.null",
