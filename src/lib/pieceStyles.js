@@ -4,29 +4,24 @@
 // If skin exists, each block uses that PNG as background-image.
 
 export const PIECE_STYLES = {
-  // 🔵 BLUE
-  F: { color: "#1D4ED8", skin: null }, // strong blue
-  I: { color: "#22D3EE", skin: null }, // bright sky blue ✅
+  F: { color: "#7C5CFF", skin: null }, // violet (kept)
+  I: { color: "#4CC9F0", skin: null }, // sky blue (kept)
 
-  // 🟢 GREEN
-  L: { color: "#15803D", skin: null }, // deep green
-  W: { color: "#4ADE80", skin: null }, // vivid light green
+  L: { color: "#FF3B3B", skin: null }, // cleaner bright red
+  P: { color: "#FFD166", skin: null }, // warm yellow (kept)
 
-  // 🟠 ORANGE / 🟡 YELLOW
-  X: { color: "#F97316", skin: null }, // vivid orange ✅
-  P: { color: "#FDE047", skin: null }, // saturated yellow ✅
+  N: { color: "#E6E6E6", skin: null }, // soft light gray (not pure white)
 
-  // 🔴 RED / 🌸 PINK
-  V: { color: "#DC2626", skin: null }, // strong red
-  U: { color: "#F472B6", skin: null }, // hot pink ✅
+  T: { color: "#9B5DE5", skin: null }, // purple (kept)
+  U: { color: "#F15BB5", skin: null }, // pink (kept)
 
-  // 🟣 PURPLE
-  T: { color: "#8B5CF6", skin: null }, // vivid purple ✅
-  Z: { color: "#C084FC", skin: null }, // bright lavender (more visible)
+  V: { color: "#00A6FB", skin: null }, // deeper blue (distinct from I)
+  W: { color: "#00F5A0", skin: null }, // neon mint green
 
-  // ⚫ NEUTRALS (high contrast)
-  Y: { color: "#374151", skin: null }, // dark slate gray
-  N: { color: "#F3F4F6", skin: null }, // near-white (not dull gray)
+  X: { color: "#FFCBA4", skin: null }, // 🍑 PEACH ⭐
+  Y: { color: "#FB8500", skin: null }, // orange (kept)
+
+  Z: { color: "#EF476F", skin: null }, // raspberry red (kept)
 };
 
 export function getPieceStyle(pieceKey) {
