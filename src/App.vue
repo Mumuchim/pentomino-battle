@@ -2604,7 +2604,10 @@ function startPollingLobby(lobbyId, role) {
         return;
       }
 
-      // ✅ Presence heartbeat: handle silent tab closes (especially important on gameover/rematch).
+	      // ✅ Presence heartbeat: handle silent tab closes.
+	      // IMPORTANT: only use heartbeat-based disconnect detection while WAITING or on GAME OVER.
+	      // During active gameplay there can be long stretches with no state pushes (thinking / lag),
+	      // and we must NOT auto-terminate a live match just because a heartbeat isn't updated.
       try {
         const hb = lobby?.state?.meta?.heartbeat || {};
         const oppRole = online.role === "host" ? "guest" : "host";
@@ -2612,8 +2615,9 @@ function startPollingLobby(lobbyId, role) {
         const staleMs = oppTs ? Date.now() - oppTs : 0;
         const bothPresent = !!(lobby.host_id && lobby.guest_id);
 
-        const staleHard = bothPresent && staleMs > 45_000;
-        const staleOnGameOver = bothPresent && game.phase === "gameover" && staleMs > 25_000;
+	        const checkPresence = !!(online.waitingForOpponent || game.phase === "gameover");
+	        const staleHard = checkPresence && bothPresent && staleMs > 45_000;
+	        const staleOnGameOver = checkPresence && bothPresent && game.phase === "gameover" && staleMs > 25_000;
 
         if ((staleHard || staleOnGameOver) && oppRole === "host") {
           // If the host disappeared, end the match and leave.
