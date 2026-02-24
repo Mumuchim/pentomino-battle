@@ -3358,7 +3358,7 @@ async function startQuickMatchAuto() {
           } catch {}
           if (uiTimer) window.clearInterval(uiTimer);
           closeModal();
-          showModal({ title: "Matchmaking", tone: "bad", message: "match making cancelled" });
+          showModal({ title: "Matchmaking", tone: "bad", message: "Match Making Cancelled" });
         },
       },
     ],
