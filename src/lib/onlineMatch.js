@@ -10,7 +10,7 @@ const LOBBY_TTL_MS = 5 * 60 * 1000;
 function isLobbyExpiredClient(lobby) {
   if (!lobby) return true;
   if (lobby.status === "closed") return true;
-  if (lobby.guest_id) return false;
+  if (lobby.guest_key) return false;
   const ts = new Date(lobby.updated_at || lobby.created_at || 0).getTime();
   if (!ts) return false;
   return Date.now() - ts > LOBBY_TTL_MS;
@@ -18,7 +18,7 @@ function isLobbyExpiredClient(lobby) {
 
 
 export function getGuestId() {
-  const key = "pb_guest_id";
+  const key = "pb_guest_key";
   let id = localStorage.getItem(key);
   if (!id) {
     id = uid("guest");
@@ -40,16 +40,13 @@ export async function createLobby({ lobbyName = "", region = "auto", isPrivate =
 
   const payload = {
     code: makeCode(),
-    status: "open",
+    status: "waiting",
     is_private: !!isPrivate,
-    lobby_name: lobbyName || null,
     region,
-    host_id: me,
-    guest_id: null,
+    host_key: me,
+    guest_key: null,
     host_ready: false,
     guest_ready: false,
-    state: null,
-    version: 0,
   };
 
   for (let i = 0; i < 5; i++) {
@@ -71,7 +68,7 @@ export async function quickMatch({ region = "auto" } = {}) {
     .select("*")
     .eq("status", "open")
     .eq("is_private", false)
-    .is("guest_id", null)
+    .is("guest_key", null)
     .order("updated_at", { ascending: true })
     .limit(5);
 
@@ -83,9 +80,9 @@ export async function quickMatch({ region = "auto" } = {}) {
       // Claim it (only if still empty)
       const { data: claimed, error: updErr } = await supabase
         .from("pb_lobbies")
-        .update({ guest_id: me, status: "in_game" })
+        .update({ guest_key: me, status: "waiting" })
         .eq("id", lobby.id)
-        .is("guest_id", null)
+        .is("guest_key", null)
         .select()
         .single();
 
@@ -109,14 +106,14 @@ export async function joinByCode(code) {
 
   if (isLobbyExpiredClient(lobby)) throw new Error("Expired lobby.");
   if (lobby.status === "closed") throw new Error("Lobby is closed.");
-  if (lobby.host_id === me) return { lobby, role: "host" };
+  if (lobby.host_key === me) return { lobby, role: "host" };
 
-  if (!lobby.guest_id) {
+  if (!lobby.guest_key) {
     const { data: claimed, error: updErr } = await supabase
       .from("pb_lobbies")
-      .update({ guest_id: me, status: "in_game" })
+      .update({ guest_key: me, status: "waiting" })
       .eq("id", lobby.id)
-      .is("guest_id", null)
+      .is("guest_key", null)
       .select()
       .single();
 
@@ -124,7 +121,7 @@ export async function joinByCode(code) {
     return { lobby: claimed, role: "guest" };
   }
 
-  if (lobby.guest_id === me) return { lobby, role: "guest" };
+  if (lobby.guest_key === me) return { lobby, role: "guest" };
   throw new Error("Lobby is full.");
 }
 

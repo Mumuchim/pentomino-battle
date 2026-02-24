@@ -92,6 +92,8 @@ const props = defineProps({
   myPlayer: { type: [Number, null], default: null },
   canAct: { type: Boolean, default: true },
 });
+const emit = defineEmits(["online-move"]);
+
 
 const game = useGameStore();
 const shell = ref(null);
@@ -296,6 +298,11 @@ function onShellDrop() {
   if (!ok) {
     playBuzz();
     showWarning("Illegal placement — try another spot / rotate / flip.");
+    return;
+  }
+
+  if (props.isOnline) {
+    emit("online-move", { kind: "place", payload: { pieceKey, x, y, rot, flipped, player } });
   }
 }
 
@@ -305,10 +312,20 @@ function onDrop(x, y) {
   if (!game.selectedPieceKey) return;
   if (props.isOnline && !props.canAct) return;
 
+  const pieceKey = game.selectedPieceKey;
+  const rot = game.rotation;
+  const flipped = game.flipped;
+  const player = game.currentPlayer;
+
   const ok = game.placeAt(x, y);
   if (!ok) {
     playBuzz();
     showWarning("Illegal placement — try another spot / rotate / flip.");
+    return;
+  }
+
+  if (props.isOnline) {
+    emit("online-move", { kind: "place", payload: { pieceKey, x, y, rot, flipped, player } });
   }
 }
 
@@ -424,7 +441,11 @@ function onCellClick(x, y, evt) {
     const fromEl = evt?.currentTarget;
     spawnFlyClone(v.pieceKey, game.draftTurn, fromEl);
 
+    const pickedBy = game.draftTurn;
     game.draftPick(v.pieceKey);
+    if (props.isOnline) {
+      emit("online-move", { kind: "draft_pick", payload: { pieceKey: v.pieceKey, player: pickedBy } });
+    }
     return;
   }
 
@@ -433,10 +454,20 @@ function onCellClick(x, y, evt) {
   if (!game.selectedPieceKey) return;
   if (props.isOnline && !props.canAct) return;
 
+  const pieceKey = game.selectedPieceKey;
+  const rot = game.rotation;
+  const flipped = game.flipped;
+  const player = game.currentPlayer;
+
   const ok = game.placeAt(x, y);
   if (!ok) {
     playBuzz();
     showWarning("Illegal placement — try another spot / rotate / flip.");
+    return;
+  }
+
+  if (props.isOnline) {
+    emit("online-move", { kind: "place", payload: { pieceKey, x, y, rot, flipped, player } });
   }
 }
 

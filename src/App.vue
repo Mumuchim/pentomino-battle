@@ -463,7 +463,7 @@
             <div v-else class="pbLobbyList">
               <div class="pbLobbyRow" v-for="l in publicLobbies" :key="l.id">
                 <div class="pbLobbyInfo">
-                  <div class="pbLobbyName">{{ l.lobby_name || "Public Lobby" }}</div>
+                  <div class="pbLobbyName">{{ l.code ? ('Lobby ' + l.code) : 'Public Lobby' }}</div>
                   <div class="pbLobbyMeta">
                     Code: <b>{{ l.code || "—" }}</b>
                     <span class="dot">•</span>
@@ -491,7 +491,7 @@
             <div v-if="myPrivateLobbies.length" class="pbLobbyList">
               <div class="pbLobbyRow" v-for="l in myPrivateLobbies" :key="'p_'+l.id">
                 <div class="pbLobbyInfo">
-                  <div class="pbLobbyName">{{ l.lobby_name || "Private Lobby" }}</div>
+                  <div class="pbLobbyName">{{ l.code ? ('Lobby ' + l.code) : 'Private Lobby' }}</div>
                   <div class="pbLobbyMeta">
                     Code: <b>{{ l.code || "—" }}</b>
                     <span class="dot">•</span>
@@ -697,7 +697,7 @@
         </section>
 
         <section class="rightPanel">
-          <Board :isOnline="isOnline" :myPlayer="myPlayer" :canAct="canAct" />
+          <Board :isOnline="isOnline" :myPlayer="myPlayer" :canAct="canAct" @online-move="onOnlineMove" />
           <div class="hintSmall">
             Drag a piece to the board and hover to preview. Click or drop to place.
           </div>
@@ -856,8 +856,8 @@
 
 <script setup>
 import { computed, onBeforeUnmount, onMounted, reactive, ref, watch } from "vue";
+import { createClient } from "@supabase/supabase-js";
 import { useGameStore } from "./store/game";
-import { supabase as sbRealtime } from "./lib/supabase";
 
 import Board from "./components/Board.vue";
 import DraftPanel from "./components/DraftPanel.vue";
@@ -993,8 +993,7 @@ async function qmDecline() {
     await sbDeleteLobby(qmAccept.lobbyId);
   } catch {}
 
-  // Close the overlay UI but keep outcome/silentFail so the accept-loop can read it.
-  qmAccept.open = false;
+  closeQmAccept();
 
   showModal({
     title: "Matchmaking",
@@ -1312,7 +1311,12 @@ watch([bgmVolumeUi, sfxVolumeUi], () => {
     if (_onlineBgm) _onlineBgm.volume = bgmVolume.value;
   } catch {}
 
-  // If volume is 0, keep BGM playing silently (do not stop/reset).
+  // If muted, stop bgm.
+  if (bgmVolume.value <= 0) {
+    stopMenuBgm();
+    stopCouchBgm();
+    stopOnlineBgm();
+  }
 });
 const topPageTitle = computed(() => {
   if (screen.value === "auth") return "WELCOME"; // Welcome page
@@ -1639,6 +1643,8 @@ let escHandler = null;
    QUICK MATCH — Supabase REST
 ========================= */
 const online = reactive({
+  lastSeq: 0,
+  movesUnsub: null,
   lobbyId: null,
   code: null,
   role: null, // "host" | "guest"
@@ -1654,10 +1660,6 @@ const online = reactive({
   waitingForOpponent: true,
   hostWaitStartedAt: null,
   lastHbSentAt: 0,
-
-  // Supabase Realtime (near-instant sync)
-  rtEnabled: false,
-  rtChannel: null,
 });
 
 const publicLobbies = ref([]);
@@ -1666,7 +1668,7 @@ const myPrivateLobbies = ref([]);
 const loadingPrivate = ref(false);
 
 function getGuestId() {
-  const k = "pb_guest_id";
+  const k = "pb_guest_key";
   let id = localStorage.getItem(k);
   if (!id) {
     id = (crypto?.randomUUID?.() || `g_${Math.random().toString(16).slice(2)}_${Date.now()}`).toString();
@@ -1711,6 +1713,39 @@ function sbHeaders() {
   };
 }
 
+
+let _sbClient = null;
+function sbClient() {
+  if (_sbClient) return _sbClient;
+  const { url, anon } = sbConfig();
+  if (!url || !anon) return null;
+  _sbClient = createClient(url, anon, { auth: { persistSession: false }, realtime: { params: { eventsPerSecond: 30 } } });
+  return _sbClient;
+}
+
+async function sbRpcCommitMove(args) {
+  const client = sbClient();
+  if (!client) throw new Error("Supabase not connected.");
+  const { data, error } = await client.rpc("pb_commit_move", args);
+  if (error) throw error;
+  return data;
+}
+
+function sbSubscribeMoves(lobbyId, onMoveRow) {
+  const client = sbClient();
+  if (!client) return () => {};
+  const ch = client
+    .channel("pb_moves_" + lobbyId)
+    .on(
+      "postgres_changes",
+      { event: "INSERT", schema: "public", table: "pb_moves", filter: `lobby_id=eq.${lobbyId}` },
+      (payload) => payload?.new && onMoveRow(payload.new)
+    )
+    .subscribe();
+  return () => {
+    try { client.removeChannel(ch); } catch {}
+  };
+}
 function sbRestUrl(pathAndQuery) {
   const { url } = sbConfig();
   const base = String(url || "").replace(/\/+$/, "");
@@ -1734,9 +1769,8 @@ async function ensureSupabaseReadyOrExplain() {
 function stopPolling() {
   online.polling = false;
   onlineSyncing.value = false;
-  if (online.pollTimer) clearTimeout(online.pollTimer);
+  if (online.pollTimer) clearInterval(online.pollTimer);
   online.pollTimer = null;
-  teardownRealtimeLobby();
 }
 
 async function leaveOnlineLobby(reason = "left") {
@@ -1748,93 +1782,33 @@ async function leaveOnlineLobby(reason = "left") {
     if (!lobby) return;
 
     const me = getGuestId();
-    const nextVersion = Number(lobby.version || 0) + 1;
-    const st = lobby.state || {};
-    const meta = st.meta || {};
-
-    const isPublicQuick = lobby.is_private === false;
-    const matchEndedLocally = game.phase === "gameover";
 
     if (online.role === "host") {
-      const nextState = {
-        ...st,
-        meta: {
-          ...meta,
-          terminateReason: "host_left",
-          terminated_at: new Date().toISOString(),
-          terminated_by: me,
-          reason,
-        },
-      };
-
-      // ✅ Prefer DELETE so we don't leave dead lobbies behind.
-      // If RLS blocks delete, we close+invalidate so nobody can join.
+      // Prefer delete to avoid dead lobbies; fallback to marking closed.
       try {
         const ok = await sbDeleteLobby(online.lobbyId);
         if (!ok) {
-          await sbForcePatchState(online.lobbyId, {
-            status: "closed",
-            state: nextState,
-            version: nextVersion,
-            updated_at: new Date().toISOString(),
-          });
+          await sbPatchLobby(online.lobbyId, { status: "closed", guest_key: null });
         }
       } catch {
-        await sbForcePatchState(online.lobbyId, {
-          status: "closed",
-          state: nextState,
-          version: nextVersion,
-          updated_at: new Date().toISOString(),
-        });
+        await sbPatchLobby(online.lobbyId, { status: "closed", guest_key: null });
       }
     } else {
-      const nextState = {
-        ...st,
-        meta: {
-          ...meta,
-          notice: "guest_left",
-          notice_at: new Date().toISOString(),
-          notice_by: me,
-          reason,
-        },
-      };
-
-      await sbForcePatchState(online.lobbyId, {
-        guest_id: null,
-        guest_ready: false,
-        status: "waiting",
-        state: nextState,
-        version: nextVersion,
-        updated_at: new Date().toISOString(),
-      });
-
-      // ✅ Quick Match rooms should NEVER linger.
-// If someone leaves (even mid-match), delete/close the room so the next queue can't get shoved
-// into an already-ended or half-finished session.
-      const isQuickMatchRoom =
-        String(lobby.lobby_name || "") === "__QM__" || String(st?.meta?.kind || "") === "quickmatch";
-
-      if (isQuickMatchRoom) {
-        try {
-          const ok = await sbDeleteLobby(online.lobbyId);
-          if (!ok) await sbCloseAndNukeLobby(online.lobbyId, { terminateReason: matchEndedLocally ? "ended" : "abandoned", reason: "qm_leave" });
-        } catch {
-          // ignore
-        }
-      } else {
-        // For normal public lobbies: if the match already ended, clear the row to avoid history pileup.
-        if (isPublicQuick && matchEndedLocally) {
-          try {
-            const ok = await sbDeleteLobby(online.lobbyId);
-            if (!ok) await sbCloseAndNukeLobby(online.lobbyId, { terminateReason: "ended", reason: "quick_cleanup" });
-          } catch {
-            // ignore
-          }
-        }
-      }
+      // Guest leaving: release slot
+      try {
+        await sbPatchLobby(online.lobbyId, { guest_key: null, guest_ready: false, status: "waiting" });
+      } catch {}
     }
   } catch {
-    // best-effort
+    // ignore
+  } finally {
+    try { if (online.movesUnsub) online.movesUnsub(); } catch {}
+    online.movesUnsub = null;
+    online.lobbyId = null;
+    online.code = null;
+    online.role = null;
+    online.lastSeq = 0;
+    stopPolling();
   }
 }
 
@@ -1860,11 +1834,10 @@ async function sbSelectLobbyByCode(code) {
 async function sbListPublicWaitingLobbies() {
   const q = [
     // include host/guest so we can show 1/2 or 2/2 and clean up 0/2 rows
-    "select=id,code,status,is_private,lobby_name,updated_at,host_id,guest_id,state",
+    "select=id,code,status,is_private,updated_at,host_key,guest_key",
     "status=eq.waiting",
     "is_private=eq.false",
-    "mode=eq.custom",
-    "guest_id=is.null",
+        "guest_key=is.null",
     "order=updated_at.desc",
     "limit=25",
   ].join("&");
@@ -1879,12 +1852,11 @@ async function sbFindPublicLobbyByName(term) {
   if (!t) return null;
   const pat = `*${t}*`;
   const q = [
-    "select=id,code,status,is_private,lobby_name,updated_at,host_id,guest_id,state,version",
+    "select=id,code,status,is_private,updated_at,host_key,guest_key",
     "status=eq.waiting",
     "is_private=eq.false",
-    "mode=eq.custom",
-         "guest_id=is.null",
-    `lobby_name=ilike.${encodeURIComponent(pat)}`,
+             "guest_key=is.null",
+    `code=ilike.${encodeURIComponent(pat)}`,
     "order=updated_at.desc",
     "limit=10",
   ].join("&");
@@ -1899,7 +1871,7 @@ async function sbFindPublicLobbyByName(term) {
       if (!l) return false;
       if (isLobbyExpired(l)) return false;
       if (lobbyPlayerCount(l) <= 0) return false;
-      const name = String(l?.lobby_name || "");
+      const name = String(l?.code || "");
       if (name === "__QM__") return false;
       const meta = l?.state?.meta || {};
       if (meta?.kind === "quickmatch") return false;
@@ -1908,41 +1880,38 @@ async function sbFindPublicLobbyByName(term) {
   );
 }
 
-async function sbCreateLobby({ isPrivate = false, lobbyName = "", extraStateMeta = null, mode = null } = {}) {
-  const hostId = getGuestId();
-  const lobbyMode = String(mode || (extraStateMeta?.kind === "quickmatch" ? "quick" : "custom") || "custom");
-  const code = `PB-${Math.random().toString(16).slice(2, 6).toUpperCase()}${Math.random()
-    .toString(16)
-    .slice(2, 6)
-    .toUpperCase()}`;
+async function sbCreateLobby({ isPrivate = false, region = null } = {}) {
+  const hostKey = String(getGuestId());
 
-  const payload = {
-    code,
+  const payloadBase = {
+    code: makeCode(),
     status: "waiting",
     is_private: !!isPrivate,
-    lobby_name: String(lobbyName || "").slice(0, 40),
-    mode: lobbyMode,
-    host_id: hostId,
-    guest_id: null,
+    region: region || null,
+    host_key: hostKey,
+    guest_key: null,
     host_ready: false,
     guest_ready: false,
-    state: { meta: { ...(extraStateMeta || {}) } },
-    version: 1,
+    last_seq: 0,
   };
 
-  const res = await fetch(sbRestUrl("pb_lobbies"), {
-    method: "POST",
-    headers: { ...sbHeaders(), Prefer: "return=representation" },
-    body: JSON.stringify(payload),
-  });
-
-  if (!res.ok) {
+  // Retry a few times in case of code collisions
+  let payload = { ...payloadBase };
+  for (let i = 0; i < 5; i++) {
+    const res = await fetch(sbRestUrl("pb_lobbies"), {
+      method: "POST",
+      headers: { ...sbHeaders(), Prefer: "return=representation" },
+      body: JSON.stringify(payload),
+    });
+    if (res.ok) {
+      const rows = await res.json();
+      return rows?.[0] || null;
+    }
     const txt = await res.text().catch(() => "");
-    throw new Error(`Create lobby failed (${res.status})\n${txt}`);
+    if (!String(txt).toLowerCase().includes("duplicate")) throw new Error(`Create lobby failed (${res.status})\n${txt}`);
+    payload = { ...payloadBase, code: makeCode() };
   }
-
-  const rows = await res.json();
-  return rows?.[0] || null;
+  throw new Error("Failed to create lobby (code collision). Try again.");
 }
 
 async function sbJoinLobby(lobbyId) {
@@ -1950,11 +1919,11 @@ async function sbJoinLobby(lobbyId) {
 
   // ✅ Guard join so you can't join closed/full/expired lobbies.
   // This PATCH will only succeed if the lobby is still waiting and has no guest.
-  const res = await fetch(sbRestUrl(`pb_lobbies?id=eq.${encodeURIComponent(lobbyId)}&guest_id=is.null&status=eq.waiting`), {
+  const res = await fetch(sbRestUrl(`pb_lobbies?id=eq.${encodeURIComponent(lobbyId)}&guest_key=is.null&status=eq.waiting`), {
     method: "PATCH",
     headers: { ...sbHeaders(), Prefer: "return=representation" },
     body: JSON.stringify({
-      guest_id: guestId,
+      guest_key: guestId,
       // Keep status as 'waiting' until the match is fully initialized (players assigned).
       // This avoids edge cases where clients treat unknown statuses differently.
       status: "waiting",
@@ -1977,7 +1946,7 @@ async function sbJoinLobby(lobbyId) {
 const LOBBY_WAITING_TTL_MS = 5 * 60 * 1000; // 5 minutes (prevents joining very old / abandoned rooms)
 
 function lobbyPlayerCount(lobby) {
-  return (lobby?.host_id ? 1 : 0) + (lobby?.guest_id ? 1 : 0);
+  return (lobby?.host_key ? 1 : 0) + (lobby?.guest_key ? 1 : 0);
 }
 
 function lobbyCountLabel(lobby) {
@@ -2019,7 +1988,7 @@ function isLobbyExpired(lobby) {
 
   // If it's waiting with no guest and hasn't been touched in a while, treat as abandoned.
   const upd = parseIsoMs(lobby.updated_at);
-  if (String(lobby.status || "").toLowerCase() === "waiting" && !lobby.guest_id) {
+  if (String(lobby.status || "").toLowerCase() === "waiting" && !lobby.guest_key) {
     // If host heartbeat is stale (tab closed / app crashed), expire the room sooner.
     try {
       const hb = lobby?.state?.meta?.heartbeat || {};
@@ -2063,14 +2032,9 @@ async function sbDeleteLobby(id) {
 }
 
 async function sbCloseAndNukeLobby(id, metaPatch = {}) {
-  // Fallback when DELETE is not allowed.
+  // New schema: just mark closed (no embedded state/meta).
   const nowIso = new Date().toISOString();
-  const lobby = await sbSelectLobbyById(id);
-  const st = lobby?.state || {};
-  const meta = st.meta || {};
-  const nextState = { ...st, meta: { ...meta, ...metaPatch, closed_at: nowIso } };
-  const nextVersion = Number(lobby?.version || 0) + 1;
-  await sbForcePatchState(id, { status: "closed", state: nextState, version: nextVersion, updated_at: nowIso });
+  await sbPatchLobby(id, { status: "closed", guest_key: null, updated_at: nowIso });
 }
 
 /* =========================
@@ -2150,34 +2114,69 @@ function buildSyncedState(meta = {}) {
       battleClockSec: deepClone(game.battleClockSec),
       battleClockLastTickAt: game.battleClockLastTickAt,
 
-      // Helps prevent false timeouts under latency
-      timeoutPendingAt: game.timeoutPendingAt,
-      timeoutPendingPlayer: game.timeoutPendingPlayer,
-
       // Needed for correct gameover messaging (surrender / timeout) across both clients.
       lastMove: deepClone(game.lastMove),
-
-      // Monotonic sequence to prevent last-write-wins clobber.
-      moveSeq: Number(game.moveSeq || 0),
     },
   };
 }
 
+
+function handleMoveRow(row) {
+  if (!row) return;
+  const seq = Number(row.seq || 0);
+  if (seq && seq <= (online.lastSeq || 0)) return;
+  if (seq) online.lastSeq = seq;
+
+  const myKey = String(getGuestId());
+  const fromMe = String(row.player_key || "") === myKey;
+
+  // If this is our own move echoed back, we already applied it locally.
+  // Still keep lastSeq updated, but don't double-apply.
+  if (fromMe && row.kind !== "sync") return;
+
+  // 'sync' moves can carry full authoritative state snapshots (useful for recovery / late join).
+  if (row.kind === "sync" && row.payload && row.payload.state) {
+    applySyncedState(row.payload.state);
+    return;
+  }
+
+  // Event-based moves (preferred).
+  if (row.kind === "draft_pick") {
+    const p = row.payload || {};
+    game.applyRemoteDraftPick?.(p.pieceKey, Number(p.player || 0) || null, row.server_time || null);
+    return;
+  }
+
+  if (row.kind === "place") {
+    const p = row.payload || {};
+    game.applyRemotePlace?.(p, row.server_time || null);
+    return;
+  }
+
+  if (row.kind === "timeout") {
+    const p = row.payload || {};
+    game.applyRemoteTimeout?.(Number(p.player || 0) || null, row.server_time || null);
+    return;
+  }
+
+  if (row.kind === "surrender") {
+    const p = row.payload || {};
+    game.applyRemoteSurrender?.(Number(p.player || 0) || null, row.server_time || null);
+    return;
+  }
+
+  // Compatibility: if server sends any kind with a state snapshot, apply it.
+  if (row.payload && row.payload.state) {
+    applySyncedState(row.payload.state);
+  }
+}
 function applySyncedState(state) {
   if (!state || !state.game) return;
-
-  // ✅ Anti-clobber (stronger): never apply an older move sequence.
-  // This prevents the visible “snap back” where an older remote snapshot briefly overwrites
-  // a newer local move (even if it later corrects itself).
-  try {
-    const localSeq = Number(game.moveSeq || 0);
-    const remoteSeq = Number(state?.game?.moveSeq || 0);
-    if (remoteSeq && localSeq && remoteSeq < localSeq) return;
-  } catch {}
 
   online.applyingRemote = true;
   try {
     const g = state.game;
+    online.localDirty = false;
 
     game.$patch({
       phase: g.phase,
@@ -2209,15 +2208,8 @@ function applySyncedState(state) {
       battleClockSec: g.battleClockSec,
       battleClockLastTickAt: g.battleClockLastTickAt,
 
-      timeoutPendingAt: g.timeoutPendingAt,
-      timeoutPendingPlayer: g.timeoutPendingPlayer,
-
       lastMove: g.lastMove,
-
-      moveSeq: Number(g.moveSeq || 0),
     });
-
-    online.localDirty = false;
   } finally {
     setTimeout(() => {
       online.applyingRemote = false;
@@ -2225,65 +2217,13 @@ function applySyncedState(state) {
   }
 }
 
-// ✅ Server-confirm a timeout before committing it (prevents false timeouts when a last-second
-// opponent move arrives slightly late).
-async function confirmTimeoutWithServer(localMoveSeq) {
-  try {
-    if (!online?.lobbyId) return true;
-    const lobby = await sbSelectLobbyById(online.lobbyId);
-    if (!lobby?.state?.game) return true;
-    const st = normalizeLobbyState(lobby.state);
-    const remoteSeq = Number(st?.game?.moveSeq || 0);
-    const remoteLM = st?.game?.lastMove;
-
-    // If server has a same-seq but different lastMove type, trust server.
-    // (Prevents a local timeout from winning a race against an opponent place that landed first.)
-    if (remoteSeq && localMoveSeq && remoteSeq === localMoveSeq) {
-      const lt = String(game?.lastMove?.type || "");
-      const rt = String(remoteLM?.type || "");
-      if (lt === "timeout" && rt && rt !== "timeout") {
-        applySyncedState(st);
-        return false;
-      }
-    }
-
-    // If server already has a newer move than our local timeout, do NOT push timeout.
-    if (remoteSeq && localMoveSeq && remoteSeq > localMoveSeq) {
-      applySyncedState(st);
-      return false;
-    }
-
-    // If server is not actually gameover anymore (or never was), do NOT push timeout.
-    if (String(st?.game?.phase || "") !== "gameover") {
-      applySyncedState(st);
-      return false;
-    }
-
-    return true;
-  } catch {
-    // If we can't confirm, fall back to pushing (better than hanging).
-    return true;
-  }
-}
-
 async function sbPatchStateWithVersionGuard(lobbyId, knownVersion, patchObj) {
-  const url = sbRestUrl(`pb_lobbies?id=eq.${encodeURIComponent(lobbyId)}&version=eq.${encodeURIComponent(knownVersion)}`);
-  const res = await fetch(url, {
-    method: "PATCH",
-    headers: { ...sbHeaders(), Prefer: "return=representation" },
-    body: JSON.stringify(patchObj),
-  });
-
-  if (!res.ok) {
-    const txt = await res.text().catch(() => "");
-    throw new Error(`State update failed (${res.status})\n${txt}`);
-  }
-
-  const rows = await res.json().catch(() => []);
-  return rows?.[0] || null;
+  // Back-compat shim: new schema no longer uses versioned state rows.
+  // We just patch the lobby row.
+  return await sbPatchLobby(lobbyId, patchObj);
 }
 
-async function sbForcePatchState(lobbyId, patchObj) {
+async function sbPatchLobby(lobbyId, patchObj) {
   const url = sbRestUrl(`pb_lobbies?id=eq.${encodeURIComponent(lobbyId)}`);
   const res = await fetch(url, {
     method: "PATCH",
@@ -2292,472 +2232,159 @@ async function sbForcePatchState(lobbyId, patchObj) {
   });
   if (!res.ok) {
     const txt = await res.text().catch(() => "");
-    throw new Error(`Force update failed (${res.status})\n${txt}`);
+    throw new Error(`Lobby update failed (${res.status})\n${txt}`);
   }
   const rows = await res.json().catch(() => []);
   return rows?.[0] || null;
 }
 
-async function pushMyState(reason = "") {
+async function pushMyMove(kind, payload = null, { withState = false } = {}) {
   if (!isOnline.value) return;
   if (!online.lobbyId) return;
   if (online.applyingRemote) return;
 
-  // ✅ Only push gameplay state when you are allowed to act.
-  // Allow a few non-turn actions (rematch responses / surrender).
-  // IMPORTANT: after you make a move, the store immediately flips the turn to the opponent.
-  // That means `canAct` becomes false *right after your move*, but we still MUST push your move
-  // or the other player will never receive it.
-  const nonTurnAllowed =
-    reason === "surrender" || String(reason || "").startsWith("rematch_") || reason === "rematch_request";
-
-  if (online.waitingForOpponent && !nonTurnAllowed) return;
-
-  const me = myPlayer.value;
-  const lastByMe =
-    !!me &&
-    !!game.lastMove &&
-    Number(game.lastMove.player) === Number(me) &&
-    (game.lastMove.type === "draft" ||
-      game.lastMove.type === "place" ||
-      game.lastMove.type === "timeout" ||
-      game.lastMove.type === "surrender" ||
-      game.lastMove.type === "dodged");
-
-  // `watch` pushes are debounced from reactive changes.
-  // Allow them when it's your turn OR when you just made the last move (even if turn already flipped).
-  if (reason === "watch") {
-    if (!canAct.value && !(online.localDirty && lastByMe)) return;
-  } else {
-    if (!canAct.value && !nonTurnAllowed) return;
-  }
-
-  onlineSyncing.value = true;
   try {
-    const lobby = await sbSelectLobbyById(online.lobbyId);
-    if (!lobby) return;
-
-    const meta = lobby.state?.meta ? lobby.state.meta : {};
-    const snapshot = buildSyncedState(meta);
-    const nextVersion = Number(lobby.version || 0) + 1;
-
-    let updated = await sbPatchStateWithVersionGuard(online.lobbyId, lobby.version, {
-      state: snapshot,
-      version: nextVersion,
-      updated_at: new Date().toISOString(),
+    const seq = Number(online.lastSeq || 0) + 1;
+    const playerKey = String(getGuestId());
+    const p = payload ? deepClone(payload) : {};
+    if (withState) {
+      p.state = serializeGame();
+    }
+    const res = await sbRpcCommitMove({
+      p_lobby_id: online.lobbyId,
+      p_seq: seq,
+      p_player_key: playerKey,
+      p_kind: String(kind || "sync"),
+      p_payload: p,
     });
 
-    if (!updated) {
-      const fresh = await sbSelectLobbyById(online.lobbyId);
-      if (!fresh) return;
-
-      updated = await sbPatchStateWithVersionGuard(online.lobbyId, fresh.version, {
-        state: snapshot,
-        version: Number(fresh.version || 0) + 1,
-        updated_at: new Date().toISOString(),
+    if (res && res.ok === false && res.reason === "bad_seq") {
+      // Our seq is behind; pull lobby.last_seq and retry once.
+      const lobby = await sbSelectLobbyById(online.lobbyId);
+      online.lastSeq = Number(lobby?.last_seq || 0);
+      const retrySeq = Number(online.lastSeq || 0) + 1;
+      await sbRpcCommitMove({
+        p_lobby_id: online.lobbyId,
+        p_seq: retrySeq,
+        p_player_key: playerKey,
+        p_kind: String(kind || "sync"),
+        p_payload: p,
       });
-
-      // IMPORTANT:
-      // Never force-overwrite gameplay state.
-      // Force-patching can clobber a newer opponent move (race), causing “move not saved / board resets”.
-      // If we still can't patch after refetching, keep localDirty=true so the next debounced push retries.
+      online.lastSeq = retrySeq;
+      return;
     }
 
-    if (updated?.version) {
-      online.lastAppliedVersion = Math.max(online.lastAppliedVersion || 0, updated.version);
-      online.lastSeenUpdatedAt = updated.updated_at || null;
-      online.localDirty = false;
-    }
-  } catch {
-    // quiet
-  } finally {
-    onlineSyncing.value = false;
+    if (typeof res?.seq === "number") online.lastSeq = res.seq;
+  } catch (e) {
+    console.warn("pushMyMove failed:", e);
   }
 }
 
-function maybeSetMyPlayerFromLobby(lobby) {
-  const myId = getGuestId();
-  const players = lobby?.state?.meta?.players;
+// Back-compat helper: send a full authoritative snapshot (use sparingly).
+async function pushMyState(reason = "") {
+  return await pushMyMove("sync", { reason: String(reason || "") }, { withState: true });
+}
+function onOnlineMove(evt) {
+  if (!evt || !isOnline.value) return;
+  if (!online.lobbyId) return;
 
-  if (players) {
-    myPlayer.value = getMyPlayerFromPlayers(players, myId);
+  const kind = String(evt.kind || "");
+  const payload = evt.payload || {};
+
+  // For gameplay moves we sync events (not full board snapshots).
+  if (kind === "draft_pick" || kind === "place") {
+    pushMyMove(kind, payload, { withState: false });
     return;
   }
 
+  // Fallback
+  pushMyMove(kind || "sync", payload, { withState: false });
+}
+
+function maybeSetMyPlayerFromLobby(lobby) {
+  const myId = String(getGuestId());
+  if (!lobby) return;
+  if (lobby.host_key && myId === String(lobby.host_key)) {
+    myPlayer.value = 1;
+  } else if (lobby.guest_key && myId === String(lobby.guest_key)) {
+    myPlayer.value = 2;
+  }
 }
 
 async function ensureOnlineInitialized(lobby) {
   if (!lobby) return;
+  if (!lobby.host_key || !lobby.guest_key) return;
 
-  const hasPlayers = !!lobby?.state?.meta?.players;
-  if (hasPlayers) return;
-  if (!lobby.host_id || !lobby.guest_id) return;
+  // Only the host initializes the authoritative first snapshot.
+  if (online.role !== "host") return;
 
-  // Randomize player numbers for THIS round, then write it once into meta.
-  const { players } = makeRandomPlayers(lobby.host_id, lobby.guest_id);
+  // If already playing, nothing to do.
+  if (String(lobby.status) === "playing") return;
 
+  // Initialize local game then broadcast a snapshot via pb_moves.
   game.boardW = 10;
   game.boardH = 6;
   game.allowFlip = allowFlip.value;
   game.resetGame();
 
-  const prevMeta = lobby.state?.meta ? lobby.state.meta : {};
-  const nextRound = Number(prevMeta.round || 0) + 1;
-
-  const initState = buildSyncedState({
-    ...prevMeta,
-    players,
-    round: nextRound,
-    roundSeed: makeRoundSeed(),
-    started_at: new Date().toISOString(),
-  });
-
-  const nextVersion = Number(lobby.version || 0) + 1;
-
+  // Patch lobby to playing (matchmaking metadata only)
   try {
-    // Prefer guarded patch to avoid race if both clients try to init at once.
-    const updated = await sbPatchStateWithVersionGuard(lobby.id, lobby.version, {
-      state: initState,
-      version: nextVersion,
+    await sbPatchLobby(lobby.id, {
       status: "playing",
-      updated_at: new Date().toISOString(),
+      turn_key: lobby.host_key,
+      turn_deadline: new Date(Date.now() + 30_000).toISOString(),
     });
-
-    online.lastAppliedVersion = updated?.version || nextVersion;
-  } catch {
-    // If it failed, assume the other side initialized it.
-  }
-}
-
-function teardownRealtimeLobby() {
-  try {
-    if (online.rtChannel && sbRealtime) {
-      try { sbRealtime.removeChannel(online.rtChannel); } catch {}
-    }
   } catch {}
-  online.rtChannel = null;
-  online.rtEnabled = false;
-}
 
-function setupRealtimeLobby(lobbyId) {
-  teardownRealtimeLobby();
-  try {
-    if (!sbRealtime || !lobbyId) return false;
-
-    const channel = sbRealtime
-      .channel(`pb_lobby_${lobbyId}`)
-      .on(
-        "postgres_changes",
-        { event: "UPDATE", schema: "public", table: "pb_lobbies", filter: `id=eq.${lobbyId}` },
-        (payload) => {
-          try {
-            const row = payload?.new;
-            if (!row) return;
-
-            // Keep code/status in sync
-            if (row.code) online.code = row.code;
-
-            // Apply only newer versions
-            const v = Number(row.version || 0);
-            if (v && v <= Number(online.lastAppliedVersion || 0)) return;
-            online.lastAppliedVersion = v;
-            online.lastSeenUpdatedAt = row.updated_at || online.lastSeenUpdatedAt;
-
-            maybeSetMyPlayerFromLobby(row);
-
-            const st = normalizeLobbyState(row.state);
-            if (st?.game) applySyncedState(st);
-          } catch {
-            // ignore
-          }
-        }
-      )
-      .subscribe((status) => {
-        online.rtEnabled = status === "SUBSCRIBED";
-      });
-
-    online.rtChannel = channel;
-    return true;
-  } catch {
-    teardownRealtimeLobby();
-    return false;
-  }
+  // Seed seq from lobby and push initial snapshot
+  online.lastSeq = Number(lobby.last_seq || 0);
+  await pushMyState("init");
 }
 
 function startPollingLobby(lobbyId, role) {
-  // ✅ Prevent early clicks while the online screen + first poll are not fully rendered.
-  startUiLock({ label: "Connecting…", hint: "Establishing link to lobby…", minMs: 900 });
-
+  // Back-compat name: we now rely on Realtime moves, with light lobby polling for presence/closure.
   stopPolling();
-  online.polling = true;
+
   online.lobbyId = lobbyId;
   online.role = role;
-  online.lastAppliedVersion = 0;
-  online.lastSeenUpdatedAt = null;
+  online.polling = true;
+  onlineSyncing.value = true;
 
+  // Subscribe to move events (near-instant sync)
+  try { if (online.movesUnsub) online.movesUnsub(); } catch {}
+  online.movesUnsub = sbSubscribeMoves(lobbyId, handleMoveRow);
 
-  // ✅ Reset per-lobby trackers (prevents false 'opponent left' on fresh lobbies)
-  online.lastHostId = null;
-  online.lastGuestId = null;
-  online.waitingForOpponent = true;
-  online.code = null;
-  online.pingMs = null;
-  online.localDirty = false;
-  online.hostWaitStartedAt = role === "host" ? Date.now() : null;
-  myPlayer.value = null;
-
-  // Near-instant sync via Supabase Realtime (polling remains as fallback + presence/TTL logic)
-  setupRealtimeLobby(lobbyId);
-
-  screen.value = "online";
-  game.boardW = 10;
-  game.boardH = 6;
-  game.allowFlip = allowFlip.value;
-  game.resetGame();
-
-  // User gesture initiated -> safe to try starting match BGM.
-  tryPlayGameBgm();
-
-  let firstPollDone = false;
-
-  const pollLoop = async () => {
+  // Light polling to watch lobby status / join events
+  online.pollTimer = setInterval(async () => {
+    if (!online.polling || !online.lobbyId) return;
     try {
-      onlineSyncing.value = true;
-
-      const t0 = performance.now();
-      const lobby = await sbSelectLobbyById(lobbyId);
-      online.pingMs = performance.now() - t0;
-
-      if (!lobby) {
-        stopPolling();
-        myPlayer.value = null;
-        screen.value = "mode";
-        showModal({ title: "Lobby Closed", message: "The lobby no longer exists.\nReturning to main menu.", tone: "bad" });
-        return;
-      }
+      const lobby = await sbSelectLobbyById(online.lobbyId);
+      if (!lobby) return;
 
       online.code = lobby.code || online.code;
+      online.waitingForOpponent = !(lobby.host_key && lobby.guest_key);
 
-      // ✅ Lightweight presence heartbeat (even while waiting) so stale rooms can be cleaned up.
-      // Throttled to avoid spamming the DB.
-      if (online.role && (online.waitingForOpponent || game.phase === "gameover")) {
-        const now = Date.now();
-        if (!online.lastHbSentAt || now - online.lastHbSentAt > 15_000) {
-          online.lastHbSentAt = now;
-          try {
-            const st = normalizeLobbyState(lobby.state);
-            const meta = st?.meta || {};
-            const hb = { ...(meta.heartbeat || {}) };
-            hb[online.role] = now;
-            st.meta = { ...meta, heartbeat: hb };
-            const nextVersion = Number(lobby?.version || 0) + 1;
-            await sbForcePatchState(lobbyId, {
-              state: st,
-              version: nextVersion,
-              updated_at: new Date().toISOString(),
-            });
-          } catch {
-            // ignore
-          }
-        }
-      }
-
-      // ✅ If someone joined an expired/abandoned room, cancel cleanly.
-      if (isLobbyExpired(lobby)) {
-        stopPolling();
-        myPlayer.value = null;
-        screen.value = "mode";
-        showModal({
-          title: "Expired Lobby",
-          tone: "bad",
-          message: online.role === "guest"
-            ? "You joined an expired lobby.\nPlease create or join a fresh lobby."
-            : "This lobby expired.\nPlease create a fresh lobby.",
-          actions: [{ label: "OK", tone: "primary" }],
-        });
-        return;
-      }
-
-      // Keep / show the waiting modal (host only) — but don't interrupt other modals.
-      if (online.role === "host" && online.waitingForOpponent && online.code) {
-        if (!modal.open) {
-          showWaitingForOpponentModal(online.code);
-        } else if (modal.title === "Waiting for Opponent") {
-          modal.message = `Waiting for opponent…\nCode: ${online.code || "—"}`;
-        }
-      }
-
-      const prevGuest = online.lastGuestId;
-      online.lastGuestId = lobby.guest_id || null;
-      online.lastHostId = lobby.host_id || null;
-
-      const terminateReason = lobby?.state?.meta?.terminateReason || null;
-      if (lobby.status === "closed" || terminateReason === "host_left") {
-        stopPolling();
-        myPlayer.value = null;
-        screen.value = "mode";
-        showModal({
-          title: "Match Terminated",
-          tone: "bad",
-          message: "Lobby creator left — terminating the game.\nReturning to main menu.",
-        });
-        return;
-      }
-
-      // ✅ Presence heartbeat: handle silent tab closes (especially important on gameover/rematch).
-      try {
-        const hb = lobby?.state?.meta?.heartbeat || {};
-        const oppRole = online.role === "host" ? "guest" : "host";
-        const oppTs = Number(hb?.[oppRole] || 0);
-        const staleMs = oppTs ? Date.now() - oppTs : 0;
-        const bothPresent = !!(lobby.host_id && lobby.guest_id);
-
-        const staleHard = bothPresent && staleMs > 45_000;
-        const staleOnGameOver = bothPresent && game.phase === "gameover" && staleMs > 25_000;
-
-        if ((staleHard || staleOnGameOver) && oppRole === "host") {
-          // If the host disappeared, end the match and leave.
-          try {
-            await sbCloseAndNukeLobby(lobbyId, { terminateReason: "host_timeout", reason: "heartbeat" });
-          } catch {
-            // ignore
-          }
-          stopPolling();
-          myPlayer.value = null;
-          screen.value = "mode";
-          showModal({
-            title: "Match Terminated",
-            tone: "bad",
-            message: "Lobby creator disconnected — terminating the game.\nReturning to main menu.",
-          });
-          return;
-        }
-      } catch {
-        // ignore
-      }
-
-      if (online.role === "host" && !prevGuest && lobby.guest_id) {
-        if (modal.open && String(modal.title || "").toLowerCase().includes("lobby ready")) closeModal();
-        if (modal.open && modal.title === "Waiting for Opponent") closeModal();
-        showModal({
-          title: "Player Joined!",
-          tone: "good",
-          message: `A challenger joined your lobby.\nCode: ${lobby.code || "—"}`,
-        });
-      }
-
-      // ✅ Host waiting timer: 60s to get a challenger.
-      if (online.role === "host" && !lobby.guest_id && lobby.host_id) {
-        if (!online.hostWaitStartedAt) online.hostWaitStartedAt = Date.now();
-        const waitedMs = Date.now() - online.hostWaitStartedAt;
-        if (waitedMs >= 60_000) {
-          // Expire room creation.
-          try {
-            if (online.lobbyId) {
-              const ok = await sbDeleteLobby(online.lobbyId);
-              if (!ok) await sbCloseAndNukeLobby(online.lobbyId, { terminateReason: "expired" });
-            }
-          } catch {
-            // ignore
-          } finally {
-            stopPolling();
-            myPlayer.value = null;
-            screen.value = "mode";
-            closeModal();
-            showModal({ title: "Room Creation Expired", tone: "bad", message: "No one joined within 60 seconds." });
-          }
-          return;
-        }
-      }
-
-      if (online.role === "host" && prevGuest && !lobby.guest_id && lobby.host_id) {
-        myPlayer.value = null;
-        game.turnStartedAt = null;
-        game.battleClockLastTickAt = null;
-        online.waitingForOpponent = true;
-        online.hostWaitStartedAt = Date.now();
-
-        // ✅ Reset round assignment so the next challenger gets a fresh random P1/P2.
-        (async () => {
-          try {
-            const meta = lobby.state?.meta ? lobby.state.meta : {};
-            game.boardW = 10;
-            game.boardH = 6;
-            game.allowFlip = allowFlip.value;
-            game.resetGame();
-            const snapshot = buildSyncedState({ ...meta, players: null, started_at: null, roundSeed: null });
-            const nextVersion = Number(lobby.version || 0) + 1;
-            await sbForcePatchState(lobby.id, {
-              state: snapshot,
-              version: nextVersion,
-              status: "waiting",
-              updated_at: new Date().toISOString(),
-            });
-          } catch {
-            // ignore
-          }
-        })();
-        showModal({
-          title: "Opponent Left",
-          tone: "bad",
-          message: "Your opponent left.\nThis lobby will stay open and wait for a new challenger.",
-          actions: [
-            {
-              label: "OK",
-              tone: "primary",
-              onClick: () => {
-                showWaitingForOpponentModal(lobby.code || online.code);
-              },
-            },
-          ],
-        });
-      }
-
-      online.waitingForOpponent = !(lobby.host_id && lobby.guest_id && lobby?.state?.meta?.players);
-
-      // If the match is ready, ensure the waiting modal is gone.
-      if (!online.waitingForOpponent && modal.open && modal.title === "Waiting for Opponent") {
-        closeModal();
-      }
-
-      if (lobby.host_id && lobby.guest_id) {
-        await ensureOnlineInitialized(lobby);
-      }
+      // seed seq from lobby (authoritative)
+      online.lastSeq = Math.max(Number(online.lastSeq || 0), Number(lobby.last_seq || 0));
 
       maybeSetMyPlayerFromLobby(lobby);
 
-      const v = Number(lobby.version || 0);
-      const st = lobby.state || null;
-
-      if (st && v && v > (online.lastAppliedVersion || 0)) {
-        online.lastAppliedVersion = v;
-        online.lastSeenUpdatedAt = lobby.updated_at || null;
-        applySyncedState(st);
+      if (String(lobby.status) === "closed") {
+        showModal({ title: "Lobby closed", tone: "bad", message: "The lobby was closed." });
+        await leaveOnlineLobby("closed");
+        return;
       }
 
-      if (!firstPollDone) {
-        firstPollDone = true;
-        // Allow interaction after the first successful paint + poll.
-        uiLock.label = "Loaded";
-        uiLock.hint = "Entering match…";
-        stopUiLockAfterPaint(700);
+      // Host initializes match once both players are present.
+      if (online.role === "host") {
+        await ensureOnlineInitialized(lobby);
       }
     } catch {
-      // keep polling quietly
+      // ignore transient errors
     } finally {
       onlineSyncing.value = false;
     }
-
-    // Adaptive polling:
-    // - If Realtime is active, keep polling light (presence/TTL + recovery).
-    // - Otherwise poll aggressively for responsiveness.
-    const fast = !online.waitingForOpponent && (game.phase === "draft" || game.phase === "place");
-    const ms = online.rtEnabled ? (fast ? 1100 : 1700) : (fast ? 260 : 650);
-    if (online.polling) online.pollTimer = setTimeout(pollLoop, ms);
-  };
-
-  // Kick immediately.
-  online.pollTimer = setTimeout(pollLoop, 0);
+  }, 700);
 }
 
 /* =========================
@@ -2796,8 +2423,7 @@ watch(
     online.localDirty = true;
 
     if (pushDebounceTimer) clearTimeout(pushDebounceTimer);
-    // Slightly tighter debounce improves perceived latency without spamming.
-    pushDebounceTimer = setTimeout(() => pushMyState("watch"), 35);
+    pushDebounceTimer = setTimeout(() => pushMyState("watch"), 80);
   }
 );
 
@@ -2810,51 +2436,27 @@ async function onResetClick() {
     return;
   }
 
-  // Prefer a single author for round resets to avoid version fights.
-  // Host resets the round; guest simply waits for the new state.
-  if (online.role !== "host") {
-    game.resetGame();
-    return;
-  }
-
+  // Online reset: host creates a fresh round snapshot and broadcasts it via pb_moves.
   try {
     const lobby = await sbSelectLobbyById(online.lobbyId);
-    if (!lobby) return;
+    if (!lobby || !lobby.host_key || !lobby.guest_key) return;
 
-    if (!lobby.host_id || !lobby.guest_id) {
-      showModal({
-        title: "Rematch Failed",
-        tone: "bad",
-        message: "Opponent is no longer in the lobby.",
-        actions: [{ label: "OK", tone: "primary", onClick: () => stopAndExitToMenu("Opponent left.") }],
-      });
+    if (online.role !== "host") {
+      showToast("Only the host can reset the match.");
       return;
     }
 
-    const meta = lobby.state?.meta ? lobby.state.meta : {};
+    const meta = {};
     const nextRound = Number(meta.round || 0) + 1;
-
-    const { players } = makeRandomPlayers(lobby.host_id, lobby.guest_id);
+    const { players } = makeRandomPlayers(lobby.host_key, lobby.guest_key);
 
     game.boardW = 10;
     game.boardH = 6;
     game.allowFlip = allowFlip.value;
     game.resetGame();
 
-    const snapshot = buildSyncedState({
-      ...meta,
-      players,
-      round: nextRound,
-      roundSeed: makeRoundSeed(),
-      started_at: new Date().toISOString(),
-    });
-    const nextVersion = Number(lobby.version || 0) + 1;
-
-    await sbForcePatchState(online.lobbyId, {
-      state: snapshot,
-      version: nextVersion,
-      updated_at: new Date().toISOString(),
-    });
+    // Broadcast new snapshot
+    await pushMyState("reset");
   } catch {
     game.resetGame();
   }
@@ -3017,7 +2619,7 @@ function onPrimaryMatchAction() {
         onYes: () => {
           game.surrender(myPlayer.value);
           online.localDirty = true;
-          pushMyState("surrender");
+          pushMyMove("surrender", { player: myPlayer.value }, { withState: false });
         },
       });
       return;
@@ -3205,7 +2807,7 @@ async function refreshPublicLobbies() {
     // Only show lobbies that are still valid for joining (and NOT quick-match hidden rooms).
     publicLobbies.value = list.filter((l) => {
       if (!(lobbyPlayerCount(l) > 0) || isLobbyExpired(l)) return false;
-      const name = String(l?.lobby_name || "");
+      const name = String(l?.code || "");
       if (name === "__QM__") return false;
       const meta = l?.state?.meta || {};
       if (meta?.kind === "quickmatch") return false;
@@ -3230,10 +2832,10 @@ async function refreshMyPrivateLobbies() {
     const me = getGuestId();
     // Your own waiting private lobbies (so you can re-enter / copy code)
     const q = [
-      "select=id,code,status,is_private,lobby_name,updated_at,host_id,guest_id,state,version",
+      "select=id,code,status,is_private,updated_at,host_key,guest_key",
       "status=eq.waiting",
       "is_private=eq.true",
-      `host_id=eq.${encodeURIComponent(me)}`,
+      `host_key=eq.${encodeURIComponent(me)}`,
       "order=updated_at.desc",
       "limit=20",
     ].join("&");
@@ -3261,7 +2863,7 @@ async function joinPublicLobby(lobby) {
 
     // Re-check freshness so you can't join an expired lobby from a stale list.
     const fresh = await sbSelectLobbyById(lobby.id);
-    if (!fresh || isLobbyExpired(fresh) || fresh.guest_id) {
+    if (!fresh || isLobbyExpired(fresh) || fresh.guest_key) {
       closeModal();
       // Best-effort cleanup so it won't appear again.
       if (fresh) cleanupLobbyIfNeeded(fresh, { reason: "join_public_expired" });
@@ -3313,7 +2915,7 @@ async function joinByCode() {
       return;
     }
 
-    if (lobby.guest_id) {
+    if (lobby.guest_key) {
       closeModal();
       showModal({ title: "Lobby Full", tone: "bad", message: "That lobby already has a guest." });
       return;
@@ -3414,7 +3016,7 @@ async function lobbySearchOrJoin() {
 
   // Otherwise, try to find a public room by name (client-side filter over current list).
   const list = Array.isArray(publicLobbies.value) ? publicLobbies.value : publicLobbies;
-  const found = (list || []).find((l) => String(l?.lobby_name || "").toLowerCase().includes(term.toLowerCase()));
+  const found = (list || []).find((l) => String(l?.code || "").toLowerCase().includes(term.toLowerCase()));
   if (found) {
     await joinPublicLobby(found);
     return;
@@ -3544,7 +3146,7 @@ async function startQuickMatchAuto() {
 
       // Check if someone joined.
       const fresh = hostLobbyId ? await sbSelectLobbyById(hostLobbyId) : null;
-      if (fresh?.guest_id) {
+      if (fresh?.guest_key) {
         if (uiTimer) window.clearInterval(uiTimer);
         closeModal();
 
@@ -3557,11 +3159,6 @@ async function startQuickMatchAuto() {
       }
 
       await new Promise((r) => setTimeout(r, 850));
-    }
-
-    if (cancelled) {
-      // User cancelled: do not show timeout / "No one is playing" flow.
-      return;
     }
 
     // Timeout: no opponent.
@@ -3585,211 +3182,68 @@ async function startQuickMatchAuto() {
 
 
 async function sbEnsureQuickMatchAcceptState(lobbyId) {
-  const fresh = await sbSelectLobbyById(lobbyId);
-  if (!fresh) throw new Error("Lobby not found");
-  const now = Date.now();
-  const st = normalizeLobbyState(fresh.state);
-  const qa = st.qmAccept;
-
-  // Start a new accept window if missing / invalid / expired.
-  if (!qa || !qa.expiresAt || Number(qa.expiresAt) <= now) {
-    const startedAt = now;
-    const expiresAt = now + 10_000;
-    st.qmAccept = { startedAt, expiresAt, host: null, guest: null, declinedBy: null };
-
-    const nextVersion = Number(fresh.version || 0) + 1;
-    await sbPatchStateWithVersionGuard(fresh.id, fresh.version, {
-      state: st,
-      version: nextVersion,
-      updated_at: new Date().toISOString(),
-    });
-
-    return { ...st.qmAccept, version: nextVersion };
-  }
-
-  return { ...qa, version: Number(fresh.version || 0) };
+  // Client-side accept window; lobby row holds host_ready/guest_ready.
+  return { startedAt: Date.now(), expiresAt: Date.now() + 10_000 };
 }
 
 async function sbSetQuickMatchAccept(lobbyId, role, accepted) {
-  const fresh = await sbSelectLobbyById(lobbyId);
-  if (!fresh) return null;
-  const st = normalizeLobbyState(fresh.state);
+  // role is "host" | "guest"
+  const patch = {};
+  if (role === "host") patch.host_ready = !!accepted;
+  if (role === "guest") patch.guest_ready = !!accepted;
 
-  // Ensure accept window exists
-  if (!st.qmAccept || !st.qmAccept.expiresAt) {
-    st.qmAccept = { startedAt: Date.now(), expiresAt: Date.now() + 10_000, host: null, guest: null, declinedBy: null };
-  }
-
-  if (accepted === true) {
-    st.qmAccept[role] = true;
+  // If declined, close lobby (host) or release guest slot (guest)
+  if (accepted === false) {
+    patch.status = "closed";
+    if (role === "guest") patch.guest_key = null;
   } else {
-    st.qmAccept[role] = false;
-    st.qmAccept.declinedBy = role;
+    // keep waiting/playing as-is
+    patch.updated_at = new Date().toISOString();
   }
 
-  const nextVersion = Number(fresh.version || 0) + 1;
-  return await sbPatchStateWithVersionGuard(fresh.id, fresh.version, {
-    state: st,
-    version: nextVersion,
-    updated_at: new Date().toISOString(),
-  });
+  try {
+    return await sbPatchLobby(lobbyId, patch);
+  } catch {
+    return null;
+  }
 }
 
 async function quickMatchAcceptFlow(lobbyId, role) {
-  // Ensure we have a shared 10s accept window.
-  const qa = await sbEnsureQuickMatchAcceptState(lobbyId);
-  const expiresAt = Number(qa.expiresAt) || (Date.now() + 10_000);
+  const windowInfo = await sbEnsureQuickMatchAcceptState(lobbyId);
+  const startedAt = Number(windowInfo.startedAt || Date.now());
+  const expiresAt = Number(windowInfo.expiresAt || (startedAt + 10_000));
 
+  // Show accept modal and drive the local progress bar UI
   qmAccept.open = true;
-  qmAccept.lobbyId = lobbyId;
-  qmAccept.role = role;
+  qmAccept.startedAt = startedAt;
   qmAccept.expiresAt = expiresAt;
-  qmAccept.myAccepted = false;
-  qmAccept.statusLine = "";
+  qmAccept.role = role;
 
-  let done = false;
-  let ok = false;
-  /** @type {"self_timeout"|"self_decline"|"opponent_not_accept"|"unknown"} */
-  let failReason = "unknown";
-  let skipFailModal = false;
+  const myDecision = await new Promise((resolve) => {
+    qmAccept._resolve = resolve;
+  });
 
-  const tick = () => {
-    if (!qmAccept.open) return;
-    const rem = Math.max(0, qmAccept.expiresAt - Date.now());
-    qmAccept.remainingMs = rem;
-    qmAccept.progress = Math.max(0, Math.min(1, rem / 10_000));
-    qmAccept.pulse = rem <= 5_000;
-  };
+  qmAccept._resolve = null;
+  qmAccept.open = false;
 
-  tick();
-  const uiInt = window.setInterval(tick, 50);
+  await sbSetQuickMatchAccept(lobbyId, role, myDecision === true);
 
-  // Snapshot before we close the modal (closeQmAccept resets state).
-  let myAcceptedSnapshot = false;
-
-  try {
-    while (!done) {
-      tick();
-
-      // If the user manually declined (qmDecline) we close the overlay.
-      // Exit immediately and let qmDecline own the UX messaging.
-      if (!qmAccept.open && qmAccept.outcome) {
-        failReason = /** @type {any} */ (qmAccept.outcome);
-        ok = false;
-        done = true;
-        skipFailModal = !!qmAccept.silentFail;
-        break;
-      }
-
-      // Timeout
-      if (Date.now() >= qmAccept.expiresAt) {
-        myAcceptedSnapshot = !!qmAccept.myAccepted;
-
-        // Mark timeout as decline for this role if we didn't accept.
-        if (!qmAccept.myAccepted) {
-          failReason = "self_timeout";
-          qmAccept.outcome = "self_timeout";
-          try {
-            await sbSetQuickMatchAccept(lobbyId, role, false);
-          } catch {}
-        } else {
-          // I accepted but the other side didn't.
-          failReason = "opponent_not_accept";
-          qmAccept.outcome = "opponent_not_accept";
-        }
-
-        done = true;
-        ok = false;
-        break;
-      }
-
-      const fresh = await sbSelectLobbyById(lobbyId);
-      if (!fresh) {
-        done = true;
-        ok = false;
-        break;
-      }
-
-      const st = normalizeLobbyState(fresh.state);
-      const q = st.qmAccept || {};
-      const hostA = q.host;
-      const guestA = q.guest;
-      const declinedBy = q.declinedBy;
-
-      // Someone declined / timed out
-      if (declinedBy || hostA === false || guestA === false) {
-        myAcceptedSnapshot = !!qmAccept.myAccepted;
-
-        if (String(declinedBy || "").toLowerCase() === String(role || "").toLowerCase()) {
-          failReason = "self_decline";
-        } else if ((role === "host" && hostA === false) || (role === "guest" && guestA === false)) {
-          failReason = "self_decline";
-        } else {
-          failReason = "opponent_not_accept";
-        }
-
-        qmAccept.outcome = failReason;
-
-        done = true;
-        ok = false;
-        break;
-      }
-
-      // Both accepted
-      if (hostA === true && guestA === true) {
-        done = true;
-        ok = true;
-        break;
-      }
-
-      await new Promise((r) => setTimeout(r, 250));
-    }
-  } finally {
-    window.clearInterval(uiInt);
-    closeQmAccept();
-  }
-
-  if (!ok) {
-    // Cleanup lobby so it doesn't get stuck.
-    try {
-      await sbDeleteLobby(lobbyId);
-    } catch {}
-
-    const msg =
-      failReason === "self_timeout"
-        ? "Failed to accept match making."
-        : failReason === "self_decline"
-          ? "You declined the matchmaking."
-          : "Opponent did not accept.";
-
-    if (!skipFailModal) {
-      // Always return player to menu if accept flow fails.
-      screen.value = "mode";
-      showModal({
-        title: "Match Cancelled",
-        tone: "bad",
-        message: msg,
-        actions: [{ label: "OK", tone: "primary", onClick: () => (screen.value = "mode") }],
-      });
-    }
-  }
-
-  return ok;
+  // If declined: return false so caller can show proper messaging
+  return myDecision === true;
 }
 
 
 async function sbQuickMatch() {
-  // Quick Match rooms are hidden from the lobby browser by lobby_name="__QM__"
+  // Quick Match rooms are hidden from the lobby browser by ="__QM__"
   const me = getGuestId();
 
   // 1) Try to claim the oldest waiting quickmatch room
   const q = [
-    "select=id,code,status,is_private,lobby_name,updated_at,host_id,guest_id,state,version",
+    "select=id,code,status,is_private,updated_at,host_key,guest_key",
     "status=eq.waiting",
     "is_private=eq.false",
-    "guest_id=is.null",
-    "mode=eq.quick",
-    "order=updated_at.asc",
+    "guest_key=is.null",
+        "order=updated_at.asc",
     "limit=6",
   ].join("&");
 
@@ -3821,9 +3275,9 @@ async function sbQuickMatch() {
       continue;
     }
 
-    if (lobby.host_id === me) continue;
+    if (lobby.host_key === me) continue;
 
-    // Claim it (atomic PATCH guarded by guest_id is null + status waiting)
+    // Claim it (atomic PATCH guarded by guest_key is null + status waiting)
     const joined = await sbJoinLobby(lobby.id);
     if (joined?.id) return { lobby: joined, role: "guest" };
   }
@@ -4028,18 +3482,8 @@ onMounted(() => {
 
   loadAudioPrefs();
 
-  // Try to autoplay menu BGM on the welcome/menu screens.
-  // Note: some browsers may block autoplay until a user gesture.
-  ensureMenuBgm();
-  tryPlayMenuBgm();
-  // Also retry on the first user interaction anywhere.
-  try {
-    const resumeBgm = () => {
-      tryPlayMenuBgm();
-    };
-    window.addEventListener("pointerdown", resumeBgm, { once: true, passive: true });
-    window.addEventListener("keydown", resumeBgm, { once: true });
-  } catch {}
+  // BGM now starts only when the player clicks a UI button (see uiClick()).
+
 
   onViewportChange();
   try { window.setTimeout(() => maybeWarnMobile(), 900); } catch {}
@@ -4078,15 +3522,14 @@ onMounted(() => {
 
     const changed = game.checkAndApplyTimeout?.(nowTick.value);
     if (changed) {
-      // If a timeout just triggered, confirm against server once to avoid false timeouts
-      // when the opponent placed a move right on the edge.
-      const localMoveSeq = Number(game.moveSeq || 0);
-      (async () => {
-        const ok = await confirmTimeoutWithServer(localMoveSeq);
-        if (!ok) return;
-        online.localDirty = true;
-        pushMyState("timeout");
-      })();
+      online.localDirty = true;
+      // Grace window (fairness): wait a bit before committing timeout.
+      window.setTimeout(() => {
+        // Only commit if we are still in gameover due to timeout.
+        if (game?.phase === "gameover" && game?.lastMove?.type === "timeout") {
+          pushMyMove("timeout", { player: game.lastMove.player }, { withState: false });
+        }
+      }, 1000);
     }
   }, 250);
 });

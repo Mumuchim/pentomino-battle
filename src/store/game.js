@@ -211,9 +211,6 @@ export const useGameStore = defineStore("game", {
     },
 
     winner: null,
-    // Monotonic move sequence number to prevent state clobber under latency.
-    // Every authoritative action increments this and is embedded into lastMove.
-    moveSeq: 0,
     lastMove: null,
 
     // Timers (synced for online fairness)
@@ -226,10 +223,6 @@ export const useGameStore = defineStore("game", {
     // Battle clock (place phase): 2 minutes per player, counts down only on that player's turn
     battleClockSec: { 1: 120, 2: 120 },
     battleClockLastTickAt: null,
-
-    // Timeout confirmation (helps avoid false timeouts under latency)
-    timeoutPendingAt: null,
-    timeoutPendingPlayer: null,
 
     // Rematch handshake (online)
     rematch: { 1: false, 2: false },
@@ -276,7 +269,6 @@ export const useGameStore = defineStore("game", {
           board: JSON.parse(JSON.stringify(this.board)),
           draftBoard: JSON.parse(JSON.stringify(this.draftBoard)),
           winner: this.winner,
-          moveSeq: this.moveSeq,
           lastMove: JSON.parse(JSON.stringify(this.lastMove)),
           turnStartedAt: this.turnStartedAt,
           matchInvalid: this.matchInvalid,
@@ -313,7 +305,6 @@ export const useGameStore = defineStore("game", {
         this.board = snap.board;
         this.draftBoard = snap.draftBoard;
         this.winner = snap.winner;
-        this.moveSeq = Number(snap.moveSeq || 0);
         this.lastMove = snap.lastMove;
         this.turnStartedAt = snap.turnStartedAt;
         this.matchInvalid = snap.matchInvalid;
@@ -364,13 +355,8 @@ export const useGameStore = defineStore("game", {
 
       this.battleClockSec = { 1: 120, 2: 120 };
       this.battleClockLastTickAt = null;
-
-      this.timeoutPendingAt = null;
-      this.timeoutPendingPlayer = null;
       this.rematch = { 1: false, 2: false };
       this.rematchDeclinedBy = null;
-
-      this.moveSeq = 0;
 
       // local-only
       this.history = [];
@@ -405,12 +391,7 @@ export const useGameStore = defineStore("game", {
         }
       }
 
-      this.moveSeq = Number(this.moveSeq || 0) + 1;
-      this.lastMove = { type: "draft", player: this.draftTurn, piece: pieceKey, seq: this.moveSeq, at: Date.now() };
-
-      // Any successful action cancels pending timeout.
-      this.timeoutPendingAt = null;
-      this.timeoutPendingPlayer = null;
+      this.lastMove = { type: "draft", player: this.draftTurn, piece: pieceKey };
 
       // swap turns
       this.draftTurn = this.draftTurn === 1 ? 2 : 1;
@@ -564,20 +545,7 @@ export const useGameStore = defineStore("game", {
       );
 
       this.placedCount += 1;
-      this.moveSeq = Number(this.moveSeq || 0) + 1;
-      this.lastMove = {
-        type: "place",
-        player: this.currentPlayer,
-        piece: key,
-        x: anchorX,
-        y: anchorY,
-        seq: this.moveSeq,
-        at: Date.now(),
-      };
-
-      // Any successful action cancels pending timeout.
-      this.timeoutPendingAt = null;
-      this.timeoutPendingPlayer = null;
+      this.lastMove = { type: "place", player: this.currentPlayer, piece: key, x: anchorX, y: anchorY };
 
       // next player
       this.currentPlayer = this.currentPlayer === 1 ? 2 : 1;
@@ -660,32 +628,14 @@ export const useGameStore = defineStore("game", {
       this.battleClockSec = { ...this.battleClockSec, [p]: next };
       this.battleClockLastTickAt = now;
 
-      // If the turn changed (remote state) clear any pending timeout.
-      if (this.timeoutPendingPlayer && this.timeoutPendingPlayer !== p) {
-        this.timeoutPendingPlayer = null;
-        this.timeoutPendingAt = null;
-      }
-
       if (next > 0) return false;
 
-      // Time is at 0. Under latency, a last-second move can arrive slightly late.
-      // Require a short confirmation window before finalizing timeout.
-      const GRACE_MS = 1200;
-      if (this.timeoutPendingPlayer !== p) {
-        this.timeoutPendingPlayer = p;
-        this.timeoutPendingAt = now;
-        return false;
-      }
-
-      if (!this.timeoutPendingAt || now - this.timeoutPendingAt < GRACE_MS) return false;
-
-      // Confirmed timeout for current player
+      // Time's up for current player
       const loser = p;
       const winner = loser === 1 ? 2 : 1;
       this.phase = "gameover";
       this.winner = winner;
-      this.moveSeq = Number(this.moveSeq || 0) + 1;
-      this.lastMove = { type: "timeout", player: loser, seq: this.moveSeq, at: Date.now() };
+      this.lastMove = { type: "timeout", player: loser };
       return true;
     },
 
@@ -708,7 +658,128 @@ export const useGameStore = defineStore("game", {
       return this.phase === "draft" ? this.turnLimitDraftSec : this.turnLimitPlaceSec;
     },
 
-    checkAndApplyTimeout(now = Date.now()) {
+    // ----- ONLINE REMOTE APPLY (event-based sync) -----
+    applyRemoteDraftPick(pieceKey, player = null, serverTime = null) {
+      if (this.phase !== "draft") return false;
+      const k = String(pieceKey || "");
+      const p = Number(player || this.draftTurn || 1);
+      if (!k) return false;
+      if (!this.pool.includes(k)) return false;
+
+      // add to specified draft player
+      this.picks[p].push(k);
+
+      // remove from pool
+      this.pool = this.pool.filter((x) => x !== k);
+
+      // remove that piece from the draft board
+      for (let y = 0; y < this.boardH; y++) {
+        for (let x = 0; x < this.boardW; x++) {
+          const v = this.draftBoard[y][x];
+          if (v && v.pieceKey === k) this.draftBoard[y][x] = null;
+        }
+      }
+
+      this.lastMove = { type: "draft", player: p, piece: k };
+
+      // swap turns
+      this.draftTurn = p === 1 ? 2 : 1;
+      this.currentPlayer = this.draftTurn;
+      this.turnStartedAt = Date.now();
+
+      if (this.pool.length === 0) {
+        this.phase = "place";
+        this.battleClockSec = { 1: 120, 2: 120 };
+        this.battleClockLastTickAt = Date.now();
+        this.board = makeEmptyBoard(this.boardW, this.boardH);
+        this.remaining[1] = [...this.picks[1]];
+        this.remaining[2] = [...this.picks[2]];
+        this.currentPlayer = 1;
+        this.turnStartedAt = Date.now();
+        this.battleClockLastTickAt = Date.now();
+        this.selectedPieceKey = null;
+        this.rotation = 0;
+        this.flipped = false;
+      }
+      return true;
+    },
+
+    applyRemotePlace(payload = {}, serverTime = null) {
+      if (this.phase !== "place") return false;
+
+      const pieceKey = String(payload.pieceKey || "");
+      const x = Number(payload.x);
+      const y = Number(payload.y);
+      const rot = Number(payload.rot || 0);
+      const flipped = !!payload.flipped;
+      const player = Number(payload.player || this.currentPlayer || 1);
+
+      if (!pieceKey) return false;
+      if (!Number.isFinite(x) || !Number.isFinite(y)) return false;
+      if (!this.remaining[player]?.includes(pieceKey)) {
+        // If already applied, ignore.
+        return false;
+      }
+
+      // Compute cells for this piece transform
+      const base = PENTOMINOES[pieceKey];
+      if (!base) return false;
+      const cells = transformCells(base, rot, flipped);
+
+      // validate placement (bounds + empties)
+      for (const [dx, dy] of cells) {
+        const ax = x + dx;
+        const ay = y + dy;
+        if (!inBounds(ax, ay, this.boardW, this.boardH)) return false;
+        if (this.board[ay][ax]) return false;
+      }
+
+      for (const [dx, dy] of cells) {
+        const ax = x + dx;
+        const ay = y + dy;
+        this.board[ay][ax] = { player, pieceKey };
+      }
+
+      this.remaining[player] = this.remaining[player].filter((k) => k !== pieceKey);
+      this.placedCount += 1;
+      this.lastMove = { type: "place", player, piece: pieceKey, x, y };
+
+      // next player (server decides ordering; we mirror)
+      this.currentPlayer = player === 1 ? 2 : 1;
+      this.turnStartedAt = Date.now();
+      this.battleClockLastTickAt = Date.now();
+
+      // clear selection (don't disturb local too much)
+      if (this.selectedPieceKey === pieceKey) {
+        this.selectedPieceKey = null;
+        this.rotation = 0;
+        this.flipped = false;
+      }
+
+      if (!this.playerHasAnyMove(this.currentPlayer)) {
+        this.phase = "gameover";
+        this.winner = this.currentPlayer === 1 ? 2 : 1;
+      }
+
+      return true;
+    },
+
+    applyRemoteTimeout(player = null, serverTime = null) {
+      if (this.phase === "gameover") return false;
+      // Timeout loser is the player passed; winner is the other.
+      const loser = Number(player || this.currentPlayer || 1);
+      const winner = loser === 1 ? 2 : 1;
+      this.phase = "gameover";
+      this.winner = winner;
+      this.lastMove = { type: "timeout", player: loser };
+      return true;
+    },
+
+    applyRemoteSurrender(player = null, serverTime = null) {
+      return this.surrender(Number(player || this.currentPlayer || 1));
+    },
+
+checkAndApplyTimeout(now = Date.now()) {
       if (this.phase === "gameover") return false;
 
       // Draft: per-turn (single) timer
@@ -724,8 +795,7 @@ export const useGameStore = defineStore("game", {
         this.matchInvalidReason = `Player ${dodger} did not pick — automatically dodges the game.`;
         this.phase = "gameover";
         this.winner = null;
-        this.moveSeq = Number(this.moveSeq || 0) + 1;
-        this.lastMove = { type: "dodged", player: dodger, seq: this.moveSeq, at: Date.now() };
+        this.lastMove = { type: "dodged", player: dodger };
         return true;
       }
 
@@ -739,11 +809,7 @@ export const useGameStore = defineStore("game", {
       const winner = loser === 1 ? 2 : 1;
       this.phase = "gameover";
       this.winner = winner;
-      this.moveSeq = Number(this.moveSeq || 0) + 1;
-      this.lastMove = { type: "surrender", player: loser, seq: this.moveSeq, at: Date.now() };
-
-      this.timeoutPendingAt = null;
-      this.timeoutPendingPlayer = null;
+      this.lastMove = { type: "surrender", player: loser };
       return true;
     },
   },
