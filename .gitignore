@@ -1,4 +1,13 @@
+# =========================
+# ENV FILES (SECRETS) ✅
+# =========================
+.env
+.env.*
+!.env.example
+
+# =========================
 # Logs
+# =========================
 logs
 *.log
 npm-debug.log*
@@ -7,14 +16,29 @@ yarn-error.log*
 pnpm-debug.log*
 lerna-debug.log*
 
+# =========================
+# Dependencies
+# =========================
 node_modules
+
+# =========================
+# OS files
+# =========================
 .DS_Store
+
+# =========================
+# Build output
+# =========================
 dist
 dist-ssr
 coverage
+
+# Local config
 *.local
 
-# Editor directories and files
+# =========================
+# Editor directories & files
+# =========================
 .vscode/*
 !.vscode/extensions.json
 .idea
@@ -24,16 +48,28 @@ coverage
 *.sln
 *.sw?
 
+# =========================
+# TypeScript
+# =========================
 *.tsbuildinfo
 
+# =========================
+# ESLint cache
+# =========================
 .eslintcache
 
+# =========================
 # Cypress
+# =========================
 /cypress/videos/
 /cypress/screenshots/
 
+# =========================
 # Vitest
+# =========================
 __screenshots__/
 
+# =========================
 # Vite
+# =========================
 *.timestamp-*-*.mjs
