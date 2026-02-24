@@ -992,7 +992,8 @@ async function qmDecline() {
     await sbDeleteLobby(qmAccept.lobbyId);
   } catch {}
 
-  closeQmAccept();
+  // Close the overlay UI but keep outcome/silentFail so the accept-loop can read it.
+  qmAccept.open = false;
 
   showModal({
     title: "Matchmaking",
@@ -1310,12 +1311,7 @@ watch([bgmVolumeUi, sfxVolumeUi], () => {
     if (_onlineBgm) _onlineBgm.volume = bgmVolume.value;
   } catch {}
 
-  // If muted, stop bgm.
-  if (bgmVolume.value <= 0) {
-    stopMenuBgm();
-    stopCouchBgm();
-    stopOnlineBgm();
-  }
+  // If volume is 0, keep BGM playing silently (do not stop/reset).
 });
 const topPageTitle = computed(() => {
   if (screen.value === "auth") return "WELCOME"; // Welcome page
@@ -3428,6 +3424,11 @@ async function startQuickMatchAuto() {
       await new Promise((r) => setTimeout(r, 850));
     }
 
+    if (cancelled) {
+      // User cancelled: do not show timeout / "No one is playing" flow.
+      return;
+    }
+
     // Timeout: no opponent.
     if (uiTimer) window.clearInterval(uiTimer);
     try {
@@ -3892,8 +3893,18 @@ onMounted(() => {
 
   loadAudioPrefs();
 
-  // BGM now starts only when the player clicks a UI button (see uiClick()).
-
+  // Try to autoplay menu BGM on the welcome/menu screens.
+  // Note: some browsers may block autoplay until a user gesture.
+  ensureMenuBgm();
+  tryPlayMenuBgm();
+  // Also retry on the first user interaction anywhere.
+  try {
+    const resumeBgm = () => {
+      tryPlayMenuBgm();
+    };
+    window.addEventListener("pointerdown", resumeBgm, { once: true, passive: true });
+    window.addEventListener("keydown", resumeBgm, { once: true });
+  } catch {}
 
   onViewportChange();
   try { window.setTimeout(() => maybeWarnMobile(), 900); } catch {}
