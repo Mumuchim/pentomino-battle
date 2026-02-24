@@ -13,8 +13,6 @@ const screen = ref("auth");
 const loggedIn = ref(false);
 const allowFlip = ref(true);
 
-const logoUrl = new URL("./assets/logo.png", import.meta.url).href;
-
 const quick = reactive({
   lobbyName: "",
   isPrivate: false,
