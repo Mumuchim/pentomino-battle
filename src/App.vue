@@ -1729,7 +1729,7 @@ async function ensureSupabaseReadyOrExplain() {
 function stopPolling() {
   online.polling = false;
   onlineSyncing.value = false;
-  if (online.pollTimer) clearInterval(online.pollTimer);
+  if (online.pollTimer) clearTimeout(online.pollTimer);
   online.pollTimer = null;
 }
 
@@ -2144,8 +2144,15 @@ function buildSyncedState(meta = {}) {
       battleClockSec: deepClone(game.battleClockSec),
       battleClockLastTickAt: game.battleClockLastTickAt,
 
+      // Helps prevent false timeouts under latency
+      timeoutPendingAt: game.timeoutPendingAt,
+      timeoutPendingPlayer: game.timeoutPendingPlayer,
+
       // Needed for correct gameover messaging (surrender / timeout) across both clients.
       lastMove: deepClone(game.lastMove),
+
+      // Monotonic sequence to prevent last-write-wins clobber.
+      moveSeq: Number(game.moveSeq || 0),
     },
   };
 }
@@ -2153,10 +2160,27 @@ function buildSyncedState(meta = {}) {
 function applySyncedState(state) {
   if (!state || !state.game) return;
 
+  // ✅ Anti-clobber:
+  // If we have a newer local move that hasn't been reflected in the remote snapshot yet,
+  // ignore the remote state instead of resetting the board.
+  try {
+    const me = myPlayer.value;
+    const localLM = game.lastMove;
+    const remoteLM = state.game.lastMove;
+    const localSeq = Number(localLM?.seq || 0);
+    const remoteSeq = Number(remoteLM?.seq || 0);
+    const localByMe = !!me && !!localLM && Number(localLM.player) === Number(me);
+
+    if (online.localDirty && localByMe && localSeq && remoteSeq < localSeq) {
+      return;
+    }
+  } catch {
+    // ignore
+  }
+
   online.applyingRemote = true;
   try {
     const g = state.game;
-    online.localDirty = false;
 
     game.$patch({
       phase: g.phase,
@@ -2188,8 +2212,15 @@ function applySyncedState(state) {
       battleClockSec: g.battleClockSec,
       battleClockLastTickAt: g.battleClockLastTickAt,
 
+      timeoutPendingAt: g.timeoutPendingAt,
+      timeoutPendingPlayer: g.timeoutPendingPlayer,
+
       lastMove: g.lastMove,
+
+      moveSeq: Number(g.moveSeq || 0),
     });
+
+    online.localDirty = false;
   } finally {
     setTimeout(() => {
       online.applyingRemote = false;
@@ -2288,13 +2319,10 @@ async function pushMyState(reason = "") {
         updated_at: new Date().toISOString(),
       });
 
-      if (!updated) {
-        updated = await sbForcePatchState(online.lobbyId, {
-          state: snapshot,
-          version: Number(fresh.version || 0) + 1,
-          updated_at: new Date().toISOString(),
-        });
-      }
+      // IMPORTANT:
+      // Never force-overwrite gameplay state.
+      // Force-patching can clobber a newer opponent move (race), causing “move not saved / board resets”.
+      // If we still can't patch after refetching, keep localDirty=true so the next debounced push retries.
     }
 
     if (updated?.version) {
@@ -2396,7 +2424,7 @@ function startPollingLobby(lobbyId, role) {
 
   let firstPollDone = false;
 
-  online.pollTimer = setInterval(async () => {
+  const pollLoop = async () => {
     try {
       onlineSyncing.value = true;
 
@@ -2623,7 +2651,15 @@ function startPollingLobby(lobbyId, role) {
     } finally {
       onlineSyncing.value = false;
     }
-  }, 650);
+
+    // Adaptive polling: faster during active play, slower while waiting / gameover.
+    const fast = !online.waitingForOpponent && (game.phase === "draft" || game.phase === "place");
+    const ms = fast ? 260 : 650;
+    if (online.polling) online.pollTimer = setTimeout(pollLoop, ms);
+  };
+
+  // Kick immediately.
+  online.pollTimer = setTimeout(pollLoop, 0);
 }
 
 /* =========================
@@ -2662,7 +2698,8 @@ watch(
     online.localDirty = true;
 
     if (pushDebounceTimer) clearTimeout(pushDebounceTimer);
-    pushDebounceTimer = setTimeout(() => pushMyState("watch"), 80);
+    // Slightly tighter debounce improves perceived latency without spamming.
+    pushDebounceTimer = setTimeout(() => pushMyState("watch"), 35);
   }
 );
 

@@ -211,6 +211,9 @@ export const useGameStore = defineStore("game", {
     },
 
     winner: null,
+    // Monotonic move sequence number to prevent state clobber under latency.
+    // Every authoritative action increments this and is embedded into lastMove.
+    moveSeq: 0,
     lastMove: null,
 
     // Timers (synced for online fairness)
@@ -223,6 +226,10 @@ export const useGameStore = defineStore("game", {
     // Battle clock (place phase): 2 minutes per player, counts down only on that player's turn
     battleClockSec: { 1: 120, 2: 120 },
     battleClockLastTickAt: null,
+
+    // Timeout confirmation (helps avoid false timeouts under latency)
+    timeoutPendingAt: null,
+    timeoutPendingPlayer: null,
 
     // Rematch handshake (online)
     rematch: { 1: false, 2: false },
@@ -269,6 +276,7 @@ export const useGameStore = defineStore("game", {
           board: JSON.parse(JSON.stringify(this.board)),
           draftBoard: JSON.parse(JSON.stringify(this.draftBoard)),
           winner: this.winner,
+          moveSeq: this.moveSeq,
           lastMove: JSON.parse(JSON.stringify(this.lastMove)),
           turnStartedAt: this.turnStartedAt,
           matchInvalid: this.matchInvalid,
@@ -305,6 +313,7 @@ export const useGameStore = defineStore("game", {
         this.board = snap.board;
         this.draftBoard = snap.draftBoard;
         this.winner = snap.winner;
+        this.moveSeq = Number(snap.moveSeq || 0);
         this.lastMove = snap.lastMove;
         this.turnStartedAt = snap.turnStartedAt;
         this.matchInvalid = snap.matchInvalid;
@@ -355,8 +364,13 @@ export const useGameStore = defineStore("game", {
 
       this.battleClockSec = { 1: 120, 2: 120 };
       this.battleClockLastTickAt = null;
+
+      this.timeoutPendingAt = null;
+      this.timeoutPendingPlayer = null;
       this.rematch = { 1: false, 2: false };
       this.rematchDeclinedBy = null;
+
+      this.moveSeq = 0;
 
       // local-only
       this.history = [];
@@ -391,7 +405,12 @@ export const useGameStore = defineStore("game", {
         }
       }
 
-      this.lastMove = { type: "draft", player: this.draftTurn, piece: pieceKey };
+      this.moveSeq = Number(this.moveSeq || 0) + 1;
+      this.lastMove = { type: "draft", player: this.draftTurn, piece: pieceKey, seq: this.moveSeq, at: Date.now() };
+
+      // Any successful action cancels pending timeout.
+      this.timeoutPendingAt = null;
+      this.timeoutPendingPlayer = null;
 
       // swap turns
       this.draftTurn = this.draftTurn === 1 ? 2 : 1;
@@ -545,7 +564,20 @@ export const useGameStore = defineStore("game", {
       );
 
       this.placedCount += 1;
-      this.lastMove = { type: "place", player: this.currentPlayer, piece: key, x: anchorX, y: anchorY };
+      this.moveSeq = Number(this.moveSeq || 0) + 1;
+      this.lastMove = {
+        type: "place",
+        player: this.currentPlayer,
+        piece: key,
+        x: anchorX,
+        y: anchorY,
+        seq: this.moveSeq,
+        at: Date.now(),
+      };
+
+      // Any successful action cancels pending timeout.
+      this.timeoutPendingAt = null;
+      this.timeoutPendingPlayer = null;
 
       // next player
       this.currentPlayer = this.currentPlayer === 1 ? 2 : 1;
@@ -628,14 +660,32 @@ export const useGameStore = defineStore("game", {
       this.battleClockSec = { ...this.battleClockSec, [p]: next };
       this.battleClockLastTickAt = now;
 
+      // If the turn changed (remote state) clear any pending timeout.
+      if (this.timeoutPendingPlayer && this.timeoutPendingPlayer !== p) {
+        this.timeoutPendingPlayer = null;
+        this.timeoutPendingAt = null;
+      }
+
       if (next > 0) return false;
 
-      // Time's up for current player
+      // Time is at 0. Under latency, a last-second move can arrive slightly late.
+      // Require a short confirmation window before finalizing timeout.
+      const GRACE_MS = 1200;
+      if (this.timeoutPendingPlayer !== p) {
+        this.timeoutPendingPlayer = p;
+        this.timeoutPendingAt = now;
+        return false;
+      }
+
+      if (!this.timeoutPendingAt || now - this.timeoutPendingAt < GRACE_MS) return false;
+
+      // Confirmed timeout for current player
       const loser = p;
       const winner = loser === 1 ? 2 : 1;
       this.phase = "gameover";
       this.winner = winner;
-      this.lastMove = { type: "timeout", player: loser };
+      this.moveSeq = Number(this.moveSeq || 0) + 1;
+      this.lastMove = { type: "timeout", player: loser, seq: this.moveSeq, at: Date.now() };
       return true;
     },
 
@@ -674,7 +724,8 @@ export const useGameStore = defineStore("game", {
         this.matchInvalidReason = `Player ${dodger} did not pick — automatically dodges the game.`;
         this.phase = "gameover";
         this.winner = null;
-        this.lastMove = { type: "dodged", player: dodger };
+        this.moveSeq = Number(this.moveSeq || 0) + 1;
+        this.lastMove = { type: "dodged", player: dodger, seq: this.moveSeq, at: Date.now() };
         return true;
       }
 
@@ -688,7 +739,11 @@ export const useGameStore = defineStore("game", {
       const winner = loser === 1 ? 2 : 1;
       this.phase = "gameover";
       this.winner = winner;
-      this.lastMove = { type: "surrender", player: loser };
+      this.moveSeq = Number(this.moveSeq || 0) + 1;
+      this.lastMove = { type: "surrender", player: loser, seq: this.moveSeq, at: Date.now() };
+
+      this.timeoutPendingAt = null;
+      this.timeoutPendingPlayer = null;
       return true;
     },
   },
