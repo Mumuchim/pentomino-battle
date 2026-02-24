@@ -857,6 +857,7 @@
 <script setup>
 import { computed, onBeforeUnmount, onMounted, reactive, ref, watch } from "vue";
 import { useGameStore } from "./store/game";
+import { supabase as sbRealtime } from "./lib/supabase";
 
 import Board from "./components/Board.vue";
 import DraftPanel from "./components/DraftPanel.vue";
@@ -1653,6 +1654,10 @@ const online = reactive({
   waitingForOpponent: true,
   hostWaitStartedAt: null,
   lastHbSentAt: 0,
+
+  // Supabase Realtime (near-instant sync)
+  rtEnabled: false,
+  rtChannel: null,
 });
 
 const publicLobbies = ref([]);
@@ -1731,6 +1736,7 @@ function stopPolling() {
   onlineSyncing.value = false;
   if (online.pollTimer) clearTimeout(online.pollTimer);
   online.pollTimer = null;
+  teardownRealtimeLobby();
 }
 
 async function leaveOnlineLobby(reason = "left") {
@@ -2160,23 +2166,14 @@ function buildSyncedState(meta = {}) {
 function applySyncedState(state) {
   if (!state || !state.game) return;
 
-  // ✅ Anti-clobber:
-  // If we have a newer local move that hasn't been reflected in the remote snapshot yet,
-  // ignore the remote state instead of resetting the board.
+  // ✅ Anti-clobber (stronger): never apply an older move sequence.
+  // This prevents the visible “snap back” where an older remote snapshot briefly overwrites
+  // a newer local move (even if it later corrects itself).
   try {
-    const me = myPlayer.value;
-    const localLM = game.lastMove;
-    const remoteLM = state.game.lastMove;
-    const localSeq = Number(localLM?.seq || 0);
-    const remoteSeq = Number(remoteLM?.seq || 0);
-    const localByMe = !!me && !!localLM && Number(localLM.player) === Number(me);
-
-    if (online.localDirty && localByMe && localSeq && remoteSeq < localSeq) {
-      return;
-    }
-  } catch {
-    // ignore
-  }
+    const localSeq = Number(game.moveSeq || 0);
+    const remoteSeq = Number(state?.game?.moveSeq || 0);
+    if (remoteSeq && localSeq && remoteSeq < localSeq) return;
+  } catch {}
 
   online.applyingRemote = true;
   try {
@@ -2225,6 +2222,47 @@ function applySyncedState(state) {
     setTimeout(() => {
       online.applyingRemote = false;
     }, 0);
+  }
+}
+
+// ✅ Server-confirm a timeout before committing it (prevents false timeouts when a last-second
+// opponent move arrives slightly late).
+async function confirmTimeoutWithServer(localMoveSeq) {
+  try {
+    if (!online?.lobbyId) return true;
+    const lobby = await sbSelectLobbyById(online.lobbyId);
+    if (!lobby?.state?.game) return true;
+    const st = normalizeLobbyState(lobby.state);
+    const remoteSeq = Number(st?.game?.moveSeq || 0);
+    const remoteLM = st?.game?.lastMove;
+
+    // If server has a same-seq but different lastMove type, trust server.
+    // (Prevents a local timeout from winning a race against an opponent place that landed first.)
+    if (remoteSeq && localMoveSeq && remoteSeq === localMoveSeq) {
+      const lt = String(game?.lastMove?.type || "");
+      const rt = String(remoteLM?.type || "");
+      if (lt === "timeout" && rt && rt !== "timeout") {
+        applySyncedState(st);
+        return false;
+      }
+    }
+
+    // If server already has a newer move than our local timeout, do NOT push timeout.
+    if (remoteSeq && localMoveSeq && remoteSeq > localMoveSeq) {
+      applySyncedState(st);
+      return false;
+    }
+
+    // If server is not actually gameover anymore (or never was), do NOT push timeout.
+    if (String(st?.game?.phase || "") !== "gameover") {
+      applySyncedState(st);
+      return false;
+    }
+
+    return true;
+  } catch {
+    // If we can't confirm, fall back to pushing (better than hanging).
+    return true;
   }
 }
 
@@ -2391,6 +2429,61 @@ async function ensureOnlineInitialized(lobby) {
   }
 }
 
+function teardownRealtimeLobby() {
+  try {
+    if (online.rtChannel && sbRealtime) {
+      try { sbRealtime.removeChannel(online.rtChannel); } catch {}
+    }
+  } catch {}
+  online.rtChannel = null;
+  online.rtEnabled = false;
+}
+
+function setupRealtimeLobby(lobbyId) {
+  teardownRealtimeLobby();
+  try {
+    if (!sbRealtime || !lobbyId) return false;
+
+    const channel = sbRealtime
+      .channel(`pb_lobby_${lobbyId}`)
+      .on(
+        "postgres_changes",
+        { event: "UPDATE", schema: "public", table: "pb_lobbies", filter: `id=eq.${lobbyId}` },
+        (payload) => {
+          try {
+            const row = payload?.new;
+            if (!row) return;
+
+            // Keep code/status in sync
+            if (row.code) online.code = row.code;
+
+            // Apply only newer versions
+            const v = Number(row.version || 0);
+            if (v && v <= Number(online.lastAppliedVersion || 0)) return;
+            online.lastAppliedVersion = v;
+            online.lastSeenUpdatedAt = row.updated_at || online.lastSeenUpdatedAt;
+
+            maybeSetMyPlayerFromLobby(row);
+
+            const st = normalizeLobbyState(row.state);
+            if (st?.game) applySyncedState(st);
+          } catch {
+            // ignore
+          }
+        }
+      )
+      .subscribe((status) => {
+        online.rtEnabled = status === "SUBSCRIBED";
+      });
+
+    online.rtChannel = channel;
+    return true;
+  } catch {
+    teardownRealtimeLobby();
+    return false;
+  }
+}
+
 function startPollingLobby(lobbyId, role) {
   // ✅ Prevent early clicks while the online screen + first poll are not fully rendered.
   startUiLock({ label: "Connecting…", hint: "Establishing link to lobby…", minMs: 900 });
@@ -2412,6 +2505,9 @@ function startPollingLobby(lobbyId, role) {
   online.localDirty = false;
   online.hostWaitStartedAt = role === "host" ? Date.now() : null;
   myPlayer.value = null;
+
+  // Near-instant sync via Supabase Realtime (polling remains as fallback + presence/TTL logic)
+  setupRealtimeLobby(lobbyId);
 
   screen.value = "online";
   game.boardW = 10;
@@ -2652,9 +2748,11 @@ function startPollingLobby(lobbyId, role) {
       onlineSyncing.value = false;
     }
 
-    // Adaptive polling: faster during active play, slower while waiting / gameover.
+    // Adaptive polling:
+    // - If Realtime is active, keep polling light (presence/TTL + recovery).
+    // - Otherwise poll aggressively for responsiveness.
     const fast = !online.waitingForOpponent && (game.phase === "draft" || game.phase === "place");
-    const ms = fast ? 260 : 650;
+    const ms = online.rtEnabled ? (fast ? 1100 : 1700) : (fast ? 260 : 650);
     if (online.polling) online.pollTimer = setTimeout(pollLoop, ms);
   };
 
@@ -3980,8 +4078,15 @@ onMounted(() => {
 
     const changed = game.checkAndApplyTimeout?.(nowTick.value);
     if (changed) {
-      online.localDirty = true;
-      pushMyState("timeout");
+      // If a timeout just triggered, confirm against server once to avoid false timeouts
+      // when the opponent placed a move right on the edge.
+      const localMoveSeq = Number(game.moveSeq || 0);
+      (async () => {
+        const ok = await confirmTimeoutWithServer(localMoveSeq);
+        if (!ok) return;
+        online.localDirty = true;
+        pushMyState("timeout");
+      })();
     }
   }, 250);
 });
