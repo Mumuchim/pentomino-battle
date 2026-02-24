@@ -1677,6 +1677,15 @@ function getGuestId() {
   return id;
 }
 
+
+function makeCode() {
+  // 6-char lobby code without confusing characters (0/O, 1/I, etc.)
+  const chars = "ABCDEFGHJKMNPQRSTUVWXYZ23456789";
+  let s = "";
+  for (let i = 0; i < 6; i++) s += chars[Math.floor(Math.random() * chars.length)];
+  return s;
+}
+
 function getGuestName() {
   const k = "pb_guest_name";
   let name = localStorage.getItem(k);
