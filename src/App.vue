@@ -2141,6 +2141,46 @@ function buildSyncedState(meta = {}) {
       lastMove: deepClone(game.lastMove),
     },
   };
+
+// ✅ Full snapshot serializer used by pushMyState().
+// NOTE: This was previously referenced but missing, which can break online sync.
+function serializeGame(extraMeta = null) {
+  const meta = {};
+  try {
+    if (extraMeta && typeof extraMeta === "object") Object.assign(meta, extraMeta);
+  } catch {}
+  return buildSyncedState(meta);
+}
+
+// ✅ Heartbeat: keeps lobby 'updated_at' fresh and stores last-seen timestamps per role.
+// This helps auto-cleanup stale "ghost" rooms (crashed tab, device sleep, etc.)
+async function touchLobbyHeartbeat() {
+  try {
+    if (!isOnline.value) return;
+    if (!online.lobbyId) return;
+    if (!online.role) return;
+
+    const now = Date.now();
+    if (online.lastHbSentAt && now - online.lastHbSentAt < 3000) return;
+    online.lastHbSentAt = now;
+
+    const lobby = await sbSelectLobbyById(online.lobbyId);
+    if (!lobby) return;
+
+    const st = normalizeLobbyState(lobby.state);
+    const hb = (st.meta.heartbeat && typeof st.meta.heartbeat === "object") ? st.meta.heartbeat : {};
+    hb[online.role] = now;
+    st.meta.heartbeat = hb;
+
+    await sbPatchLobby(online.lobbyId, {
+      state: st,
+      updated_at: new Date(now).toISOString(),
+    });
+  } catch {
+    // ignore
+  }
+}
+
 }
 
 
@@ -2395,9 +2435,36 @@ function startPollingLobby(lobbyId, role) {
 
       maybeSetMyPlayerFromLobby(lobby);
 
+      // Heartbeat (best-effort): keeps the lobby fresh so stale rooms can be cleaned.
+      // We patch at most once every ~3s.
+      if (isOnline.value && online.lobbyId && online.role) {
+        const now = Date.now();
+        if (!online.lastHbSentAt || now - online.lastHbSentAt > 3000) {
+          try {
+            const st = normalizeLobbyState(lobby.state);
+            const hb = (st.meta.heartbeat && typeof st.meta.heartbeat === "object") ? st.meta.heartbeat : {};
+            hb[online.role] = now;
+            st.meta.heartbeat = hb;
+            online.lastHbSentAt = now;
+            // Fire-and-forget patch; don't block the poll loop.
+            sbPatchLobby(online.lobbyId, { state: st, updated_at: new Date(now).toISOString() }).catch(() => {});
+          } catch {}
+        }
+      }
+
       if (String(lobby.status) === "closed") {
-        showModal({ title: "Lobby closed", tone: "bad", message: "The lobby was closed." });
+        // ✅ Important: leaving the lobby is not enough—also exit the online screen,
+        // otherwise players can get stuck in an empty room after "Lobby closed".
         await leaveOnlineLobby("closed");
+        stopPolling();
+        myPlayer.value = null;
+        screen.value = "mode";
+        showModal({
+          title: "Lobby closed",
+          tone: "bad",
+          message: "The lobby was closed.",
+          actions: [{ label: "OK", tone: "primary" }],
+        });
         return;
       }
 
