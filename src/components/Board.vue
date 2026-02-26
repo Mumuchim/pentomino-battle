@@ -547,7 +547,7 @@ function ghostBlockStyle(b) {
   position: relative;
   /* Fill the right panel; the inner sizer keeps the aspect ratio. */
   flex: 1 1 auto;
-  min-height: 0;
+  min-height: 300px;
   width: 100%;
   border-radius: 18px;
   display: flex;
@@ -555,11 +555,16 @@ function ghostBlockStyle(b) {
   justify-content: center;
 }
 
-/* Small devices: keep the board from collapsing too far and tighten auxiliary UI.
-   (This is paired with enabling scroll in App.vue for narrow/short viewports.) */
+/* Mobile: ensure boardShell has real height so the ResizeObserver
+   can calculate the board size correctly in the side-by-side layout */
+@media (max-width: 980px){
+  .boardShell{ min-height: 340px; }
+}
+
+/* Small devices */
 @media (max-width: 520px){
   .boardWrap{ gap: 10px; }
-  .boardShell{ min-height: 240px; }
+  .boardShell{ min-height: 280px; }
   .legend{ flex-wrap: wrap; gap: 10px; font-size: 12px; }
 }
 
