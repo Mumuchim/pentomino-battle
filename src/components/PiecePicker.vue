@@ -113,7 +113,16 @@ function canSelect(player) {
 
 function onPick(player, key) {
   if (!canSelect(player)) return;
+  // Clear any existing staged piece when picking a new one
+  game.clearStaged?.();
   game.selectPiece(key);
+  // Immediately activate the board-size drag ghost — no need to drag first
+  // The ghost will follow the cursor from the moment of click
+  if (game.ui?.enableDragPlace) {
+    game.drag.active = true;
+    game.drag.pieceKey = key;
+    // Position will be set on first pointermove via window listener
+  }
 }
 
 function btnClass(player, key) {
@@ -208,14 +217,17 @@ function onPiecePointerUp(e) {
 
   const t = game.drag?.target;
   if (t && t.inside) {
-    const ok = game.placeAt(t.x, t.y);
+    // Stage the piece at the drop target (requires Submit to finalize)
+    const ok = game.stageAt(t.x, t.y);
     if (!ok) {
       playBuzz();
-      game.clearSelection();
+      // Keep piece selected so player can try another spot
     }
+    // End drag visual — piece is now staged on board
+    game.endDrag();
   } else {
-    // Dropped outside board: snap back to panel (clear selection)
-    game.clearSelection();
+    // Dropped outside board: just end drag, keep piece selected
+    game.endDrag();
   }
 }
 
