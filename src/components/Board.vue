@@ -123,6 +123,8 @@ function recomputeSizer() {
   const w = Math.floor(cell * game.boardW);
   const h = Math.floor(cell * game.boardH);
   sizerPx.value = { w, h };
+  // Expose the per-cell pixel size so the drag ghost can match board tile size
+  if (game.drag) game.drag.cellPx = Math.floor(cell);
 }
 
 const sizerStyle = computed(() => {
@@ -132,12 +134,21 @@ const sizerStyle = computed(() => {
   return { width: `${w}px`, height: `${h}px` };
 });
 
+// Global pointer tracker: runs whenever a drag is active so the board
+// gets hover/target updates even when the pointer is captured elsewhere.
+function onGlobalPointerMove(e) {
+  if (!game.drag?.active) return;
+  if (game.phase !== 'place') return;
+  updateHoverFromClientXY(e.clientX, e.clientY);
+}
+
 onMounted(() => {
   const host = shell.value;
   if (!host) return;
   ro = new ResizeObserver(() => recomputeSizer());
   ro.observe(host);
   recomputeSizer();
+  window.addEventListener('pointermove', onGlobalPointerMove, { passive: true });
 });
 
 onBeforeUnmount(() => {
@@ -145,6 +156,7 @@ onBeforeUnmount(() => {
     ro?.disconnect?.();
   } catch {}
   ro = null;
+  window.removeEventListener('pointermove', onGlobalPointerMove);
 });
 
 const warningMessage = ref("");
