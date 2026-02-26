@@ -215,7 +215,7 @@ function onPiecePointerUp(e) {
 
   if (!p) return;
 
-  // If drag never started (click without movement): let click handler (onPick) fire normally
+  // Click without movement: let onPick (click handler) fire normally
   if (!p.started) {
     game.endDrag();
     return;
@@ -224,34 +224,35 @@ function onPiecePointerUp(e) {
   game.updateDrag(e.clientX, e.clientY);
 
   if (props.isOnline && !props.canAct) {
-    game.clearSelection();
+    game.endDrag();
     return;
   }
 
   const t = game.drag?.target;
   if (t && t.inside) {
-    if (p.isTouch) {
-      // Mobile: stage so player can confirm with Submit button
+    const requireSubmit = game.ui?.requireSubmit ?? true;
+    if (p.isTouch && requireSubmit) {
+      // Mobile + requireSubmit ON: stage the piece so user can reposition & confirm
       const staged = game.stagePlacement(t.x, t.y);
       if (!staged) {
+        // Invalid spot — keep piece selected so user can tap/drag to another cell
         playBuzz();
-        game.clearSelection();
+        game.endDrag(); // stop the floating ghost, selection stays
       } else {
-        game.endDrag(); // stop drag ghost, pendingPlace holds position
+        game.endDrag(); // ghost now shows via pendingPlace
       }
     } else {
-      // Desktop: commit placement immediately on drop
+      // Desktop OR requireSubmit OFF: commit immediately
       const ok = game.placeAt(t.x, t.y);
       if (!ok) {
+        // Invalid — keep piece selected, don't wipe state
         playBuzz();
-        game.clearSelection();
+        game.endDrag();
       }
     }
   } else {
-    // Released outside the board: cancel drag but KEEP piece selected
-    // so user can still click a board cell to place
+    // Released outside board: cancel drag, keep piece selected for retry
     game.endDrag();
-    // Don't clearSelection() — piece stays selected for hover/click placement
   }
 }
 

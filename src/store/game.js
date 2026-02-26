@@ -199,6 +199,7 @@ export const useGameStore = defineStore("game", {
       enableClickPlace: true,
       enableHoverPreview: true,
       lockLandscape: false,
+      requireSubmit: true, // When true: mobile drops stage the piece; Submit commits. When false: drop = instant place.
     },
 
     // Custom drag (for touch + mouse). Board updates drag.target.
@@ -524,12 +525,20 @@ export const useGameStore = defineStore("game", {
     rotateSelected() {
       if (!this.selectedPieceKey) return;
       this.rotation = (this.rotation + 1) % 4;
+      // Keep staged position if the rotated shape still fits there
+      if (this.pendingPlace && !this.canPlaceAt(this.pendingPlace.x, this.pendingPlace.y)) {
+        this.pendingPlace = null;
+      }
     },
 
     flipSelected() {
       if (!this.selectedPieceKey) return;
       if (!this.allowFlip) return;
       this.flipped = !this.flipped;
+      // Keep staged position if the flipped shape still fits there
+      if (this.pendingPlace && !this.canPlaceAt(this.pendingPlace.x, this.pendingPlace.y)) {
+        this.pendingPlace = null;
+      }
     },
 
     // ----- LEGALITY -----

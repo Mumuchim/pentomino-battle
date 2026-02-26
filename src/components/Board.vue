@@ -89,36 +89,42 @@
       class="mobileActionBar"
       aria-label="Mobile piece controls"
     >
-      <div class="mobileActionSide"></div>
+      <!-- ROTATE -->
       <button
-        class="mobileBtn submitBtn"
+        class="mobileBtn mobileIconBtn"
+        @touchstart.prevent="game.rotateSelected()"
+        @click="game.rotateSelected()"
+        aria-label="Rotate piece"
+      >
+        <span class="mobileBtnIcon">↻</span>
+        <span class="mobileBtnLabel">ROTATE</span>
+      </button>
+
+      <!-- SUBMIT (only when requireSubmit is on) -->
+      <button
+        v-if="game.ui?.requireSubmit"
+        class="mobileBtn mobileSubmitBtn"
         :class="{ hasPending: !!game.pendingPlace }"
         :disabled="!game.pendingPlace"
         @touchstart.prevent="onMobileSubmit"
         @click="onMobileSubmit"
         aria-label="Confirm placement"
       >
-        ✓ SUBMIT
+        <span class="mobileBtnIcon">✓</span>
+        <span class="mobileBtnLabel">SUBMIT</span>
       </button>
-      <div class="mobileActionSide mobileRightBtns">
-        <button
-          class="mobileBtn iconBtn"
-          @touchstart.prevent="game.rotateSelected(); game.clearPendingPlace()"
-          @click="game.rotateSelected(); game.clearPendingPlace()"
-          aria-label="Rotate piece"
-        >
-          ↻ ROTATE
-        </button>
-        <button
-          class="mobileBtn iconBtn"
-          :disabled="!game.allowFlip"
-          @touchstart.prevent="game.flipSelected(); game.clearPendingPlace()"
-          @click="game.flipSelected(); game.clearPendingPlace()"
-          aria-label="Flip piece"
-        >
-          ⇄ FLIP
-        </button>
-      </div>
+
+      <!-- FLIP -->
+      <button
+        class="mobileBtn mobileIconBtn"
+        :disabled="!game.allowFlip"
+        @touchstart.prevent="game.flipSelected()"
+        @click="game.flipSelected()"
+        aria-label="Flip piece"
+      >
+        <span class="mobileBtnIcon">⇄</span>
+        <span class="mobileBtnLabel">FLIP</span>
+      </button>
     </div>
   </Teleport>
 </template>
@@ -539,8 +545,19 @@ function onCellClick(x, y, evt) {
   if (!game.selectedPieceKey) return;
   if (props.isOnline && !props.canAct) return;
 
-  // Touch taps on board cells are handled by the drag-and-release flow.
-  // Only respond to mouse clicks here.
+  // While a piece is staged (pendingPlace set), tapping any cell repositions the ghost
+  if (game.ui?.requireSubmit && game.pendingPlace) {
+    if (game.canPlaceAt(x, y)) {
+      game.pendingPlace = { x, y };
+    } else {
+      playBuzz();
+      showWarning("Can't place there — try rotating or flipping.");
+    }
+    return;
+  }
+
+  // requireSubmit OFF, or no pending place yet: touch taps place via drag flow
+  // Only respond to mouse clicks here for direct placement
   if (evt?.pointerType === "touch") return;
 
   const ok = game.placeAt(x, y);
@@ -934,89 +951,100 @@ function ghostBlockStyle(b) {
 <!-- Mobile action bar: global (teleported to body), only visible on touch/mobile -->
 <style>
 .mobileActionBar {
-  /* Hidden on desktop by default */
   display: none;
 }
 
 @media (max-width: 980px), (pointer: coarse) {
   .mobileActionBar {
     display: flex;
-    align-items: center;
-    justify-content: space-between;
-    gap: 8px;
-    /* Fixed at bottom of screen — never pushes board layout */
+    align-items: stretch;
+    justify-content: center;
+    gap: 10px;
     position: fixed;
     left: 0;
     right: 0;
     bottom: 0;
     z-index: 9000;
-    padding: 10px 12px 16px;
-    background: linear-gradient(to top, rgba(8,10,18,0.97) 60%, rgba(8,10,18,0.0));
-    /* Safe area for notch phones */
-    padding-bottom: max(16px, env(safe-area-inset-bottom, 16px));
+    padding: 10px 14px max(18px, env(safe-area-inset-bottom, 18px));
+    background: linear-gradient(to top, rgba(8,10,18,0.98) 65%, rgba(8,10,18,0.0));
     pointer-events: auto;
   }
 
-  .mobileActionSide {
-    display: flex;
-    align-items: center;
-    gap: 8px;
-    flex: 1;
-  }
-
-  .mobileRightBtns {
-    justify-content: flex-end;
-  }
-
+  /* Base button */
   .mobileBtn {
-    padding: 12px 14px;
-    border-radius: 14px;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 4px;
+    border-radius: 18px;
     border: 1px solid rgba(255, 255, 255, 0.14);
-    background: rgba(30, 32, 48, 0.90);
+    background: rgba(30, 32, 48, 0.92);
     color: #eaeaea;
-    font-size: 13px;
-    font-weight: 900;
-    letter-spacing: 0.06em;
     cursor: pointer;
     touch-action: manipulation;
-    transition: background 100ms ease, transform 80ms ease;
-    white-space: nowrap;
+    transition: background 100ms ease, transform 80ms ease, border-color 100ms ease;
     -webkit-tap-highlight-color: transparent;
     user-select: none;
+    min-width: 80px;
+    padding: 14px 10px;
   }
 
   .mobileBtn:active { transform: scale(0.93); }
 
   .mobileBtn:disabled {
-    opacity: 0.32;
+    opacity: 0.28;
     cursor: not-allowed;
   }
 
-  .submitBtn {
-    flex: 0 0 auto;
-    padding: 13px 28px;
-    font-size: 15px;
-    background: rgba(30, 32, 48, 0.90);
+  .mobileBtnIcon {
+    font-size: 26px;
+    line-height: 1;
   }
 
-  .submitBtn.hasPending {
-    background: linear-gradient(135deg, rgba(0, 200, 100, 0.30), rgba(0, 160, 80, 0.22));
-    border-color: rgba(0, 255, 140, 0.50);
-    color: rgba(140, 255, 190, 0.98);
-    box-shadow: 0 0 22px rgba(0, 255, 140, 0.20);
+  .mobileBtnLabel {
+    font-size: 11px;
+    font-weight: 900;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    opacity: 0.85;
+  }
+
+  /* ROTATE + FLIP: equal flex share */
+  .mobileIconBtn {
+    flex: 1;
+  }
+
+  /* SUBMIT: wider and more prominent */
+  .mobileSubmitBtn {
+    flex: 1.4;
+    background: rgba(20, 22, 38, 0.92);
+    border-color: rgba(255,255,255,0.16);
+  }
+
+  .mobileSubmitBtn .mobileBtnIcon {
+    font-size: 28px;
+  }
+
+  .mobileSubmitBtn .mobileBtnLabel {
+    font-size: 12px;
+    letter-spacing: 0.14em;
+  }
+
+  .mobileSubmitBtn.hasPending {
+    background: linear-gradient(160deg, rgba(0, 200, 100, 0.32), rgba(0, 160, 80, 0.24));
+    border-color: rgba(0, 255, 140, 0.55);
+    color: rgba(150, 255, 200, 0.98);
+    box-shadow: 0 0 28px rgba(0, 255, 140, 0.22);
     animation: submitPulse 1.8s ease-in-out infinite;
   }
 
   @keyframes submitPulse {
-    0%, 100% { box-shadow: 0 0 18px rgba(0,255,140,0.18); }
-    50%       { box-shadow: 0 0 32px rgba(0,255,140,0.40); }
+    0%, 100% { box-shadow: 0 0 20px rgba(0,255,140,0.18); }
+    50%       { box-shadow: 0 0 36px rgba(0,255,140,0.42); }
   }
-
-  .iconBtn {
-    font-size: 12px;
-    padding: 12px 12px;
-  }
-}</style>
+}
+</style>
 
 <style>
 .flyClone { will-change: transform, opacity, filter; }
