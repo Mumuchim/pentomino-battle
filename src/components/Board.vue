@@ -61,6 +61,20 @@
             :style="ghostBlockStyle(b)"
           />
         </div>
+
+        <!-- Staged overlay: piece is tentatively placed, waiting for Submit -->
+        <div
+          v-if="stagedOverlay.visible"
+          class="ghostOverlay stagedOverlay"
+          aria-hidden="true"
+        >
+          <div
+            v-for="(b, i) in stagedOverlay.blocks"
+            :key="i"
+            class="ghostBlock stagedBlock"
+            :style="ghostBlockStyle(b)"
+          />
+        </div>
       </div>
     </div>
 
@@ -211,6 +225,8 @@ const ghost = computed(() => {
 });
 
 const ghostOverlay = computed(() => {
+  // Don't show hover ghost when there is a staged piece (staged overlay takes over)
+  if (game.staged) return { visible: false };
   if (!game.ui?.enableHoverPreview) return { visible: false };
   if (!hover.value) return { visible: false };
   if (game.phase !== "place") return { visible: false };
@@ -223,6 +239,21 @@ const ghostOverlay = computed(() => {
   }));
 
   return { visible: true, ok, blocks };
+});
+
+// Staged overlay: persistent preview of the tentatively placed piece.
+// Shown until the player submits or moves it.
+const stagedOverlay = computed(() => {
+  if (!game.staged) return { visible: false };
+  if (game.phase !== "place") return { visible: false };
+  if (!game.selectedPieceKey) return { visible: false };
+
+  const { x: ax, y: ay } = game.staged;
+  const blocks = game.selectedCells.map(([dx, dy]) => ({
+    x: ax + dx,
+    y: ay + dy,
+  }));
+  return { visible: true, blocks };
 });
 
 function setHover(x, y) {
@@ -307,7 +338,7 @@ function onShellDrop() {
   if (!game.selectedPieceKey) return;
   if (props.isOnline && !props.canAct) return;
 
-  const ok = game.placeAt(targetCell.value.x, targetCell.value.y);
+  const ok = game.stageAt(targetCell.value.x, targetCell.value.y);
   if (!ok) {
     playBuzz();
     showWarning("Illegal placement — try another spot / rotate / flip.");
@@ -320,7 +351,15 @@ function onDrop(x, y) {
   if (!game.selectedPieceKey) return;
   if (props.isOnline && !props.canAct) return;
 
-  const ok = game.placeAt(x, y);
+  // If this cell is already the staged position, deselect (toggle off)
+  if (game.staged) {
+    const cells = game.selectedCells;
+    const alreadyThere = cells.some(([dx, dy]) => x === game.staged.x + dx && y === game.staged.y + dy);
+    if (alreadyThere) { game.clearStaged(); return; }
+  }
+
+  // Stage at this cell (tentative — requires Submit to finalize)
+  const ok = game.stageAt(x, y);
   if (!ok) {
     playBuzz();
     showWarning("Illegal placement — try another spot / rotate / flip.");
@@ -461,7 +500,7 @@ function onTouchEnd(e) {
   if (!game.drag?.active && targetCell.value) {
     // Prevent the ghost click that would otherwise fire after touchend
     e.preventDefault();
-    const ok = game.placeAt(targetCell.value.x, targetCell.value.y);
+    const ok = game.stageAt(targetCell.value.x, targetCell.value.y);
     if (!ok) {
       playBuzz();
       showWarning("Illegal placement — try another spot / rotate / flip.");
@@ -492,7 +531,15 @@ function onCellClick(x, y, evt) {
   if (!game.selectedPieceKey) return;
   if (props.isOnline && !props.canAct) return;
 
-  const ok = game.placeAt(x, y);
+  // If this cell is already the staged position, deselect (toggle off)
+  if (game.staged) {
+    const cells = game.selectedCells;
+    const alreadyThere = cells.some(([dx, dy]) => x === game.staged.x + dx && y === game.staged.y + dy);
+    if (alreadyThere) { game.clearStaged(); return; }
+  }
+
+  // Stage at this cell (tentative — requires Submit to finalize)
+  const ok = game.stageAt(x, y);
   if (!ok) {
     playBuzz();
     showWarning("Illegal placement — try another spot / rotate / flip.");
@@ -824,6 +871,22 @@ function ghostBlockStyle(b) {
     rgba(255,255,255,0.08) 35%,
     rgba(0,0,0,0.12)
   );
+}
+
+/* Staged overlay: full-opacity, pulsing border — shows confirmed-but-not-submitted placement */
+.stagedOverlay { z-index: 1000; }
+.stagedBlock {
+  opacity: 0.92;
+  animation: stagedPulse 1.1s ease-in-out infinite;
+  border: 2px solid rgba(0, 255, 170, 0.9) !important;
+  box-shadow:
+    0 0 18px rgba(0,255,170,0.45),
+    inset 0 1px 0 rgba(255,255,255,0.30),
+    0 14px 22px rgba(0,0,0,0.50);
+}
+@keyframes stagedPulse {
+  0%, 100% { box-shadow: 0 0 10px rgba(0,255,170,0.40), inset 0 1px 0 rgba(255,255,255,0.28); }
+  50% { box-shadow: 0 0 28px rgba(0,255,170,0.80), 0 0 50px rgba(0,255,170,0.20), inset 0 1px 0 rgba(255,255,255,0.36); }
 }
 
 .legend {

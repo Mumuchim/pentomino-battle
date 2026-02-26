@@ -701,17 +701,11 @@
           <section v-else class="panel">
             <h2 class="panelTitle">Player {{ game.currentPlayer }} Pieces</h2>
             <PiecePicker :isOnline="isOnline" :myPlayer="myPlayer" :canAct="canAct" />
-
-            <div class="divider"></div>
-            <Controls :isOnline="isOnline" :canAct="canAct" />
           </section>
         </section>
 
         <section class="rightPanel">
           <Board :isOnline="isOnline" :myPlayer="myPlayer" :canAct="canAct" />
-          <div class="hintSmall">
-            Drag a piece to the board and hover to preview. Click or drop to place.
-          </div>
         </section>
       </section>
     </main>
@@ -719,7 +713,7 @@
     <!-- ── Global drag ghost: follows the pointer while dragging a piece ── -->
     <Teleport to="body">
       <div
-        v-if="game.drag?.active && game.drag?.pieceKey"
+        v-if="game.drag?.active && game.drag?.pieceKey && !game.staged"
         class="dragGhost"
         :style="{
           left: game.drag.x + 'px',
@@ -733,6 +727,42 @@
           :flipped="game.flipped"
           :cell="game.drag.cellPx || 40"
         />
+      </div>
+    </Teleport>
+
+    <!-- ── Fixed bottom action bar: Rotate | Submit | Flip ── -->
+    <Teleport to="body">
+      <div
+        v-if="isInGame && game.phase === 'place' && canAct"
+        class="actionBar"
+        :class="{ hasStaged: !!game.staged }"
+      >
+        <button
+          class="actionBtn rotateBtn"
+          :disabled="!game.selectedPieceKey"
+          @click="game.rotateSelected()"
+        >
+          <span class="actionIcon">↻</span>
+          <span class="actionLabel">ROTATE</span>
+        </button>
+
+        <button
+          class="actionBtn submitBtn"
+          :disabled="!game.staged"
+          @click="submitStagedMove"
+        >
+          <span class="actionIcon">✓</span>
+          <span class="actionLabel">{{ game.staged ? 'SUBMIT' : 'PLACE PIECE' }}</span>
+        </button>
+
+        <button
+          class="actionBtn flipBtn"
+          :disabled="!game.selectedPieceKey || !game.allowFlip"
+          @click="game.flipSelected()"
+        >
+          <span class="actionIcon">⇄</span>
+          <span class="actionLabel">FLIP</span>
+        </button>
       </div>
     </Teleport>
 
@@ -983,10 +1013,13 @@ watch(isInGame, (val) => {
 onMounted(() => {
   document.addEventListener('fullscreenchange', updateFullscreenState);
   document.addEventListener('webkitfullscreenchange', updateFullscreenState);
+  // Global cursor tracker for drag ghost after click-select
+  window.addEventListener('pointermove', onGlobalMouseMove, { passive: true });
 });
 onBeforeUnmount(() => {
   document.removeEventListener('fullscreenchange', updateFullscreenState);
   document.removeEventListener('webkitfullscreenchange', updateFullscreenState);
+  window.removeEventListener('pointermove', onGlobalMouseMove);
 });
 
 // In-game settings modal (Esc)
@@ -1322,6 +1355,21 @@ const rankedTier = computed(() => (loggedIn.value ? "Wood" : "—"));
 const isInGame = computed(() => screen.value === "couch" || screen.value === "ai" || screen.value === "online");
 
 // ── Fullscreen ──────────────────────────────────────────────────
+// ── Submit staged placement ────────────────────────────────────
+function submitStagedMove() {
+  if (!game.staged) return;
+  const ok = game.submitStaged();
+  if (!ok) game.clearStaged?.();
+}
+
+// ── Global cursor tracker for drag ghost ───────────────────────
+// Updates drag.x/y when drag is active but no pointer-capture (e.g. after click-select)
+function onGlobalMouseMove(e) {
+  if (!game.drag?.active) return;
+  game.drag.x = e.clientX;
+  game.drag.y = e.clientY;
+}
+
 const isFullscreen = ref(false);
 function updateFullscreenState() {
   isFullscreen.value = !!(document.fullscreenElement || document.webkitFullscreenElement);
@@ -4596,6 +4644,97 @@ onBeforeUnmount(() => {
 .btn.soft{
   background: linear-gradient(180deg, rgba(255,255,255,0.06), rgba(255,255,255,0.02));
 }
+/* ══════════════════════════════════════════════════════════════════
+   ACTION BAR  —  fixed bottom: Rotate | Submit | Flip
+══════════════════════════════════════════════════════════════════ */
+.actionBar {
+  position: fixed;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  z-index: 99998;
+  display: flex;
+  align-items: stretch;
+  gap: 0;
+  background:
+    linear-gradient(0deg, rgba(8,8,14,0.97) 0%, rgba(10,10,18,0.92) 100%);
+  border-top: 1px solid rgba(255,255,255,0.10);
+  box-shadow: 0 -8px 32px rgba(0,0,0,0.65);
+  /* Pad for phone safe areas */
+  padding-bottom: env(safe-area-inset-bottom, 0px);
+}
+
+.actionBtn {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding: 14px 10px;
+  border: none;
+  background: transparent;
+  color: rgba(255,255,255,0.80);
+  cursor: pointer;
+  transition: background 120ms, color 120ms, transform 80ms;
+  font-family: inherit;
+  border-right: 1px solid rgba(255,255,255,0.06);
+}
+.actionBtn:last-child { border-right: none; }
+.actionBtn:disabled {
+  opacity: 0.28;
+  cursor: not-allowed;
+}
+.actionBtn:not(:disabled):active { transform: scale(0.94); }
+.actionBtn:not(:disabled):hover  { background: rgba(255,255,255,0.06); }
+
+.actionIcon {
+  font-size: 26px;
+  line-height: 1;
+  font-weight: 700;
+}
+.actionLabel {
+  font-size: 11px;
+  font-weight: 900;
+  letter-spacing: 0.10em;
+  text-transform: uppercase;
+}
+
+/* Submit button: center, bigger, green glow when staged */
+.submitBtn {
+  flex: 1.6;
+  border-left: 1px solid rgba(255,255,255,0.08);
+  border-right: 1px solid rgba(255,255,255,0.08);
+  color: rgba(255,255,255,0.45);
+  position: relative;
+}
+.submitBtn .actionIcon { font-size: 30px; }
+.submitBtn .actionLabel { font-size: 13px; letter-spacing: 0.14em; }
+
+.actionBar.hasStaged .submitBtn {
+  color: rgba(0, 255, 170, 1);
+  background: rgba(0,255,170,0.08);
+  animation: submitPulse 1.6s ease-in-out infinite;
+}
+@keyframes submitPulse {
+  0%,100% { box-shadow: inset 0 0 0 1px rgba(0,255,170,0.20); }
+  50%      { box-shadow: inset 0 0 0 1px rgba(0,255,170,0.55), 0 0 30px rgba(0,255,170,0.14); }
+}
+
+.rotateBtn, .flipBtn {
+  color: rgba(255,255,255,0.75);
+}
+
+/* Push main content up so it's not hidden behind the bar */
+.app.inGame .main {
+  padding-bottom: calc(80px + env(safe-area-inset-bottom, 0px)) !important;
+}
+@media (max-width: 980px) {
+  .app.inGame .main {
+    padding-bottom: calc(90px + env(safe-area-inset-bottom, 0px)) !important;
+  }
+}
+
 /* ── Fullscreen button ──────────────────────────────────────────────── */
 .fsBtn { min-width: 36px; }
 
