@@ -145,8 +145,6 @@ const targetCell = ref(null);
 // Detect touch device for mobile-specific staging behavior
 const isTouchDevice = typeof window !== 'undefined' &&
   ('ontouchstart' in window || navigator.maxTouchPoints > 0);
-// Track whether the last pointer interaction was touch (for click events)
-let lastPointerWasTouch = false;
 
 // Must match .board padding in CSS
 const BOARD_PADDING = 10;
@@ -169,6 +167,8 @@ function recomputeSizer() {
   const w = Math.floor(cell * game.boardW);
   const h = Math.floor(cell * game.boardH);
   sizerPx.value = { w, h };
+  // Share cell size so App.vue can size the drag ghost to match board cells
+  game.boardCellPx = Math.max(10, Math.floor(cell));
 }
 
 const sizerStyle = computed(() => {
@@ -467,56 +467,30 @@ function spawnFlyClone(pieceKey, player, fromEl) {
   setTimeout(() => node.remove(), 700);
 }
 
-/* ─── Touch drag support ───────────────────────────────────────
-   Touch events fire on the element that received touchstart, so we
-   use touchmove/touchend on the shell and compute the board cell from
-   the touch coordinates — same math as the pointer/mouse path.
+/* ─── Touch support on the board shell ────────────────────────────────
+   Touch drag is handled by PiecePicker's pointer-capture system.
+   These handlers keep hover/target in sync during a finger drag that
+   originated in the panel and is now moving over the board.
 ───────────────────────────────────────────────────────────── */
 function onTouchMove(e) {
-  // In draft phase: don't intercept touch at all — let clicks bubble naturally.
   if (game.phase !== "place") return;
-  if (!game.ui?.enableClickPlace) return;
   if (!game.selectedPieceKey) return;
-  // Only prevent scroll when we're actually dragging a piece onto the board
+  // Only intercept scroll when a drag is actually in progress
+  if (!game.drag?.active) return;
   e.preventDefault();
-  lastPointerWasTouch = true;
-  // Only track the first touch
   const touch = e.touches[0];
   if (!touch) return;
   updateHoverFromClientXY(touch.clientX, touch.clientY);
-  // Keep drag overlay in sync
-  if (game.drag?.active) game.updateDrag(touch.clientX, touch.clientY);
+  game.updateDrag(touch.clientX, touch.clientY);
 }
 
 function onTouchEnd(e) {
-  // Draft phase: do nothing here — the cell's click handler fires naturally.
   if (game.phase !== "place") return;
-  if (!game.ui?.enableClickPlace) return;
-  if (!game.selectedPieceKey) return;
-
-  lastPointerWasTouch = true;
-  const touch = e.changedTouches[0];
-  if (!touch) return;
-  updateHoverFromClientXY(touch.clientX, touch.clientY);
-
-  // If a drag is active from PiecePicker, let that handler finish it.
-  // Otherwise treat as a tap/drag to stage on the cell we just computed.
-  if (!game.drag?.active && targetCell.value) {
-    // Prevent the ghost click that would otherwise fire after touchend
-    e.preventDefault();
-    // Mobile: stage placement instead of committing immediately
-    const staged = game.stagePlacement(targetCell.value.x, targetCell.value.y);
-    if (!staged) {
-      playBuzz();
-      showWarning("Illegal placement — try another spot / rotate / flip.");
-      hover.value = null;
-    } else {
-      // Keep hover at staged position so ghost stays visible
-      hover.value = null; // clear hover, pendingPlace holds the position
-    }
-  } else {
-    hover.value = null;
-  }
+  if (!game.drag?.active) return;
+  // The pointer-up handler in PiecePicker will commit/stage the placement.
+  // We just make sure hover is cleared.
+  hover.value = null;
+  targetCell.value = null;
 }
 
 function onMobileSubmit() {
@@ -533,16 +507,12 @@ function onMobileSubmit() {
 /** ✅ CLICK does two different things depending on phase */
 function onCellClick(x, y, evt) {
   if (game.phase === "draft") {
-    // online gate: only your draft turn can click
     if (props.isOnline && !props.canAct) return;
-
     const v = game.draftBoard[y][x];
     if (!v) return;
     if (v.draftedBy) return;
-
     const fromEl = evt?.currentTarget;
     spawnFlyClone(v.pieceKey, game.draftTurn, fromEl);
-
     game.draftPick(v.pieceKey);
     return;
   }
@@ -552,18 +522,10 @@ function onCellClick(x, y, evt) {
   if (!game.selectedPieceKey) return;
   if (props.isOnline && !props.canAct) return;
 
-  // Mobile touch: use staged placement (requires Submit to confirm)
-  if (lastPointerWasTouch) {
-    lastPointerWasTouch = false;
-    const staged = game.stagePlacement(x, y);
-    if (!staged) {
-      playBuzz();
-      showWarning("Illegal placement — try another spot / rotate / flip.");
-    }
-    return;
-  }
+  // Touch taps on board cells are handled by the drag-and-release flow.
+  // Only respond to mouse clicks here.
+  if (evt?.pointerType === "touch") return;
 
-  // Desktop mouse: commit immediately
   const ok = game.placeAt(x, y);
   if (!ok) {
     playBuzz();

@@ -210,6 +210,9 @@ export const useGameStore = defineStore("game", {
       pieceKey: null,
     },
 
+    // Board cell size in px — written by Board.vue ResizeObserver, read by App.vue drag ghost
+    boardCellPx: 0,
+
     // Mobile staged placement: piece dropped on board but not yet confirmed
     pendingPlace: null, // { x, y } | null
 
