@@ -720,7 +720,7 @@
           :pieceKey="game.drag.pieceKey"
           :rotation="game.rotation"
           :flipped="game.flipped"
-          :cell="22"
+          :cell="dragGhostCell"
         />
       </div>
     </Teleport>
@@ -1032,6 +1032,11 @@ function openInGameSettings() {
 function closeInGameSettings() {
   inGameSettingsOpen.value = false;
 }
+
+// Drag ghost cell size: bigger on touch devices so piece is visible above the finger
+// Detected once on mount — touch capability doesn't change during a session.
+const dragGhostCell = ref(22);
+// Remove fullscreen — toggling removed per user request.
 
 // Viewport sizing: we rely on responsive CSS + natural page scroll.
 // Keep portrait detection for optional landscape lock UI.
@@ -4050,6 +4055,12 @@ onMounted(() => {
   // ✅ Initial boot gate — prevent accidental clicks before first paint.
   startUiLock({ label: "Booting…", hint: "Loading UI, sounds, and neon vibes…", minMs: 750 });
 
+  // Detect touch devices for bigger drag ghost (so piece shows clearly above finger)
+  try {
+    const isTouch = ('ontouchstart' in window) || (navigator.maxTouchPoints > 0);
+    if (isTouch) dragGhostCell.value = 44;
+  } catch {}
+
   loadAudioPrefs();
 
   // Try to autoplay menu BGM on the welcome/menu screens.
@@ -4482,8 +4493,17 @@ onBeforeUnmount(() => {
     /* Allow finger panning on the scroll container, but the board shell
        overrides with touch-action:none so piece dragging works there. */
     touch-action: pan-x pan-y;
+    /* Leave room for the fixed mobile action bar at the bottom */
+    padding-bottom: 90px;
   }
   .gameLayout{ height: auto; min-height: calc(100dvh - 80px); }
+}
+
+@media (pointer: coarse) {
+  /* Same bottom padding for touch devices regardless of width */
+  .app.inGame .main {
+    padding-bottom: 90px;
+  }
 }
 
 @media (max-height: 620px){
@@ -4557,6 +4577,15 @@ onBeforeUnmount(() => {
   /* Slightly enlarge so it's easy to see under a finger */
   scale: 1.2;
   will-change: left, top;
+}
+
+@media (max-width: 980px), (pointer: coarse) {
+  .dragGhost {
+    /* On mobile: offset more so piece shows clearly above finger */
+    transform: translate(-50%, -120%);
+    scale: 1.0; /* Already large from bigger cell size */
+    opacity: 0.95;
+  }
 }
 
 .btn.ghost{
@@ -4749,6 +4778,8 @@ onBeforeUnmount(() => {
 }
 .miniBtn:hover{ background: rgba(255,255,255,0.08); }
 .field{ display:flex; gap: 12px; align-items:center; padding: 10px 12px; border-radius: 14px; border: 1px solid rgba(255,255,255,.10); background: rgba(255,255,255,.04); }
+.fieldRow{ justify-content: space-between; cursor: pointer; }
+.fieldRow input[type="checkbox"]{ width: 20px; height: 20px; cursor: pointer; accent-color: rgba(0,255,170,0.8); }
 .form{ display:grid; gap: 10px; }
 .input{ width: 100%; padding: 10px 12px; border-radius: 12px; border: 1px solid rgba(255,255,255,.12); background: rgba(0,0,0,.25); color:#eaeaea; }
 .row{ display:flex; gap: 10px; flex-wrap: wrap; margin-top: 10px; }

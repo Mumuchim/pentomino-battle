@@ -51,7 +51,7 @@
         <div
           v-if="ghostOverlay.visible"
           class="ghostOverlay"
-          :class="{ ok: ghostOverlay.ok, bad: !ghostOverlay.ok }"
+          :class="{ ok: ghostOverlay.ok, bad: !ghostOverlay.ok, staged: ghostOverlay.staged }"
           aria-hidden="true"
         >
           <div
@@ -81,6 +81,46 @@
       <span class="warnText">{{ warningMessage }}</span>
     </div>
   </div>
+
+  <!-- ── Mobile action bar: fixed at bottom, outside board layout flow ── -->
+  <Teleport to="body">
+    <div
+      v-if="game.phase === 'place' && game.selectedPieceKey"
+      class="mobileActionBar"
+      aria-label="Mobile piece controls"
+    >
+      <div class="mobileActionSide"></div>
+      <button
+        class="mobileBtn submitBtn"
+        :class="{ hasPending: !!game.pendingPlace }"
+        :disabled="!game.pendingPlace"
+        @touchstart.prevent="onMobileSubmit"
+        @click="onMobileSubmit"
+        aria-label="Confirm placement"
+      >
+        ✓ SUBMIT
+      </button>
+      <div class="mobileActionSide mobileRightBtns">
+        <button
+          class="mobileBtn iconBtn"
+          @touchstart.prevent="game.rotateSelected(); game.clearPendingPlace()"
+          @click="game.rotateSelected(); game.clearPendingPlace()"
+          aria-label="Rotate piece"
+        >
+          ↻ ROTATE
+        </button>
+        <button
+          class="mobileBtn iconBtn"
+          :disabled="!game.allowFlip"
+          @touchstart.prevent="game.flipSelected(); game.clearPendingPlace()"
+          @click="game.flipSelected(); game.clearPendingPlace()"
+          aria-label="Flip piece"
+        >
+          ⇄ FLIP
+        </button>
+      </div>
+    </div>
+  </Teleport>
 </template>
 
 <script setup>
@@ -101,6 +141,12 @@ const shell = ref(null);
 const boardEl = ref(null);
 const hover = ref(null);
 const targetCell = ref(null);
+
+// Detect touch device for mobile-specific staging behavior
+const isTouchDevice = typeof window !== 'undefined' &&
+  ('ontouchstart' in window || navigator.maxTouchPoints > 0);
+// Track whether the last pointer interaction was touch (for click events)
+let lastPointerWasTouch = false;
 
 // Must match .board padding in CSS
 const BOARD_PADDING = 10;
@@ -181,16 +227,19 @@ const gridStyle = computed(() => ({
 ---------------------------- */
 const ghost = computed(() => {
   if (!game.ui?.enableHoverPreview) return { map: new Set(), ok: false };
-  if (!hover.value) return { map: new Set(), ok: false };
   if (game.phase !== "place") return { map: new Set(), ok: false };
   if (!game.selectedPieceKey) return { map: new Set(), ok: false };
 
-  const ok = game.canPlaceAt(hover.value.x, hover.value.y);
+  // Use hover when actively dragging/hovering, otherwise fall back to pendingPlace
+  const pos = hover.value ?? game.pendingPlace;
+  if (!pos) return { map: new Set(), ok: false };
+
+  const ok = game.canPlaceAt(pos.x, pos.y);
   const set = new Set();
 
   for (const [dx, dy] of game.selectedCells) {
-    const x = hover.value.x + dx;
-    const y = hover.value.y + dy;
+    const x = pos.x + dx;
+    const y = pos.y + dy;
     if (x >= 0 && y >= 0 && x < game.boardW && y < game.boardH) {
       set.add(`${x},${y}`);
     }
@@ -200,17 +249,21 @@ const ghost = computed(() => {
 
 const ghostOverlay = computed(() => {
   if (!game.ui?.enableHoverPreview) return { visible: false };
-  if (!hover.value) return { visible: false };
   if (game.phase !== "place") return { visible: false };
   if (!game.selectedPieceKey) return { visible: false };
 
-  const ok = game.canPlaceAt(hover.value.x, hover.value.y);
-  const blocks = game.selectedCells.map(([dx, dy]) => ({
-    x: hover.value.x + dx,
-    y: hover.value.y + dy,
-  }));
+  // Use hover when actively dragging/hovering, otherwise fall back to pendingPlace
+  const pos = hover.value ?? game.pendingPlace;
+  if (!pos) return { visible: false };
 
-  return { visible: true, ok, blocks };
+  const ok = game.canPlaceAt(pos.x, pos.y);
+  const blocks = game.selectedCells.map(([dx, dy]) => ({
+    x: pos.x + dx,
+    y: pos.y + dy,
+  }));
+  const staged = !hover.value && !!game.pendingPlace;
+
+  return { visible: true, ok, blocks, staged };
 });
 
 function setHover(x, y) {
@@ -426,6 +479,7 @@ function onTouchMove(e) {
   if (!game.selectedPieceKey) return;
   // Only prevent scroll when we're actually dragging a piece onto the board
   e.preventDefault();
+  lastPointerWasTouch = true;
   // Only track the first touch
   const touch = e.touches[0];
   if (!touch) return;
@@ -440,20 +494,38 @@ function onTouchEnd(e) {
   if (!game.ui?.enableClickPlace) return;
   if (!game.selectedPieceKey) return;
 
+  lastPointerWasTouch = true;
   const touch = e.changedTouches[0];
   if (!touch) return;
   updateHoverFromClientXY(touch.clientX, touch.clientY);
 
   // If a drag is active from PiecePicker, let that handler finish it.
-  // Otherwise treat as a tap-to-place on the cell we just computed.
+  // Otherwise treat as a tap/drag to stage on the cell we just computed.
   if (!game.drag?.active && targetCell.value) {
     // Prevent the ghost click that would otherwise fire after touchend
     e.preventDefault();
-    const ok = game.placeAt(targetCell.value.x, targetCell.value.y);
-    if (!ok) {
+    // Mobile: stage placement instead of committing immediately
+    const staged = game.stagePlacement(targetCell.value.x, targetCell.value.y);
+    if (!staged) {
       playBuzz();
       showWarning("Illegal placement — try another spot / rotate / flip.");
+      hover.value = null;
+    } else {
+      // Keep hover at staged position so ghost stays visible
+      hover.value = null; // clear hover, pendingPlace holds the position
     }
+  } else {
+    hover.value = null;
+  }
+}
+
+function onMobileSubmit() {
+  if (!game.pendingPlace) return;
+  if (props.isOnline && !props.canAct) return;
+  const ok = game.commitPendingPlace();
+  if (!ok) {
+    playBuzz();
+    showWarning("Illegal placement — try another spot / rotate / flip.");
   }
   hover.value = null;
 }
@@ -480,6 +552,18 @@ function onCellClick(x, y, evt) {
   if (!game.selectedPieceKey) return;
   if (props.isOnline && !props.canAct) return;
 
+  // Mobile touch: use staged placement (requires Submit to confirm)
+  if (lastPointerWasTouch) {
+    lastPointerWasTouch = false;
+    const staged = game.stagePlacement(x, y);
+    if (!staged) {
+      playBuzz();
+      showWarning("Illegal placement — try another spot / rotate / flip.");
+    }
+    return;
+  }
+
+  // Desktop mouse: commit immediately
   const ok = game.placeAt(x, y);
   if (!ok) {
     playBuzz();
@@ -861,7 +945,99 @@ function ghostBlockStyle(b) {
   from { transform: translateY(-4px); opacity: 0; }
   to   { transform: translateY(0); opacity: 1; }
 }
+
+/* ── Ghost overlay staged style (pendingPlace) ── */
+.ghostOverlay.staged { opacity: 0.92; }
+.ghostOverlay.staged.ok { filter: drop-shadow(0 0 18px rgba(0,255,170,0.45)) drop-shadow(0 18px 32px rgba(0,0,0,0.60)); }
+.ghostOverlay.staged.bad { opacity: 0.72; }
 </style>
+
+<!-- Mobile action bar: global (teleported to body), only visible on touch/mobile -->
+<style>
+.mobileActionBar {
+  /* Hidden on desktop by default */
+  display: none;
+}
+
+@media (max-width: 980px), (pointer: coarse) {
+  .mobileActionBar {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+    /* Fixed at bottom of screen — never pushes board layout */
+    position: fixed;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    z-index: 9000;
+    padding: 10px 12px 16px;
+    background: linear-gradient(to top, rgba(8,10,18,0.97) 60%, rgba(8,10,18,0.0));
+    /* Safe area for notch phones */
+    padding-bottom: max(16px, env(safe-area-inset-bottom, 16px));
+    pointer-events: auto;
+  }
+
+  .mobileActionSide {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    flex: 1;
+  }
+
+  .mobileRightBtns {
+    justify-content: flex-end;
+  }
+
+  .mobileBtn {
+    padding: 12px 14px;
+    border-radius: 14px;
+    border: 1px solid rgba(255, 255, 255, 0.14);
+    background: rgba(30, 32, 48, 0.90);
+    color: #eaeaea;
+    font-size: 13px;
+    font-weight: 900;
+    letter-spacing: 0.06em;
+    cursor: pointer;
+    touch-action: manipulation;
+    transition: background 100ms ease, transform 80ms ease;
+    white-space: nowrap;
+    -webkit-tap-highlight-color: transparent;
+    user-select: none;
+  }
+
+  .mobileBtn:active { transform: scale(0.93); }
+
+  .mobileBtn:disabled {
+    opacity: 0.32;
+    cursor: not-allowed;
+  }
+
+  .submitBtn {
+    flex: 0 0 auto;
+    padding: 13px 28px;
+    font-size: 15px;
+    background: rgba(30, 32, 48, 0.90);
+  }
+
+  .submitBtn.hasPending {
+    background: linear-gradient(135deg, rgba(0, 200, 100, 0.30), rgba(0, 160, 80, 0.22));
+    border-color: rgba(0, 255, 140, 0.50);
+    color: rgba(140, 255, 190, 0.98);
+    box-shadow: 0 0 22px rgba(0, 255, 140, 0.20);
+    animation: submitPulse 1.8s ease-in-out infinite;
+  }
+
+  @keyframes submitPulse {
+    0%, 100% { box-shadow: 0 0 18px rgba(0,255,140,0.18); }
+    50%       { box-shadow: 0 0 32px rgba(0,255,140,0.40); }
+  }
+
+  .iconBtn {
+    font-size: 12px;
+    padding: 12px 12px;
+  }
+}</style>
 
 <style>
 .flyClone { will-change: transform, opacity, filter; }
