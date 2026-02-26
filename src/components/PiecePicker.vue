@@ -20,11 +20,13 @@
             v-for="k in game.remaining[1]"
             :key="'p1-' + k"
             class="chipBtn"
-            :class="btnClass(1, k)"
+            :class="[btnClass(1, k), { dragging: activeDragKey === k }]"
             :disabled="!canSelect(1)"
+            draggable="false"
+            @dragstart.prevent
             @click="onPick(1, k)"
             @pointerdown="onPiecePointerDown(1, k, $event)"
-            :title="canSelect(1) ? 'Select piece' : 'Enemy piece (visible only)'"
+            :title="canSelect(1) ? 'Drag to board or click to select' : 'Enemy piece (visible only)'"
           >
             <PiecePreview :pieceKey="k" :cell="cell" />
           </button>
@@ -54,11 +56,13 @@
             v-for="k in game.remaining[2]"
             :key="'p2-' + k"
             class="chipBtn"
-            :class="btnClass(2, k)"
+            :class="[btnClass(2, k), { dragging: activeDragKey === k }]"
             :disabled="!canSelect(2)"
+            draggable="false"
+            @dragstart.prevent
             @click="onPick(2, k)"
             @pointerdown="onPiecePointerDown(2, k, $event)"
-            :title="canSelect(2) ? 'Select piece' : 'Enemy piece (visible only)'"
+            :title="canSelect(2) ? 'Drag to board or click to select' : 'Enemy piece (visible only)'"
           >
             <PiecePreview :pieceKey="k" :cell="cell" />
           </button>
@@ -90,7 +94,6 @@ const game = useGameStore();
 const cell = ref(18);
 function computeCell() {
   const h = window.innerHeight || 800;
-  // More aggressive shrink so bottom Controls never get pushed off-screen
   if (h <= 700) return 12;
   if (h <= 780) return 14;
   if (h <= 860) return 16;
@@ -126,6 +129,8 @@ function btnClass(player, key) {
   };
 }
 
+// Track which chip is being dragged (for visual hide while dragging)
+const activeDragKey = ref(null);
 const dragPending = ref(null);
 
 function cleanupPointerListeners() {
@@ -135,27 +140,27 @@ function cleanupPointerListeners() {
 }
 
 function onPiecePointerDown(player, key, e) {
-  if (!game.ui?.enableDragPlace) return;
   if (!canSelect(player)) return;
 
   const isTouch = e.pointerType === "touch";
 
   if (isTouch) {
-    // ── Mobile: start drag IMMEDIATELY at the finger so the big board-sized
-    //   ghost spawns right on the tap point — no threshold, no small panel clone.
+    // Mobile: start drag immediately, piece follows finger
     e.preventDefault();
+    game.selectPiece(key);
     const ok = game.beginDrag(key, e.clientX, e.clientY);
     if (!ok) return;
 
+    activeDragKey.value = key;
     dragPending.value = {
       player, key,
       pointerId: e.pointerId,
       startX: e.clientX, startY: e.clientY,
-      started: true,   // already active
+      started: true,
       isTouch: true,
     };
   } else {
-    // ── Desktop mouse: wait for a small movement to distinguish click from drag
+    // Desktop mouse: wait for movement to distinguish click vs drag
     dragPending.value = {
       player, key,
       pointerId: e.pointerId,
@@ -165,7 +170,7 @@ function onPiecePointerDown(player, key, e) {
     };
   }
 
-  // Capture so we keep receiving events even after finger leaves the button
+  // Capture pointer so we keep receiving events even if finger leaves the button
   try { e.currentTarget.setPointerCapture(e.pointerId); } catch {}
 
   cleanupPointerListeners();
@@ -180,31 +185,41 @@ function onPiecePointerMove(e) {
   if (p.pointerId != null && e.pointerId !== p.pointerId) return;
 
   if (!p.started) {
-    // Desktop only: start drag after a small movement dead zone
+    // Desktop: begin drag after a small dead-zone to avoid accidental drags on clicks
     const dx = e.clientX - p.startX;
     const dy = e.clientY - p.startY;
     if (Math.hypot(dx, dy) < 6) return;
+
+    // Select piece immediately when drag begins — board overlay kicks in
+    game.selectPiece(p.key);
     const ok = game.beginDrag(p.key, p.startX, p.startY);
     if (!ok) {
       dragPending.value = null;
       cleanupPointerListeners();
       return;
     }
+    activeDragKey.value = p.key;
     p.started = true;
   }
 
   e.preventDefault();
+  // Keep drag tracking in sync (needed for board ghost overlay target calculation)
   game.updateDrag(e.clientX, e.clientY);
 }
 
 function onPiecePointerUp(e) {
   const p = dragPending.value;
   dragPending.value = null;
+  activeDragKey.value = null;
   cleanupPointerListeners();
 
   if (!p) return;
-  // If drag never started (desktop click without movement), let click handler fire
-  if (!p.started) return;
+
+  // If drag never started (click without movement): let click handler (onPick) fire normally
+  if (!p.started) {
+    game.endDrag();
+    return;
+  }
 
   game.updateDrag(e.clientX, e.clientY);
 
@@ -216,16 +231,16 @@ function onPiecePointerUp(e) {
   const t = game.drag?.target;
   if (t && t.inside) {
     if (p.isTouch) {
-      // Mobile: stage so player can confirm with Submit
+      // Mobile: stage so player can confirm with Submit button
       const staged = game.stagePlacement(t.x, t.y);
       if (!staged) {
         playBuzz();
         game.clearSelection();
       } else {
-        game.endDrag(); // hide the floating ghost, pendingPlace holds position
+        game.endDrag(); // stop drag ghost, pendingPlace holds position
       }
     } else {
-      // Desktop: commit immediately
+      // Desktop: commit placement immediately on drop
       const ok = game.placeAt(t.x, t.y);
       if (!ok) {
         playBuzz();
@@ -233,12 +248,10 @@ function onPiecePointerUp(e) {
       }
     }
   } else {
-    // Released outside the board — cancel, keep piece selected for retry
-    if (p.isTouch) {
-      game.endDrag(); // just stop the floating ghost, piece stays selected
-    } else {
-      game.clearSelection();
-    }
+    // Released outside the board: cancel drag but KEEP piece selected
+    // so user can still click a board cell to place
+    game.endDrag();
+    // Don't clearSelection() — piece stays selected for hover/click placement
   }
 }
 
@@ -340,6 +353,14 @@ onBeforeUnmount(() => {
   cursor: default;
 }
 .chipBtn:disabled { pointer-events: none; }
+
+/* While actively dragging: fade the chip so there's no duplicate visual */
+.chipBtn.dragging {
+  opacity: 0.25;
+  filter: grayscale(0.5);
+  transform: scale(0.95);
+  pointer-events: none;
+}
 
 .emptyNote {
   opacity: 0.6;

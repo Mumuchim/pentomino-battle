@@ -193,6 +193,23 @@ onBeforeUnmount(() => {
   ro = null;
 });
 
+// ── Keep board hover in sync while dragging from the panel ─────────────────
+// When the pointer is captured by PiecePicker's chip button, the board's
+// own mousemove/mouseenter events don't fire.  Watching drag.x/y lets us
+// still compute which board cell the cursor is over and show the green/red overlay.
+watch(
+  () => [game.drag?.active, game.drag?.x, game.drag?.y],
+  ([active, x, y]) => {
+    if (!active) {
+      hover.value = null;
+      return;
+    }
+    updateHoverFromClientXY(x ?? 0, y ?? 0);
+  },
+  { immediate: false }
+);
+// ────────────────────────────────────────────────────────────────────────────
+
 const warningMessage = ref("");
 let warnTimer = null;
 function showWarning(msg) {
