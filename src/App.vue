@@ -705,6 +705,25 @@
       </section>
     </main>
 
+    <!-- ── Global drag ghost: follows the pointer while dragging a piece ── -->
+    <Teleport to="body">
+      <div
+        v-if="game.drag?.active && game.drag?.pieceKey"
+        class="dragGhost"
+        :style="{
+          left: game.drag.x + 'px',
+          top:  game.drag.y + 'px',
+        }"
+        aria-hidden="true"
+      >
+        <PiecePreview
+          :pieceKey="game.drag.pieceKey"
+          :rotation="game.rotation"
+          :flipped="game.flipped"
+          :cell="22"
+        />
+      </div>
+    </Teleport>
 
 <!-- Menu-style bottom bar (menus) -->
 <footer v-if="showBottomBar" class="pbBottomBar">
@@ -863,6 +882,7 @@ import Board from "./components/Board.vue";
 import DraftPanel from "./components/DraftPanel.vue";
 import PiecePicker from "./components/PiecePicker.vue";
 import Controls from "./components/Controls.vue";
+import PiecePreview from "./components/PiecePreview.vue";
 
 const game = useGameStore();
 
@@ -4522,6 +4542,23 @@ onBeforeUnmount(() => {
 .btn.soft{
   background: linear-gradient(180deg, rgba(255,255,255,0.06), rgba(255,255,255,0.02));
 }
+/* ── Global drag ghost ─────────────────────────────────────────────── */
+.dragGhost {
+  position: fixed;
+  /* Offset upward so the piece appears above the finger on touch,
+     making it easy to see where you're placing. */
+  transform: translate(-50%, -110%);
+  pointer-events: none;
+  z-index: 99999;
+  opacity: 0.90;
+  filter:
+    drop-shadow(0 8px 24px rgba(0,0,0,0.65))
+    drop-shadow(0 0 12px rgba(0,255,255,0.18));
+  /* Slightly enlarge so it's easy to see under a finger */
+  scale: 1.2;
+  will-change: left, top;
+}
+
 .btn.ghost{
   background: transparent;
   box-shadow: none;
