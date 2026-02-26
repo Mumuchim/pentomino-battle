@@ -705,22 +705,21 @@
       </section>
     </main>
 
-    <!-- ── Global drag ghost: follows the pointer while dragging a piece ── -->
+    <!-- ── Unified drag ghost: board-cell-sized blocks that follow the cursor.
+         Outside the board → free-floating with piece colour.
+         Over the board   → hidden (board's own green/red overlay takes over). ── -->
     <Teleport to="body">
       <div
-        v-if="game.drag?.active && game.drag?.pieceKey"
-        class="dragGhost"
-        :style="{
-          left: game.drag.x + 'px',
-          top:  game.drag.y + 'px',
-        }"
+        v-if="cursorGhostVisible"
+        class="cursorGhost"
+        :style="cursorGhostContainerStyle"
         aria-hidden="true"
       >
-        <PiecePreview
-          :pieceKey="game.drag.pieceKey"
-          :rotation="game.rotation"
-          :flipped="game.flipped"
-          :cell="dragGhostCell"
+        <div
+          v-for="(b, i) in cursorGhostBlocks"
+          :key="i"
+          class="cursorGhostBlock"
+          :style="cursorGhostBlockStyle(b)"
         />
       </div>
     </Teleport>
@@ -877,12 +876,14 @@
 import { computed, onBeforeUnmount, onMounted, reactive, ref, watch } from "vue";
 import { useGameStore } from "./store/game";
 import { supabase as sbRealtime } from "./lib/supabase";
+import { getPieceStyle } from "./lib/pieceStyles";
+import { boundsOf } from "./lib/geom";
 
 import Board from "./components/Board.vue";
 import DraftPanel from "./components/DraftPanel.vue";
 import PiecePicker from "./components/PiecePicker.vue";
 import Controls from "./components/Controls.vue";
-import PiecePreview from "./components/PiecePreview.vue";
+
 
 const game = useGameStore();
 
@@ -1033,9 +1034,66 @@ function closeInGameSettings() {
   inGameSettingsOpen.value = false;
 }
 
-// Drag ghost cell size matches the actual board cell size (written by Board.vue ResizeObserver)
-const dragGhostCell = computed(() => game.boardCellPx || 22);
-// Remove fullscreen — toggling removed per user request.
+// Remove fullscreen
+
+// ── Unified cursor-following drag ghost ─────────────────────────────────────
+// Visible only while dragging AND cursor is NOT over the board (the board's own
+// green/red ghostOverlay handles the on-board visual — this one covers everything else).
+const cursorGhostVisible = computed(() =>
+  !!(game.drag?.active && game.drag?.pieceKey && !game.drag?.target?.inside)
+);
+
+const cursorGhostBlocks = computed(() => {
+  if (!game.drag?.pieceKey) return [];
+  return (game.selectedCells || []).map(([x, y]) => ({ x, y }));
+});
+
+const _cgBounds = computed(() => {
+  const cells = cursorGhostBlocks.value;
+  if (!cells.length) return { w: 1, h: 1 };
+  return boundsOf(cells.map(b => [b.x, b.y]));
+});
+
+const _cgCell = computed(() => Math.max(22, game.boardCellPx || 32));
+const _cgGap = 3;
+
+const cursorGhostContainerStyle = computed(() => {
+  const cx = game.drag?.x ?? 0;
+  const cy = game.drag?.y ?? 0;
+  const cell = _cgCell.value;
+  const gap = _cgGap;
+  const cols = _cgBounds.value.w;
+  const rows = _cgBounds.value.h;
+  const totalW = cols * cell + (cols - 1) * gap;
+  const totalH = rows * cell + (rows - 1) * gap;
+
+  // On touch: float above finger; on mouse: center on cursor
+  const isTouch = typeof navigator !== 'undefined' && navigator.maxTouchPoints > 0;
+  const offsetX = -totalW / 2;
+  const offsetY = isTouch ? -(totalH + 18) : -totalH / 2;
+
+  return {
+    left: `${cx + offsetX}px`,
+    top: `${cy + offsetY}px`,
+    display: 'grid',
+    gridTemplateColumns: `repeat(${cols}, ${cell}px)`,
+    gridTemplateRows: `repeat(${rows}, ${cell}px)`,
+    gap: `${gap}px`,
+  };
+});
+
+function cursorGhostBlockStyle(b) {
+  const s = getPieceStyle(game.drag?.pieceKey || '');
+  const base = {
+    gridColumn: b.x + 1,
+    gridRow: b.y + 1,
+  };
+  if (s.skin) {
+    return { ...base, backgroundImage: `url(${s.skin})`, backgroundSize: 'cover', backgroundPosition: 'center' };
+  }
+  return { ...base, backgroundColor: s.color };
+}
+// ──────────────────────────────────────────────────────────────────────────── — toggling removed per user request.
 
 // Viewport sizing: we rely on responsive CSS + natural page scroll.
 // Keep portrait detection for optional landscape lock UI.
@@ -4555,26 +4613,41 @@ onBeforeUnmount(() => {
 .btn.soft{
   background: linear-gradient(180deg, rgba(255,255,255,0.06), rgba(255,255,255,0.02));
 }
-/* ── Global drag ghost ─────────────────────────────────────────────── */
-.dragGhost {
+/* ── Unified cursor drag ghost ─────────────────────────────────────────────── */
+.cursorGhost {
   position: fixed;
-  /* Centered on the pointer for both mouse and touch */
-  transform: translate(-50%, -50%);
   pointer-events: none;
   z-index: 99999;
-  opacity: 0.88;
+  opacity: 0.82;
   filter:
-    drop-shadow(0 8px 24px rgba(0,0,0,0.65))
-    drop-shadow(0 0 12px rgba(0,255,255,0.18));
+    drop-shadow(0 10px 26px rgba(0,0,0,0.65))
+    drop-shadow(0 0 10px rgba(255,255,255,0.10));
   will-change: left, top;
 }
 
-@media (pointer: coarse) {
-  .dragGhost {
-    /* On touch: shift upward so piece shows above the finger, not under it */
-    transform: translate(-50%, -120%);
-    opacity: 0.93;
-  }
+.cursorGhostBlock {
+  border-radius: 9px;
+  border: 1px solid rgba(0,0,0,0.55);
+  box-shadow:
+    0 14px 22px rgba(0,0,0,0.50),
+    0 0 14px rgba(255,255,255,0.07),
+    inset 0 1px 0 rgba(255,255,255,0.26),
+    inset 0 -6px 0 rgba(0,0,0,0.34);
+  overflow: hidden;
+  position: relative;
+}
+
+.cursorGhostBlock::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(
+    to bottom,
+    rgba(255,255,255,0.26),
+    rgba(255,255,255,0.08) 35%,
+    rgba(0,0,0,0.12)
+  );
+  pointer-events: none;
 }
 
 .btn.ghost{
