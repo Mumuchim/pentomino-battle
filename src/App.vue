@@ -1033,9 +1033,8 @@ function closeInGameSettings() {
   inGameSettingsOpen.value = false;
 }
 
-// Drag ghost cell size: bigger on touch devices so piece is visible above the finger
-// Detected once on mount — touch capability doesn't change during a session.
-const dragGhostCell = ref(22);
+// Drag ghost cell size matches the actual board cell size (written by Board.vue ResizeObserver)
+const dragGhostCell = computed(() => game.boardCellPx || 22);
 // Remove fullscreen — toggling removed per user request.
 
 // Viewport sizing: we rely on responsive CSS + natural page scroll.
@@ -4055,12 +4054,6 @@ onMounted(() => {
   // ✅ Initial boot gate — prevent accidental clicks before first paint.
   startUiLock({ label: "Booting…", hint: "Loading UI, sounds, and neon vibes…", minMs: 750 });
 
-  // Detect touch devices for bigger drag ghost (so piece shows clearly above finger)
-  try {
-    const isTouch = ('ontouchstart' in window) || (navigator.maxTouchPoints > 0);
-    if (isTouch) dragGhostCell.value = 44;
-  } catch {}
-
   loadAudioPrefs();
 
   // Try to autoplay menu BGM on the welcome/menu screens.
@@ -4565,26 +4558,22 @@ onBeforeUnmount(() => {
 /* ── Global drag ghost ─────────────────────────────────────────────── */
 .dragGhost {
   position: fixed;
-  /* Offset upward so the piece appears above the finger on touch,
-     making it easy to see where you're placing. */
-  transform: translate(-50%, -110%);
+  /* Centered on the pointer for both mouse and touch */
+  transform: translate(-50%, -50%);
   pointer-events: none;
   z-index: 99999;
-  opacity: 0.90;
+  opacity: 0.88;
   filter:
     drop-shadow(0 8px 24px rgba(0,0,0,0.65))
     drop-shadow(0 0 12px rgba(0,255,255,0.18));
-  /* Slightly enlarge so it's easy to see under a finger */
-  scale: 1.2;
   will-change: left, top;
 }
 
-@media (max-width: 980px), (pointer: coarse) {
+@media (pointer: coarse) {
   .dragGhost {
-    /* On mobile: offset more so piece shows clearly above finger */
+    /* On touch: shift upward so piece shows above the finger, not under it */
     transform: translate(-50%, -120%);
-    scale: 1.0; /* Already large from bigger cell size */
-    opacity: 0.95;
+    opacity: 0.93;
   }
 }
 
