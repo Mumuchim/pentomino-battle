@@ -210,9 +210,6 @@ export const useGameStore = defineStore("game", {
       pieceKey: null,
     },
 
-    // Mobile staged placement: piece dropped on board but not yet confirmed
-    pendingPlace: null, // { x, y } | null
-
     winner: null,
     // Monotonic move sequence number to prevent state clobber under latency.
     // Every authoritative action increments this and is embedded into lastMove.
@@ -494,26 +491,7 @@ export const useGameStore = defineStore("game", {
       this.selectedPieceKey = null;
       this.rotation = 0;
       this.flipped = false;
-      this.pendingPlace = null;
       this.endDrag();
-    },
-
-    // Mobile: stage a placement (show ghost on board, wait for Submit)
-    stagePlacement(x, y) {
-      if (!this.canPlaceAt(x, y)) return false;
-      this.pendingPlace = { x, y };
-      return true;
-    },
-
-    clearPendingPlace() {
-      this.pendingPlace = null;
-    },
-
-    commitPendingPlace() {
-      if (!this.pendingPlace) return false;
-      const { x, y } = this.pendingPlace;
-      this.pendingPlace = null;
-      return this.placeAt(x, y);
     },
 
     rotateSelected() {
