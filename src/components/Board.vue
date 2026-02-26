@@ -7,6 +7,9 @@
       @mouseleave="clearHover"
       @dragover.prevent="onDragOver"
       @drop.prevent="onShellDrop"
+      @touchmove.prevent="onTouchMove"
+      @touchend.prevent="onTouchEnd"
+      @touchcancel.prevent="onTouchEnd"
     >
       <!--
         boardSizer makes the board always take the *maximum possible* space
@@ -411,6 +414,44 @@ function spawnFlyClone(pieceKey, player, fromEl) {
   setTimeout(() => node.remove(), 700);
 }
 
+/* ─── Touch drag support ───────────────────────────────────────
+   Touch events fire on the element that received touchstart, so we
+   use touchmove/touchend on the shell and compute the board cell from
+   the touch coordinates — same math as the pointer/mouse path.
+───────────────────────────────────────────────────────────── */
+function onTouchMove(e) {
+  if (game.phase !== "place") return;
+  if (!game.ui?.enableClickPlace) return;
+  if (!game.selectedPieceKey) return;
+  // Only track the first touch
+  const touch = e.touches[0];
+  if (!touch) return;
+  updateHoverFromClientXY(touch.clientX, touch.clientY);
+  // Keep drag overlay in sync
+  if (game.drag?.active) game.updateDrag(touch.clientX, touch.clientY);
+}
+
+function onTouchEnd(e) {
+  if (game.phase !== "place") return;
+  if (!game.ui?.enableClickPlace) return;
+  if (!game.selectedPieceKey) return;
+
+  const touch = e.changedTouches[0];
+  if (!touch) return;
+  updateHoverFromClientXY(touch.clientX, touch.clientY);
+
+  // If a drag is active from PiecePicker, let that handler finish it.
+  // Otherwise treat as a tap-to-place on the cell we just computed.
+  if (!game.drag?.active && targetCell.value) {
+    const ok = game.placeAt(targetCell.value.x, targetCell.value.y);
+    if (!ok) {
+      playBuzz();
+      showWarning("Illegal placement — try another spot / rotate / flip.");
+    }
+  }
+  hover.value = null;
+}
+
 /** ✅ CLICK does two different things depending on phase */
 function onCellClick(x, y, evt) {
   if (game.phase === "draft") {
@@ -553,6 +594,9 @@ function ghostBlockStyle(b) {
   display: flex;
   align-items: center;
   justify-content: center;
+  /* Prevent the browser from intercepting touch events for scrolling
+     so touch drag-to-place works correctly on mobile. */
+  touch-action: none;
 }
 
 /* Mobile: ensure boardShell has real height so the ResizeObserver
