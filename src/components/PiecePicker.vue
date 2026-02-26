@@ -138,24 +138,39 @@ function onPiecePointerDown(player, key, e) {
   if (!game.ui?.enableDragPlace) return;
   if (!canSelect(player)) return;
 
-  // Don't start drag immediately — wait until the pointer actually moves a bit (keeps click behavior intact).
-  dragPending.value = {
-    player,
-    key,
-    pointerId: e.pointerId,
-    startX: e.clientX,
-    startY: e.clientY,
-    started: false,
-    isTouch: e.pointerType === "touch",
-  };
+  const isTouch = e.pointerType === "touch";
 
-  // Capture the pointer so we keep receiving events even after
-  // the finger leaves the button bounds — essential for touch drag.
+  if (isTouch) {
+    // ── Mobile: start drag IMMEDIATELY at the finger so the big board-sized
+    //   ghost spawns right on the tap point — no threshold, no small panel clone.
+    e.preventDefault();
+    const ok = game.beginDrag(key, e.clientX, e.clientY);
+    if (!ok) return;
+
+    dragPending.value = {
+      player, key,
+      pointerId: e.pointerId,
+      startX: e.clientX, startY: e.clientY,
+      started: true,   // already active
+      isTouch: true,
+    };
+  } else {
+    // ── Desktop mouse: wait for a small movement to distinguish click from drag
+    dragPending.value = {
+      player, key,
+      pointerId: e.pointerId,
+      startX: e.clientX, startY: e.clientY,
+      started: false,
+      isTouch: false,
+    };
+  }
+
+  // Capture so we keep receiving events even after finger leaves the button
   try { e.currentTarget.setPointerCapture(e.pointerId); } catch {}
 
   cleanupPointerListeners();
   window.addEventListener("pointermove", onPiecePointerMove, { passive: false });
-  window.addEventListener("pointerup", onPiecePointerUp, { passive: false });
+  window.addEventListener("pointerup",   onPiecePointerUp,   { passive: false });
   window.addEventListener("pointercancel", onPiecePointerUp, { passive: false });
 }
 
@@ -164,16 +179,11 @@ function onPiecePointerMove(e) {
   if (!p) return;
   if (p.pointerId != null && e.pointerId !== p.pointerId) return;
 
-  const dx = e.clientX - p.startX;
-  const dy = e.clientY - p.startY;
-  const dist = Math.hypot(dx, dy);
-
   if (!p.started) {
-    // Touch needs almost no dead zone — start drag immediately for big ghost feel.
-    // Mouse uses a small dead zone to avoid accidental drags on clicks.
-    const threshold = p.isTouch ? 2 : 6;
-    if (dist < threshold) return;
-    // Start the drag
+    // Desktop only: start drag after a small movement dead zone
+    const dx = e.clientX - p.startX;
+    const dy = e.clientY - p.startY;
+    if (Math.hypot(dx, dy) < 6) return;
     const ok = game.beginDrag(p.key, p.startX, p.startY);
     if (!ok) {
       dragPending.value = null;
@@ -183,7 +193,6 @@ function onPiecePointerMove(e) {
     p.started = true;
   }
 
-  // Update drag position
   e.preventDefault();
   game.updateDrag(e.clientX, e.clientY);
 }
@@ -194,11 +203,9 @@ function onPiecePointerUp(e) {
   cleanupPointerListeners();
 
   if (!p) return;
-
-  // If drag never started, let the normal click handler do its thing.
+  // If drag never started (desktop click without movement), let click handler fire
   if (!p.started) return;
 
-  // Finish drag (place if valid)
   game.updateDrag(e.clientX, e.clientY);
 
   if (props.isOnline && !props.canAct) {
@@ -209,14 +216,13 @@ function onPiecePointerUp(e) {
   const t = game.drag?.target;
   if (t && t.inside) {
     if (p.isTouch) {
-      // Mobile touch drag: stage placement, wait for Submit button
+      // Mobile: stage so player can confirm with Submit
       const staged = game.stagePlacement(t.x, t.y);
       if (!staged) {
         playBuzz();
         game.clearSelection();
       } else {
-        // End drag visual but keep piece selected with pendingPlace
-        game.endDrag();
+        game.endDrag(); // hide the floating ghost, pendingPlace holds position
       }
     } else {
       // Desktop: commit immediately
@@ -227,8 +233,12 @@ function onPiecePointerUp(e) {
       }
     }
   } else {
-    // Dropped outside board: snap back to panel (clear selection)
-    game.clearSelection();
+    // Released outside the board — cancel, keep piece selected for retry
+    if (p.isTouch) {
+      game.endDrag(); // just stop the floating ghost, piece stays selected
+    } else {
+      game.clearSelection();
+    }
   }
 }
 
