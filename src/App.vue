@@ -4895,13 +4895,10 @@ onBeforeUnmount(() => {
   /* Always keep the desktop 2-panel side-by-side layout — never stack on mobile */
 }
 
-/* Mobile: keep side-by-side layout, set a floor width so the board always renders */
-@media (max-width: 980px){
+/* Mobile: keep side-by-side layout — viewport is forced to 1920px so this always fits */
+@media (max-width: 1920px){
   .gameLayout{
-    /* Enforce a minimum width so the layout never collapses below 700px.
-       The .main container becomes scrollable so both panels are always reachable. */
-    min-width: 700px;
-    /* Do NOT reflow to single column */
+    min-width: 900px;
   }
 }
 

@@ -47,8 +47,7 @@ coverage
 *.njsproj
 *.sln
 *.sw?
-*.zip
-/*.zip
+
 # =========================
 # TypeScript
 # =========================
