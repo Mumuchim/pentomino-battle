@@ -861,6 +861,21 @@
               <input type="range" min="0" max="100" step="1" v-model.number="sfxVolumeUi" />
               <b class="mono">{{ sfxVolumeUi }}%</b>
             </label>
+
+            <label class="field fieldToggle">
+              <span>
+                <b>Verify Move</b>
+                <span class="fieldDesc">Show Submit button — confirm placement before committing</span>
+              </span>
+              <button
+                class="toggleBtn"
+                :class="{ active: game.ui?.requireSubmit }"
+                @click="game.ui.requireSubmit = !game.ui.requireSubmit"
+                :aria-pressed="game.ui?.requireSubmit"
+              >
+                <span class="toggleThumb"></span>
+              </button>
+            </label>
           </div>
         </div>
 
@@ -4842,6 +4857,38 @@ onBeforeUnmount(() => {
 .field{ display:flex; gap: 12px; align-items:center; padding: 10px 12px; border-radius: 14px; border: 1px solid rgba(255,255,255,.10); background: rgba(255,255,255,.04); }
 .fieldRow{ justify-content: space-between; cursor: pointer; }
 .fieldRow input[type="checkbox"]{ width: 20px; height: 20px; cursor: pointer; accent-color: rgba(0,255,170,0.8); }
+.fieldToggle{ justify-content: space-between; }
+.fieldToggle > span{ display:flex; flex-direction:column; gap: 3px; }
+.fieldDesc{ font-size: 11px; opacity: 0.55; font-weight: 400; }
+/* iOS-style toggle */
+.toggleBtn{
+  flex-shrink: 0;
+  width: 46px; height: 26px;
+  border-radius: 999px;
+  border: 1px solid rgba(255,255,255,0.14);
+  background: rgba(255,255,255,0.10);
+  cursor: pointer;
+  position: relative;
+  transition: background 180ms ease, border-color 180ms ease;
+  padding: 0;
+}
+.toggleBtn.active{
+  background: rgba(0,255,140,0.35);
+  border-color: rgba(0,255,140,0.55);
+}
+.toggleThumb{
+  position: absolute;
+  top: 3px; left: 3px;
+  width: 18px; height: 18px;
+  border-radius: 50%;
+  background: rgba(200,200,200,0.80);
+  transition: transform 180ms ease, background 180ms ease;
+  display: block;
+}
+.toggleBtn.active .toggleThumb{
+  transform: translateX(20px);
+  background: rgba(0,255,140,0.95);
+}
 .form{ display:grid; gap: 10px; }
 .input{ width: 100%; padding: 10px 12px; border-radius: 12px; border: 1px solid rgba(255,255,255,.12); background: rgba(0,0,0,.25); color:#eaeaea; }
 .row{ display:flex; gap: 10px; flex-wrap: wrap; margin-top: 10px; }
