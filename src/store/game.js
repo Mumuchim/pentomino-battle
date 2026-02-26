@@ -208,11 +208,7 @@ export const useGameStore = defineStore("game", {
       y: 0,
       target: null, // { x, y, inside, ok }
       pieceKey: null,
-      cellPx: 40,   // live board cell size in px, written by Board.vue
     },
-
-    // Staged placement: piece is tentatively placed on board, pending Submit.
-    staged: null, // null | { x: number, y: number }
 
     winner: null,
     // Monotonic move sequence number to prevent state clobber under latency.
@@ -489,54 +485,24 @@ export const useGameStore = defineStore("game", {
       this.drag.active = false;
       this.drag.pieceKey = null;
       this.drag.target = null;
-      // Note: do NOT clear staged here — staged survives drag-end
     },
 
     clearSelection() {
       this.selectedPieceKey = null;
       this.rotation = 0;
       this.flipped = false;
-      this.staged = null;
       this.endDrag();
-    },
-
-    // ----- STAGED PLACEMENT (tap-to-preview, Submit to confirm) -----
-    stageAt(x, y) {
-      if (this.phase !== "place") return false;
-      if (!this.selectedPieceKey) return false;
-      if (!this.canPlaceAt(x, y)) return false;
-      this.staged = { x, y };
-      return true;
-    },
-
-    clearStaged() {
-      this.staged = null;
-    },
-
-    submitStaged() {
-      if (!this.staged) return false;
-      const { x, y } = this.staged;
-      this.staged = null;
-      return this.placeAt(x, y);
     },
 
     rotateSelected() {
       if (!this.selectedPieceKey) return;
       this.rotation = (this.rotation + 1) % 4;
-      // Re-validate staged: if still valid in new orientation, keep it;
-      // otherwise clear so player must re-tap
-      if (this.staged && !this.canPlaceAt(this.staged.x, this.staged.y)) {
-        this.staged = null;
-      }
     },
 
     flipSelected() {
       if (!this.selectedPieceKey) return;
       if (!this.allowFlip) return;
       this.flipped = !this.flipped;
-      if (this.staged && !this.canPlaceAt(this.staged.x, this.staged.y)) {
-        this.staged = null;
-      }
     },
 
     // ----- LEGALITY -----
