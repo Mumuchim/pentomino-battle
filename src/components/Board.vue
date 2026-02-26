@@ -7,9 +7,9 @@
       @mouseleave="clearHover"
       @dragover.prevent="onDragOver"
       @drop.prevent="onShellDrop"
-      @touchmove.prevent="onTouchMove"
-      @touchend.prevent="onTouchEnd"
-      @touchcancel.prevent="onTouchEnd"
+      @touchmove="onTouchMove"
+      @touchend="onTouchEnd"
+      @touchcancel="onTouchEnd"
     >
       <!--
         boardSizer makes the board always take the *maximum possible* space
@@ -420,9 +420,12 @@ function spawnFlyClone(pieceKey, player, fromEl) {
    the touch coordinates — same math as the pointer/mouse path.
 ───────────────────────────────────────────────────────────── */
 function onTouchMove(e) {
+  // In draft phase: don't intercept touch at all — let clicks bubble naturally.
   if (game.phase !== "place") return;
   if (!game.ui?.enableClickPlace) return;
   if (!game.selectedPieceKey) return;
+  // Only prevent scroll when we're actually dragging a piece onto the board
+  e.preventDefault();
   // Only track the first touch
   const touch = e.touches[0];
   if (!touch) return;
@@ -432,6 +435,7 @@ function onTouchMove(e) {
 }
 
 function onTouchEnd(e) {
+  // Draft phase: do nothing here — the cell's click handler fires naturally.
   if (game.phase !== "place") return;
   if (!game.ui?.enableClickPlace) return;
   if (!game.selectedPieceKey) return;
@@ -443,6 +447,8 @@ function onTouchEnd(e) {
   // If a drag is active from PiecePicker, let that handler finish it.
   // Otherwise treat as a tap-to-place on the cell we just computed.
   if (!game.drag?.active && targetCell.value) {
+    // Prevent the ghost click that would otherwise fire after touchend
+    e.preventDefault();
     const ok = game.placeAt(targetCell.value.x, targetCell.value.y);
     if (!ok) {
       playBuzz();
