@@ -4459,6 +4459,9 @@ onBeforeUnmount(() => {
     overflow: auto;
     -webkit-overflow-scrolling: touch;
     padding: 10px;
+    /* Allow finger panning on the scroll container, but the board shell
+       overrides with touch-action:none so piece dragging works there. */
+    touch-action: pan-x pan-y;
   }
   .gameLayout{ height: auto; min-height: calc(100dvh - 80px); }
 }

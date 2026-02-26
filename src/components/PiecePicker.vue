@@ -146,7 +146,12 @@ function onPiecePointerDown(player, key, e) {
     startX: e.clientX,
     startY: e.clientY,
     started: false,
+    isTouch: e.pointerType === "touch",
   };
+
+  // Capture the pointer so we keep receiving events even after
+  // the finger leaves the button bounds — essential for touch drag.
+  try { e.currentTarget.setPointerCapture(e.pointerId); } catch {}
 
   cleanupPointerListeners();
   window.addEventListener("pointermove", onPiecePointerMove, { passive: false });
@@ -164,7 +169,10 @@ function onPiecePointerMove(e) {
   const dist = Math.hypot(dx, dy);
 
   if (!p.started) {
-    if (dist < 6) return;
+    // Touch needs a slightly larger dead zone to not conflict with taps,
+    // but still much less than mouse since fingers are less precise.
+    const threshold = p.isTouch ? 8 : 6;
+    if (dist < threshold) return;
     // Start the drag
     const ok = game.beginDrag(p.key, p.startX, p.startY);
     if (!ok) {
@@ -295,7 +303,7 @@ onBeforeUnmount(() => {
   filter: brightness(1.06);
 }
 
-.chipBtn.mine { cursor: grab; }
+.chipBtn.mine { cursor: grab; touch-action: none; }
 .chipBtn.mine:active { cursor: grabbing; }
 
 .chipBtn.selected {
