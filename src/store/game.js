@@ -208,6 +208,7 @@ export const useGameStore = defineStore("game", {
       y: 0,
       target: null, // { x, y, inside, ok }
       pieceKey: null,
+      cellPx: 40,   // live board cell size in px, written by Board.vue
     },
 
     winner: null,

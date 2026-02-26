@@ -108,6 +108,17 @@
             <img :src="stIconUrl" class="btnPng floatingLogo" alt="Settings" />
           </button>
 
+          <!-- Fullscreen toggle (in-game only) -->
+          <button
+            class="btn ghost imgBtn fsBtn"
+            v-if="isInGame"
+            @click="toggleFullscreen"
+            :aria-label="isFullscreen ? 'Exit Fullscreen' : 'Enter Fullscreen'"
+            :title="isFullscreen ? 'Exit Fullscreen (F)' : 'Fullscreen (F)'"
+          >
+            <span class="fsIcon" :class="{ active: isFullscreen }"></span>
+          </button>
+
           <button class="btn ghost imgBtn" v-if="canGoBack" @click="goBack" aria-label="Back">
             <img :src="backBtnUrl" class="btnPng floatingLogo" alt="Back" />
           </button>
@@ -720,7 +731,7 @@
           :pieceKey="game.drag.pieceKey"
           :rotation="game.rotation"
           :flipped="game.flipped"
-          :cell="22"
+          :cell="game.drag.cellPx || 40"
         />
       </div>
     </Teleport>
@@ -952,6 +963,31 @@ function computeIsPortrait() {
   isPortrait.value = window.innerHeight > window.innerWidth;
 }
 const landscapeLockActive = computed(() => isInGame.value && !!game.ui?.lockLandscape && isPortrait.value);
+
+// Auto-fullscreen on mobile when entering a game
+watch(isInGame, (val) => {
+  if (val && /Mobi|Android|iPhone|iPad/i.test(navigator.userAgent)) {
+    const el = appRoot.value || document.documentElement;
+    try {
+      if (el.requestFullscreen) el.requestFullscreen().catch(() => {});
+      else if (el.webkitRequestFullscreen) el.webkitRequestFullscreen();
+    } catch {}
+  } else if (!val) {
+    try {
+      if (document.fullscreenElement && document.exitFullscreen) document.exitFullscreen().catch(() => {});
+    } catch {}
+  }
+});
+
+// Sync fullscreen state when the user presses Esc or uses browser controls
+onMounted(() => {
+  document.addEventListener('fullscreenchange', updateFullscreenState);
+  document.addEventListener('webkitfullscreenchange', updateFullscreenState);
+});
+onBeforeUnmount(() => {
+  document.removeEventListener('fullscreenchange', updateFullscreenState);
+  document.removeEventListener('webkitfullscreenchange', updateFullscreenState);
+});
 
 // In-game settings modal (Esc)
 
@@ -1284,6 +1320,24 @@ const quick = reactive({
 const rankedTier = computed(() => (loggedIn.value ? "Wood" : "—"));
 
 const isInGame = computed(() => screen.value === "couch" || screen.value === "ai" || screen.value === "online");
+
+// ── Fullscreen ──────────────────────────────────────────────────
+const isFullscreen = ref(false);
+function updateFullscreenState() {
+  isFullscreen.value = !!(document.fullscreenElement || document.webkitFullscreenElement);
+}
+async function toggleFullscreen() {
+  try {
+    if (!document.fullscreenElement && !document.webkitFullscreenElement) {
+      const el = appRoot.value || document.documentElement;
+      if (el.requestFullscreen) await el.requestFullscreen();
+      else if (el.webkitRequestFullscreen) el.webkitRequestFullscreen();
+    } else {
+      if (document.exitFullscreen) await document.exitFullscreen();
+      else if (document.webkitExitFullscreen) document.webkitExitFullscreen();
+    }
+  } catch {}
+}
 const modeLabel = computed(() =>
   screen.value === "ai" ? "Practice vs AI" : screen.value === "couch" ? "Couch Play" : screen.value === "online" ? "Online Match" : "—"
 );
@@ -4542,6 +4596,45 @@ onBeforeUnmount(() => {
 .btn.soft{
   background: linear-gradient(180deg, rgba(255,255,255,0.06), rgba(255,255,255,0.02));
 }
+/* ── Fullscreen button ──────────────────────────────────────────────── */
+.fsBtn { min-width: 36px; }
+
+/* CSS-drawn expand/compress icon */
+.fsIcon {
+  display: block;
+  width: 18px;
+  height: 18px;
+  position: relative;
+  box-shadow:
+    /* top-left corner */
+    -5px -5px 0 0 currentColor,
+    /* top-right corner */
+    5px -5px 0 0 currentColor,
+    /* bottom-left corner */
+    -5px 5px 0 0 currentColor,
+    /* bottom-right corner */
+    5px 5px 0 0 currentColor;
+  outline: 2px solid currentColor;
+  outline-offset: -6px;
+  opacity: 0.85;
+}
+.fsIcon.active {
+  /* compress icon: arrows pointing inward */
+  transform: rotate(45deg);
+}
+
+/* When actually in fullscreen — hide the topbar to reclaim space */
+:fullscreen .app > .topbar,
+:-webkit-full-screen .app > .topbar { display: none !important; }
+:fullscreen .main,
+:-webkit-full-screen .main { padding-top: 6px !important; }
+
+/* Auto-enter fullscreen behavior hint: on mobile in-game,
+   try to hide the address bar by making the page tall */
+.app.inGame {
+  min-height: 100dvh;
+}
+
 /* ── Global drag ghost ─────────────────────────────────────────────── */
 .dragGhost {
   position: fixed;

@@ -118,4 +118,17 @@ onBeforeUnmount(() => window.removeEventListener("keydown", onKeyDown));
   .btn{ padding: 8px 10px; font-size: 12px; border-radius: 11px; }
   .previewRow{ margin: 8px 0; }
 }
+
+/* Mobile: make Rotate/Flip buttons large enough for fat fingers */
+@media (max-width: 1280px) {
+  .buttons { gap: 10px; }
+  .btn {
+    padding: 18px 22px;
+    font-size: 16px;
+    font-weight: 900;
+    border-radius: 16px;
+    min-height: 56px;
+    letter-spacing: 0.03em;
+  }
+}
 </style>
