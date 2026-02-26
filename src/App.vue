@@ -4453,11 +4453,14 @@ onBeforeUnmount(() => {
 /* In-game: lock the canvas; UI already fits the viewport. */
 .app.inGame .main{ overflow: hidden; }
 
-/* On very small/narrow devices (especially portrait), the in-game UI can't reliably
-   fit without clipping. Allow scrolling there while keeping desktop locked. */
+/* Mobile: allow panning so the desktop-style 2-panel layout stays visible */
 @media (max-width: 980px){
-  .app.inGame .main{ overflow: auto; -webkit-overflow-scrolling: touch; }
-  .gameLayout{ height: auto; }
+  .app.inGame .main{
+    overflow: auto;
+    -webkit-overflow-scrolling: touch;
+    padding: 10px;
+  }
+  .gameLayout{ height: auto; min-height: calc(100dvh - 80px); }
 }
 
 @media (max-height: 620px){
@@ -4889,14 +4892,19 @@ onBeforeUnmount(() => {
   height: 100%;
   min-height: 0;
   align-items: stretch;
+  /* Always keep the desktop 2-panel side-by-side layout — never stack on mobile */
 }
+
+/* Mobile: keep side-by-side layout, set a floor width so the board always renders */
 @media (max-width: 980px){
-  .gameLayout{ grid-template-columns: 1fr; }
-  .leftPanel{ order: 2; }
-  .rightPanel{ order: 1; }
-  .rightPanel{ display:flex; flex-direction: column; align-items: stretch; }
-  .leftPanel{ display:flex; flex-direction: column; gap: 12px; }
+  .gameLayout{
+    /* Enforce a minimum width so the layout never collapses below 700px.
+       The .main container becomes scrollable so both panels are always reachable. */
+    min-width: 700px;
+    /* Do NOT reflow to single column */
+  }
 }
+
 @media (max-width: 520px){
   .panelHead, .panel{ border-radius: 16px; }
 }
