@@ -720,7 +720,7 @@
           :pieceKey="game.drag.pieceKey"
           :rotation="game.rotation"
           :flipped="game.flipped"
-          :cell="dragGhostCell"
+          :cell="22"
         />
       </div>
     </Teleport>
@@ -861,11 +861,6 @@
               <span>SFX Volume</span>
               <input type="range" min="0" max="100" step="1" v-model.number="sfxVolumeUi" />
               <b class="mono">{{ sfxVolumeUi }}%</b>
-            </label>
-
-            <label class="field fieldRow">
-              <span>Fullscreen</span>
-              <input type="checkbox" v-model="isFullscreen" @change="toggleFullscreen" />
             </label>
           </div>
         </div>
@@ -1036,34 +1031,6 @@ function openInGameSettings() {
 }
 function closeInGameSettings() {
   inGameSettingsOpen.value = false;
-}
-
-// Drag ghost cell size: bigger on mobile for easy visibility above finger
-const dragGhostCell = computed(() => {
-  if (typeof window !== 'undefined' && window.innerWidth <= 768) return 42;
-  return 22;
-});
-
-// Fullscreen toggle for in-game settings
-const isFullscreen = ref(false);
-
-function toggleFullscreen() {
-  try {
-    if (isFullscreen.value) {
-      const el = document.documentElement;
-      if (el.requestFullscreen) el.requestFullscreen().catch(() => {});
-      else if (el.webkitRequestFullscreen) el.webkitRequestFullscreen();
-    } else {
-      if (document.exitFullscreen) document.exitFullscreen().catch(() => {});
-      else if (document.webkitExitFullscreen) document.webkitExitFullscreen();
-    }
-  } catch {}
-}
-
-function onFullscreenChange() {
-  isFullscreen.value = !!(
-    document.fullscreenElement || document.webkitFullscreenElement
-  );
 }
 
 // Viewport sizing: we rely on responsive CSS + natural page scroll.
@@ -4116,8 +4083,6 @@ onMounted(() => {
     } catch {}
   };
   window.addEventListener("keydown", escHandler, { passive: false });
-  document.addEventListener("fullscreenchange", onFullscreenChange);
-  document.addEventListener("webkitfullscreenchange", onFullscreenChange);
   stopUiLockAfterPaint(750);
 
   originalAlert = window.alert;
@@ -4157,8 +4122,6 @@ onBeforeUnmount(() => {
   try { window.removeEventListener("orientationchange", onViewportChange); } catch {}
   try { if (escHandler) window.removeEventListener("keydown", escHandler); } catch {}
   try { if (_fitRaf) cancelAnimationFrame(_fitRaf); } catch {}
-  try { document.removeEventListener("fullscreenchange", onFullscreenChange); } catch {}
-  try { document.removeEventListener("webkitfullscreenchange", onFullscreenChange); } catch {}
   stopPolling();
 });
 </script>
@@ -4596,15 +4559,6 @@ onBeforeUnmount(() => {
   will-change: left, top;
 }
 
-@media (max-width: 980px), (pointer: coarse) {
-  .dragGhost {
-    /* On mobile: offset more so piece shows clearly above finger */
-    transform: translate(-50%, -120%);
-    scale: 1.0; /* Already large from bigger cell size */
-    opacity: 0.95;
-  }
-}
-
 .btn.ghost{
   background: transparent;
   box-shadow: none;
@@ -4795,8 +4749,6 @@ onBeforeUnmount(() => {
 }
 .miniBtn:hover{ background: rgba(255,255,255,0.08); }
 .field{ display:flex; gap: 12px; align-items:center; padding: 10px 12px; border-radius: 14px; border: 1px solid rgba(255,255,255,.10); background: rgba(255,255,255,.04); }
-.fieldRow{ justify-content: space-between; cursor: pointer; }
-.fieldRow input[type="checkbox"]{ width: 20px; height: 20px; cursor: pointer; accent-color: rgba(0,255,170,0.8); }
 .form{ display:grid; gap: 10px; }
 .input{ width: 100%; padding: 10px 12px; border-radius: 12px; border: 1px solid rgba(255,255,255,.12); background: rgba(0,0,0,.25); color:#eaeaea; }
 .row{ display:flex; gap: 10px; flex-wrap: wrap; margin-top: 10px; }

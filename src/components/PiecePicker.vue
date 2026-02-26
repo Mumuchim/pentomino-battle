@@ -169,9 +169,9 @@ function onPiecePointerMove(e) {
   const dist = Math.hypot(dx, dy);
 
   if (!p.started) {
-    // Touch needs almost no dead zone — start drag immediately for big ghost feel.
-    // Mouse uses a small dead zone to avoid accidental drags on clicks.
-    const threshold = p.isTouch ? 2 : 6;
+    // Touch needs a slightly larger dead zone to not conflict with taps,
+    // but still much less than mouse since fingers are less precise.
+    const threshold = p.isTouch ? 8 : 6;
     if (dist < threshold) return;
     // Start the drag
     const ok = game.beginDrag(p.key, p.startX, p.startY);
@@ -208,23 +208,10 @@ function onPiecePointerUp(e) {
 
   const t = game.drag?.target;
   if (t && t.inside) {
-    if (p.isTouch) {
-      // Mobile touch drag: stage placement, wait for Submit button
-      const staged = game.stagePlacement(t.x, t.y);
-      if (!staged) {
-        playBuzz();
-        game.clearSelection();
-      } else {
-        // End drag visual but keep piece selected with pendingPlace
-        game.endDrag();
-      }
-    } else {
-      // Desktop: commit immediately
-      const ok = game.placeAt(t.x, t.y);
-      if (!ok) {
-        playBuzz();
-        game.clearSelection();
-      }
+    const ok = game.placeAt(t.x, t.y);
+    if (!ok) {
+      playBuzz();
+      game.clearSelection();
     }
   } else {
     // Dropped outside board: snap back to panel (clear selection)
