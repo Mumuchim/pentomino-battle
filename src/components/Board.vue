@@ -51,7 +51,7 @@
         <div
           v-if="ghostOverlay.visible"
           class="ghostOverlay"
-          :class="{ ok: ghostOverlay.ok, bad: !ghostOverlay.ok }"
+          :class="{ ok: ghostOverlay.ok, bad: !ghostOverlay.ok, staged: ghostOverlay.staged }"
           aria-hidden="true"
         >
           <div
@@ -74,6 +74,44 @@
       <span v-else class="legendItem muted">
         Drop or click. (Q rotate, E flip)
       </span>
+    </div>
+
+    <!-- ── Mobile action bar: SUBMIT (center) | ROTATE | FLIP (right) ── -->
+    <div
+      v-if="game.phase === 'place' && game.selectedPieceKey"
+      class="mobileActionBar"
+      aria-label="Mobile piece controls"
+    >
+      <div class="mobileActionSide"></div>
+      <button
+        class="mobileBtn submitBtn"
+        :class="{ hasPending: !!game.pendingPlace }"
+        :disabled="!game.pendingPlace"
+        @touchstart.prevent="onMobileSubmit"
+        @click="onMobileSubmit"
+        aria-label="Confirm placement"
+      >
+        ✓ SUBMIT
+      </button>
+      <div class="mobileActionSide mobileRightBtns">
+        <button
+          class="mobileBtn iconBtn"
+          @touchstart.prevent="game.rotateSelected()"
+          @click="game.rotateSelected()"
+          aria-label="Rotate piece"
+        >
+          ↻ ROT
+        </button>
+        <button
+          class="mobileBtn iconBtn"
+          :disabled="!game.allowFlip"
+          @touchstart.prevent="game.flipSelected()"
+          @click="game.flipSelected()"
+          aria-label="Flip piece"
+        >
+          ⇄ FLIP
+        </button>
+      </div>
     </div>
 
     <div v-if="warningMessage" class="warning" role="status" aria-live="polite">
@@ -101,6 +139,12 @@ const shell = ref(null);
 const boardEl = ref(null);
 const hover = ref(null);
 const targetCell = ref(null);
+
+// Detect touch device for mobile-specific staging behavior
+const isTouchDevice = typeof window !== 'undefined' &&
+  ('ontouchstart' in window || navigator.maxTouchPoints > 0);
+// Track whether the last pointer interaction was touch (for click events)
+let lastPointerWasTouch = false;
 
 // Must match .board padding in CSS
 const BOARD_PADDING = 10;
@@ -181,16 +225,19 @@ const gridStyle = computed(() => ({
 ---------------------------- */
 const ghost = computed(() => {
   if (!game.ui?.enableHoverPreview) return { map: new Set(), ok: false };
-  if (!hover.value) return { map: new Set(), ok: false };
   if (game.phase !== "place") return { map: new Set(), ok: false };
   if (!game.selectedPieceKey) return { map: new Set(), ok: false };
 
-  const ok = game.canPlaceAt(hover.value.x, hover.value.y);
+  // Use hover when actively dragging/hovering, otherwise fall back to pendingPlace
+  const pos = hover.value ?? game.pendingPlace;
+  if (!pos) return { map: new Set(), ok: false };
+
+  const ok = game.canPlaceAt(pos.x, pos.y);
   const set = new Set();
 
   for (const [dx, dy] of game.selectedCells) {
-    const x = hover.value.x + dx;
-    const y = hover.value.y + dy;
+    const x = pos.x + dx;
+    const y = pos.y + dy;
     if (x >= 0 && y >= 0 && x < game.boardW && y < game.boardH) {
       set.add(`${x},${y}`);
     }
@@ -200,17 +247,21 @@ const ghost = computed(() => {
 
 const ghostOverlay = computed(() => {
   if (!game.ui?.enableHoverPreview) return { visible: false };
-  if (!hover.value) return { visible: false };
   if (game.phase !== "place") return { visible: false };
   if (!game.selectedPieceKey) return { visible: false };
 
-  const ok = game.canPlaceAt(hover.value.x, hover.value.y);
-  const blocks = game.selectedCells.map(([dx, dy]) => ({
-    x: hover.value.x + dx,
-    y: hover.value.y + dy,
-  }));
+  // Use hover when actively dragging/hovering, otherwise fall back to pendingPlace
+  const pos = hover.value ?? game.pendingPlace;
+  if (!pos) return { visible: false };
 
-  return { visible: true, ok, blocks };
+  const ok = game.canPlaceAt(pos.x, pos.y);
+  const blocks = game.selectedCells.map(([dx, dy]) => ({
+    x: pos.x + dx,
+    y: pos.y + dy,
+  }));
+  const staged = !hover.value && !!game.pendingPlace;
+
+  return { visible: true, ok, blocks, staged };
 });
 
 function setHover(x, y) {
@@ -426,6 +477,7 @@ function onTouchMove(e) {
   if (!game.selectedPieceKey) return;
   // Only prevent scroll when we're actually dragging a piece onto the board
   e.preventDefault();
+  lastPointerWasTouch = true;
   // Only track the first touch
   const touch = e.touches[0];
   if (!touch) return;
@@ -440,20 +492,38 @@ function onTouchEnd(e) {
   if (!game.ui?.enableClickPlace) return;
   if (!game.selectedPieceKey) return;
 
+  lastPointerWasTouch = true;
   const touch = e.changedTouches[0];
   if (!touch) return;
   updateHoverFromClientXY(touch.clientX, touch.clientY);
 
   // If a drag is active from PiecePicker, let that handler finish it.
-  // Otherwise treat as a tap-to-place on the cell we just computed.
+  // Otherwise treat as a tap/drag to stage on the cell we just computed.
   if (!game.drag?.active && targetCell.value) {
     // Prevent the ghost click that would otherwise fire after touchend
     e.preventDefault();
-    const ok = game.placeAt(targetCell.value.x, targetCell.value.y);
-    if (!ok) {
+    // Mobile: stage placement instead of committing immediately
+    const staged = game.stagePlacement(targetCell.value.x, targetCell.value.y);
+    if (!staged) {
       playBuzz();
       showWarning("Illegal placement — try another spot / rotate / flip.");
+      hover.value = null;
+    } else {
+      // Keep hover at staged position so ghost stays visible
+      hover.value = null; // clear hover, pendingPlace holds the position
     }
+  } else {
+    hover.value = null;
+  }
+}
+
+function onMobileSubmit() {
+  if (!game.pendingPlace) return;
+  if (props.isOnline && !props.canAct) return;
+  const ok = game.commitPendingPlace();
+  if (!ok) {
+    playBuzz();
+    showWarning("Illegal placement — try another spot / rotate / flip.");
   }
   hover.value = null;
 }
@@ -480,6 +550,18 @@ function onCellClick(x, y, evt) {
   if (!game.selectedPieceKey) return;
   if (props.isOnline && !props.canAct) return;
 
+  // Mobile touch: use staged placement (requires Submit to confirm)
+  if (lastPointerWasTouch) {
+    lastPointerWasTouch = false;
+    const staged = game.stagePlacement(x, y);
+    if (!staged) {
+      playBuzz();
+      showWarning("Illegal placement — try another spot / rotate / flip.");
+    }
+    return;
+  }
+
+  // Desktop mouse: commit immediately
   const ok = game.placeAt(x, y);
   if (!ok) {
     playBuzz();
@@ -861,7 +943,90 @@ function ghostBlockStyle(b) {
   from { transform: translateY(-4px); opacity: 0; }
   to   { transform: translateY(0); opacity: 1; }
 }
-</style>
+
+/* ── Ghost overlay staged style (pendingPlace) ── */
+.ghostOverlay.staged { opacity: 0.92; }
+.ghostOverlay.staged.ok { filter: drop-shadow(0 0 18px rgba(0,255,170,0.45)) drop-shadow(0 18px 32px rgba(0,0,0,0.60)); }
+.ghostOverlay.staged.bad { opacity: 0.72; }
+
+/* ── Mobile Action Bar (mobile only) ── */
+.mobileActionBar {
+  display: none; /* hidden on desktop */
+}
+
+@media (max-width: 980px), (pointer: coarse) {
+  .mobileActionBar {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+    margin-top: 10px;
+    padding: 0 4px;
+  }
+
+  .mobileActionSide {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    flex: 1;
+  }
+
+  .mobileRightBtns {
+    justify-content: flex-end;
+  }
+
+  .mobileBtn {
+    padding: 12px 16px;
+    border-radius: 14px;
+    border: 1px solid rgba(255, 255, 255, 0.14);
+    background: rgba(255, 255, 255, 0.06);
+    color: #eaeaea;
+    font-size: 13px;
+    font-weight: 900;
+    letter-spacing: 0.06em;
+    cursor: pointer;
+    touch-action: manipulation;
+    transition: background 120ms ease, transform 80ms ease, box-shadow 120ms ease;
+    white-space: nowrap;
+    -webkit-tap-highlight-color: transparent;
+  }
+
+  .mobileBtn:active {
+    transform: scale(0.95);
+  }
+
+  .mobileBtn:disabled {
+    opacity: 0.38;
+    cursor: not-allowed;
+  }
+
+  .submitBtn {
+    flex: 0 0 auto;
+    padding: 14px 28px;
+    font-size: 15px;
+    background: rgba(255, 255, 255, 0.07);
+    border-color: rgba(255, 255, 255, 0.16);
+  }
+
+  .submitBtn.hasPending {
+    background: linear-gradient(135deg, rgba(0, 220, 120, 0.22), rgba(0, 180, 100, 0.16));
+    border-color: rgba(0, 255, 140, 0.45);
+    color: rgba(120, 255, 180, 0.98);
+    box-shadow:
+      0 0 20px rgba(0, 255, 140, 0.18),
+      inset 0 1px 0 rgba(255, 255, 255, 0.18);
+    animation: submitPulse 1.6s ease-in-out infinite;
+  }
+
+  @keyframes submitPulse {
+    0%, 100% { box-shadow: 0 0 20px rgba(0,255,140,0.18), inset 0 1px 0 rgba(255,255,255,0.18); }
+    50% { box-shadow: 0 0 34px rgba(0,255,140,0.35), inset 0 1px 0 rgba(255,255,255,0.22); }
+  }
+
+  .iconBtn {
+    background: rgba(255, 255, 255, 0.05);
+  }
+}</style>
 
 <style>
 .flyClone { will-change: transform, opacity, filter; }
