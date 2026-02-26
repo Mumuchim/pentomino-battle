@@ -87,6 +87,7 @@
     <div
       v-if="game.phase === 'place' && game.selectedPieceKey"
       class="mobileActionBar"
+      :class="{ dragActive: game.drag?.active }"
       aria-label="Mobile piece controls"
     >
       <!-- ROTATE -->
@@ -1043,8 +1044,14 @@ function ghostBlockStyle(b) {
     0%, 100% { box-shadow: 0 0 20px rgba(0,255,140,0.18); }
     50%       { box-shadow: 0 0 36px rgba(0,255,140,0.42); }
   }
+
+  /* Bar fades out and becomes untappable while a drag is in flight */
+  .mobileActionBar.dragActive {
+    pointer-events: none !important;
+    opacity: 0.25;
+    transition: opacity 120ms ease;
+  }
 }
-</style>
 
 <style>
 .flyClone { will-change: transform, opacity, filter; }
