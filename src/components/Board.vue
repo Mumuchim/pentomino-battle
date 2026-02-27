@@ -7,6 +7,7 @@
       @mouseleave="clearHover"
       @dragover.prevent="onDragOver"
       @drop.prevent="onShellDrop"
+      @touchstart="onBoardTouchStart"
       @touchmove="onTouchMove"
       @touchend="onTouchEnd"
       @touchcancel="onTouchEnd"
@@ -72,7 +73,7 @@
         Click a piece to draft — it’ll fly to the player tray.
       </span>
       <span v-else class="legendItem muted">
-        Drop or click. (Q rotate, E flip)
+        Drop or click. (Q rotate, E flip) · Mobile: drag ghost to reposition.
       </span>
     </div>
 
@@ -153,6 +154,11 @@ const targetCell = ref(null);
 const isTouchDevice = typeof window !== 'undefined' &&
   ('ontouchstart' in window || navigator.maxTouchPoints > 0);
 
+// Track board-initiated drags (re-positioning staged pieces)
+const boardDragging = ref(false);
+// Timestamp of last staging — used to block accidental submit triggers
+let stagedAt = 0;
+
 // Must match .board padding in CSS
 const BOARD_PADDING = 10;
 // Leave a little breathing room around the board so it never feels "flattened".
@@ -199,6 +205,17 @@ onBeforeUnmount(() => {
   } catch {}
   ro = null;
 });
+
+// Track whenever a piece gets staged so onMobileSubmit can apply a brief cooldown
+// (prevents synthetic click events from auto-committing right after a drop)
+watch(
+  () => game.pendingPlace,
+  (newVal, oldVal) => {
+    if (newVal && !oldVal) {
+      stagedAt = Date.now();
+    }
+  }
+);
 
 // ── Keep board hover in sync while dragging from the panel ─────────────────
 // When the pointer is captured by PiecePicker's chip button, the board's
@@ -492,10 +509,27 @@ function spawnFlyClone(pieceKey, player, fromEl) {
 }
 
 /* ─── Touch support on the board shell ────────────────────────────────
-   Touch drag is handled by PiecePicker's pointer-capture system.
-   These handlers keep hover/target in sync during a finger drag that
-   originated in the panel and is now moving over the board.
+   onBoardTouchStart: lets the user re-drag a staged (pendingPlace) piece
+   directly on the board without going back to the chip panel.
+
+   onTouchMove / onTouchEnd serve both PiecePicker drags entering the
+   board area AND board-initiated re-positioning drags.
 ───────────────────────────────────────────────────────────── */
+function onBoardTouchStart(e) {
+  if (game.phase !== "place") return;
+  if (!game.selectedPieceKey) return;
+  if (game.drag?.active) return; // PiecePicker drag in flight — don't interfere
+
+  // A piece is selected (staged or just picked): allow dragging it from the board.
+  e.preventDefault();
+  const touch = e.touches[0];
+  if (!touch) return;
+
+  boardDragging.value = true;
+  game.beginDrag(game.selectedPieceKey, touch.clientX, touch.clientY);
+  updateHoverFromClientXY(touch.clientX, touch.clientY);
+}
+
 function onTouchMove(e) {
   if (game.phase !== "place") return;
   if (!game.selectedPieceKey) return;
@@ -510,15 +544,55 @@ function onTouchMove(e) {
 
 function onTouchEnd(e) {
   if (game.phase !== "place") return;
+
+  // ── Board-initiated repositioning drag ──────────────────────────
+  if (boardDragging.value) {
+    boardDragging.value = false;
+    hover.value = null;
+
+    if (!game.drag?.active) {
+      targetCell.value = null;
+      return;
+    }
+
+    const t = game.drag?.target;
+    if (t && t.inside) {
+      const requireSubmit = game.ui?.requireSubmit ?? true;
+      if (requireSubmit) {
+        const staged = game.stagePlacement(t.x, t.y);
+        if (!staged) {
+          playBuzz();
+          showWarning("Illegal placement — try another spot / rotate / flip.");
+        }
+        game.endDrag();
+      } else {
+        const ok = game.placeAt(t.x, t.y);
+        if (!ok) {
+          playBuzz();
+          showWarning("Illegal placement — try another spot / rotate / flip.");
+        }
+        game.endDrag();
+      }
+    } else {
+      game.endDrag();
+    }
+
+    targetCell.value = null;
+    return;
+  }
+
+  // ── PiecePicker drag entering/leaving the board ──────────────────
+  // PiecePicker's pointerup handler will commit/stage; we just clear hover.
   if (!game.drag?.active) return;
-  // The pointer-up handler in PiecePicker will commit/stage the placement.
-  // We just make sure hover is cleared.
   hover.value = null;
   targetCell.value = null;
 }
 
 function onMobileSubmit() {
   if (!game.pendingPlace) return;
+  // Guard against synthetic click events firing right after a drop staged the piece.
+  // On mobile, pointerup → stagePlacement → 300ms later → synthetic click on submit.
+  if (Date.now() - stagedAt < 480) return;
   if (props.isOnline && !props.canAct) return;
   const ok = game.commitPendingPlace();
   if (!ok) {
@@ -1045,11 +1119,20 @@ function ghostBlockStyle(b) {
     50%       { box-shadow: 0 0 36px rgba(0,255,140,0.42); }
   }
 
-  /* Bar fades out and becomes untappable while a drag is in flight */
+  /* Bar fades slightly while a drag is in flight.
+     Rotate/Flip remain fully interactive so the user can transform mid-drag.
+     Only the Submit button is blocked (staging before drop makes no sense). */
   .mobileActionBar.dragActive {
-    pointer-events: none !important;
-    opacity: 0.25;
     transition: opacity 120ms ease;
+  }
+
+  .mobileActionBar.dragActive .mobileSubmitBtn {
+    pointer-events: none !important;
+    opacity: 0.22;
+  }
+
+  .mobileActionBar.dragActive .mobileIconBtn {
+    opacity: 0.85;
   }
 }
 
