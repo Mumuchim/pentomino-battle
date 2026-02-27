@@ -249,9 +249,9 @@
         </div>
 
         <div class="pbPane">
-          <div class="pbHero compact">
-            <div class="pbHeroTitle">FLIP | ROTATE | DOMINATE</div>
-          </div><div class="pbTiles">
+          <!-- ONLINE SECTION -->
+          <div class="pbSectionLabel">ONLINE</div>
+          <div class="pbTiles pbTilesCompact">
             <button
               class="pbTile accentYellow"
               :disabled="!loggedIn"
@@ -294,7 +294,7 @@
                     </template>
                     <template v-else>QUICK MATCH</template>
                   </div>
-                  <div class="pbTileDesc">finding opponent · please wait</div>
+                  <div class="pbTileDesc">instant match · no lobby needed</div>
                 </div>
               </div>
             </button>
@@ -314,31 +314,15 @@
                     </template>
                     <template v-else>GO TO LOBBY</template>
                   </div>
-                  <div class="pbTileDesc">create session · browse rooms · join by code</div>
+                  <div class="pbTileDesc">create · browse · join by code</div>
                 </div>
               </div>
             </button>
+          </div>
 
-            <button class="pbTile accentPeach" @mouseenter="uiHover" @click="uiClick(); startCouchPlay()">
-              <div class="pbTileInner">
-                <div class="pbTileGlyph">
-                  <template v-if="useMenuPngs">
-                    <img :src="onePIconUrl" class="pbGlyphPng floatingLogo" alt="1P" />
-                  </template>
-                  <template v-else>1P</template>
-                </div>
-                <div class="pbTileText">
-                  <div class="pbTileTitle">
-                    <template v-if="useMenuPngs">
-                      <img :src="couchPlayTitleUrl" class="pbTextPng" alt="COUCH PLAY" />
-                    </template>
-                    <template v-else>COUCH PLAY</template>
-                  </div>
-                  <div class="pbTileDesc">local 2-player on one device</div>
-                </div>
-              </div>
-            </button>
-
+          <!-- LOCAL SECTION -->
+          <div class="pbSectionLabel" style="margin-top:14px;">LOCAL</div>
+          <div class="pbTiles pbTilesCompact">
             <button class="pbTile accentBlue" @mouseenter="uiHover" @click="uiClick(); startPracticeAi()">
               <div class="pbTileInner">
                 <div class="pbTileGlyph">
@@ -354,18 +338,42 @@
                     </template>
                     <template v-else>PRACTICE VS AI</template>
                   </div>
-                  <div class="pbTileDesc">local 1-player vs computer</div>
+                  <div class="pbTileDesc">1-player vs computer · 5 difficulty tiers</div>
                 </div>
               </div>
             </button>
 
-            <button class="pbTile accentWhite" @mouseenter="uiHover" @click="uiClick(); screen = 'settings'">
+            <button class="pbTile accentPeach" @mouseenter="uiHover" @click="uiClick(); startCouchPlay()">
               <div class="pbTileInner">
                 <div class="pbTileGlyph">
                   <template v-if="useMenuPngs">
+                    <img :src="onePIconUrl" class="pbGlyphPng floatingLogo" alt="1P" />
+                  </template>
+                  <template v-else>2P</template>
+                </div>
+                <div class="pbTileText">
+                  <div class="pbTileTitle">
+                    <template v-if="useMenuPngs">
+                      <img :src="couchPlayTitleUrl" class="pbTextPng" alt="COUCH PLAY" />
+                    </template>
+                    <template v-else>COUCH PLAY</template>
+                  </div>
+                  <div class="pbTileDesc">local 2-player · one device</div>
+                </div>
+              </div>
+            </button>
+          </div>
+
+          <!-- OPTIONS SECTION -->
+          <div class="pbSectionLabel" style="margin-top:14px;">OPTIONS</div>
+          <div class="pbTiles pbTilesHalf">
+            <button class="pbTile accentWhite pbTileSmall" @mouseenter="uiHover" @click="uiClick(); screen = 'settings'">
+              <div class="pbTileInner">
+                <div class="pbTileGlyph pbTileGlyphSm">
+                  <template v-if="useMenuPngs">
                     <img :src="stIconUrl" class="pbGlyphPng floatingLogo" alt="ST" />
                   </template>
-                  <template v-else>ST</template>
+                  <template v-else>⚙</template>
                 </div>
                 <div class="pbTileText">
                   <div class="pbTileTitle">
@@ -374,18 +382,18 @@
                     </template>
                     <template v-else>SETTINGS</template>
                   </div>
-                  <div class="pbTileDesc">controls · preferences</div>
+                  <div class="pbTileDesc">controls · audio · prefs</div>
                 </div>
               </div>
             </button>
 
-            <button class="pbTile accentWhite" @mouseenter="uiHover" @click="uiClick(); screen = 'credits'">
+            <button class="pbTile accentWhite pbTileSmall" @mouseenter="uiHover" @click="uiClick(); screen = 'credits'">
               <div class="pbTileInner">
-                <div class="pbTileGlyph">
+                <div class="pbTileGlyph pbTileGlyphSm">
                   <template v-if="useMenuPngs">
                     <img :src="crIconUrl" class="pbGlyphPng floatingLogo" alt="CR" />
                   </template>
-                  <template v-else>CR</template>
+                  <template v-else>★</template>
                 </div>
                 <div class="pbTileText">
                   <div class="pbTileTitle">
@@ -551,70 +559,99 @@
       <!-- =========================
            SETTINGS
       ========================== -->
-	  <section v-else-if="screen === 'settings'" class="menuShell">
-<h1 class="heroTitle small">Preferences</h1>
-          <p class="heroDesc small">Applies to local modes.</p>
+      <section v-else-if="screen === 'settings'" class="menuShell pbShell">
+        <div class="pbHeaderRow">
+          <div class="pbPageTitle">SETTINGS</div>
+        </div>
 
-        <div class="menuCard">
-          <div class="form">
-            <label class="field">
-              <span>Allow Flip (Mirror)</span>
-              <input type="checkbox" v-model="allowFlip" />
-            </label>
+        <div class="pbPane">
+          <div class="pbCard">
+            <div class="pbTitleRow">
+              <div class="pbTitle">GAMEPLAY</div>
+              <div class="pbHint">LOCAL MODES</div>
+            </div>
+            <div class="pbForm">
+              <label class="pbField pbField--toggle">
+                <span class="pbFieldLabel">Allow Flip (Mirror)</span>
+                <input type="checkbox" class="pbCheck" v-model="allowFlip" />
+              </label>
+              <label class="pbField pbField--toggle">
+                <span class="pbFieldLabel">Enable Drag Placement</span>
+                <input type="checkbox" class="pbCheck" v-model="game.ui.enableDragPlace" />
+              </label>
+              <label class="pbField pbField--toggle">
+                <span class="pbFieldLabel">Enable Click Placement</span>
+                <input type="checkbox" class="pbCheck" v-model="game.ui.enableClickPlace" />
+              </label>
+              <label class="pbField pbField--toggle">
+                <span class="pbFieldLabel">Enable Hover Preview</span>
+                <input type="checkbox" class="pbCheck" v-model="game.ui.enableHoverPreview" />
+              </label>
+              <label class="pbField pbField--toggle">
+                <span class="pbFieldLabel">Landscape Only (Mobile)</span>
+                <input type="checkbox" class="pbCheck" v-model="game.ui.lockLandscape" />
+              </label>
+            </div>
 
-            <div class="divider"></div>
+            <div class="pbDivider"></div>
 
-            <label class="field">
-              <span>Enable Drag Placement</span>
-              <input type="checkbox" v-model="game.ui.enableDragPlace" />
-            </label>
+            <div class="pbTitleRow">
+              <div class="pbTitle">AUDIO</div>
+              <div class="pbHint">VOLUMES</div>
+            </div>
+            <div class="pbForm">
+              <label class="pbField">
+                <span>BGM VOLUME</span>
+                <div class="pbSliderRow">
+                  <input type="range" min="0" max="100" step="1" v-model.number="bgmVolumeUi" class="pbSlider" />
+                  <b class="pbSliderVal">{{ bgmVolumeUi }}%</b>
+                </div>
+              </label>
+              <label class="pbField">
+                <span>SFX VOLUME</span>
+                <div class="pbSliderRow">
+                  <input type="range" min="0" max="100" step="1" v-model.number="sfxVolumeUi" class="pbSlider" />
+                  <b class="pbSliderVal">{{ sfxVolumeUi }}%</b>
+                </div>
+              </label>
+            </div>
 
-            <label class="field">
-              <span>Enable Click Placement</span>
-              <input type="checkbox" v-model="game.ui.enableClickPlace" />
-            </label>
-
-            <label class="field">
-              <span>Enable Hover Preview</span>
-              <input type="checkbox" v-model="game.ui.enableHoverPreview" />
-            </label>
-
-            <label class="field">
-              <span>Landscape Only (Mobile)</span>
-              <input type="checkbox" v-model="game.ui.lockLandscape" />
-            </label>
-
-            <div class="divider"></div>
-
-            <label class="field">
-              <span>BGM Volume</span>
-              <input type="range" min="0" max="100" step="1" v-model.number="bgmVolumeUi" />
-              <b class="mono">{{ bgmVolumeUi }}%</b>
-            </label>
-
-            <label class="field">
-              <span>SFX Volume</span>
-              <input type="range" min="0" max="100" step="1" v-model.number="sfxVolumeUi" />
-              <b class="mono">{{ sfxVolumeUi }}%</b>
-            </label>
+            <div class="pbFineLine">Board is fixed to <b>10×6</b>.</div>
           </div>
-<div class="finePrint">Board is fixed to <b>10×6</b>.</div>
         </div>
       </section>
 
       <!-- =========================
            CREDITS
       ========================== -->
-	  <section v-else-if="screen === 'credits'" class="menuShell">
-<div class="menuCard">
-          <div class="credits">
-            <p><b>PentoBattle</b> — by <b>Mumuchxm</b></p>
-            <p class="muted">Built with Vite + Vue.</p>
-            <p class="muted">Music track: <b>Playing Games</b> — <b>Zambolino</b></p>
+      <section v-else-if="screen === 'credits'" class="menuShell pbShell">
+        <div class="pbHeaderRow">
+          <div class="pbPageTitle">CREDITS</div>
+        </div>
+        <div class="pbPane">
+          <div class="pbCard">
+            <div class="pbTitleRow">
+              <div class="pbTitle">PENTO BATTLE</div>
+              <div class="pbHint">ABOUT</div>
+            </div>
+            <div class="pbCreditsBody">
+              <div class="pbCreditItem">
+                <span class="pbCreditRole">CREATED BY</span>
+                <span class="pbCreditName">Mumuchxm</span>
+              </div>
+              <div class="pbDivider"></div>
+              <div class="pbCreditItem">
+                <span class="pbCreditRole">BUILT WITH</span>
+                <span class="pbCreditName">Vite · Vue 3 · Pinia</span>
+              </div>
+              <div class="pbCreditItem">
+                <span class="pbCreditRole">MUSIC TRACK</span>
+                <span class="pbCreditName">Playing Games — Zambolino</span>
+              </div>
+            </div>
+            <div class="pbFineLine">Flip · Rotate · Dominate</div>
           </div>
-
-          
-</div>
+        </div>
       </section>
 
       <!-- =========================
@@ -650,7 +687,7 @@
               </div>
               <div class="tbRight">
                 <!-- Draft timer pill -->
-                <div v-if="timerHud?.kind === 'draft'" class="tbDraftTimer" :class="{ tbDraftUrgent: timerHud.seconds <= 10 }">
+                <div v-if="timerHud?.kind === 'draft'" class="tbDraftTimer" :class="{ tbDraftUrgent: timerHud.seconds <= 10, tbDraftP2: game.draftTurn === 2 }">
                   {{ timerHud.value }}
                 </div>
                 <!-- Online "YOUR TURN" badge -->
@@ -673,7 +710,7 @@
                   activeClock: game.currentPlayer === 1,
                 }"
               >
-                <span class="statLabel">{{ isOnline && myPlayer === 1 ? 'YOU' : screen === 'ai' && !isOnline ? 'YOU' : 'P1' }}</span>
+                <span class="statLabel">{{ isOnline && myPlayer === 1 ? 'YOU' : screen === 'ai' && !isOnline ? (humanPlayer === 1 ? 'YOU' : 'AI') : 'P1' }}</span>
                 <span class="clockBadge p1">P1</span>
                 <span class="statValue clockValue">{{ fmtClock(game.battleClockSec?.[1] ?? 0) }}</span>
               </div>
@@ -684,7 +721,7 @@
                   activeClock: game.currentPlayer === 2,
                 }"
               >
-                <span class="statLabel">{{ isOnline && myPlayer === 2 ? 'YOU' : screen === 'ai' && !isOnline ? 'AI' : 'P2' }}</span>
+                <span class="statLabel">{{ isOnline && myPlayer === 2 ? 'YOU' : screen === 'ai' && !isOnline ? (humanPlayer === 2 ? 'YOU' : 'AI') : 'P2' }}</span>
                 <span class="clockBadge p2">P2</span>
                 <span class="statValue clockValue">{{ fmtClock(game.battleClockSec?.[2] ?? 0) }}</span>
               </div>
@@ -710,6 +747,10 @@
                 {{ modeLabel }}
                 <span v-if="isOnline && myPlayer" class="hudYouInline">· YOU P{{ myPlayer }}</span>
               </span>
+              <!-- Prominent YOU badge for online -->
+              <span v-if="isOnline && myPlayer" :class="['hudYouBadge', myPlayer === 1 ? 'hudYouBadgeP1' : 'hudYouBadgeP2']">
+                YOU = P{{ myPlayer }}
+              </span>
               <span v-if="game.phase === 'place'" class="hudControlsHint">
                 <b>Q</b> Rotate &nbsp;·&nbsp; <b>E</b> Flip
               </span>
@@ -734,9 +775,6 @@
 
         <section class="rightPanel">
           <Board :isOnline="isOnline" :myPlayer="myPlayer" :canAct="canAct" />
-          <div class="hintSmall">
-            Drag a piece to the board and hover to preview. Click or drop to place.
-          </div>
         </section>
       </section>
     </main>
@@ -1538,7 +1576,7 @@ const modeLabel = computed(() => {
   if (screen.value === "ai") {
     const labels = { dumbie: "Dumbie", elite: "Elite", tactician: "Tactician", grandmaster: "Grandmaster", legendary: "Legendary" };
     const roundStr = aiRound.value > 1 ? ` · R${aiRound.value}` : '';
-    return `VS AI · ${labels[aiDifficulty.value] || "Dumbie"}${roundStr}`;
+    return `VS AI · ${labels[aiDifficulty.value] || "Dumbie"}${roundStr} · YOU=P${humanPlayer.value}`;
   }
   return screen.value === "couch" ? "Couch Play" : screen.value === "online" ? "Online Match" : "—";
 });
@@ -1553,13 +1591,13 @@ const phaseTitle = computed(() => {
 const phaseSub = computed(() => {
   if (game.phase === "draft") {
     if (screen.value === "ai") {
-      return game.draftTurn === 1 ? "Your Pick" : "AI Picking…";
+      return game.draftTurn === humanPlayer.value ? "Your Pick" : "AI Picking…";
     }
     return `Pick: P${game.draftTurn}`;
   }
   if (game.phase === "place") {
     if (screen.value === "ai") {
-      return game.currentPlayer === 1 ? "Your Turn" : "AI Thinking…";
+      return game.currentPlayer === humanPlayer.value ? "Your Turn" : "AI Thinking…";
     }
     return `Turn: P${game.currentPlayer}`;
   }
@@ -1718,11 +1756,11 @@ const primaryMatchActionLabel = computed(() => {
 });
 
 const canAct = computed(() => {
-  // AI mode: P2 is the AI — only let P1 (human) act on their own turns
+  // AI mode: only let the human act on their turns
   if (screen.value === 'ai') {
     if (game.phase === 'gameover') return false;
-    if (game.phase === 'draft') return game.draftTurn === 1;
-    if (game.phase === 'place') return game.currentPlayer === 1;
+    if (game.phase === 'draft') return game.draftTurn === humanPlayer.value;
+    if (game.phase === 'place') return game.currentPlayer === humanPlayer.value;
     return false;
   }
   if (!isOnline.value) return true;
@@ -3515,14 +3553,14 @@ watch(
     if (!isOnline.value) {
       // AI mode
       if (screen.value === 'ai') {
-        const humanWon = w === 1;
-        const aiWon = w === 2;
-        if (humanWon) { aiScore.p1++; tryUnlockNextDifficulty(1, 1); }
+        const humanWon = w === humanPlayer.value;
+        const aiWon = w !== null && w !== humanPlayer.value;
+        if (humanWon) { aiScore.p1++; tryUnlockNextDifficulty(humanPlayer.value, humanPlayer.value); }
         else if (aiWon) aiScore.p2++;
 
         const diffLabel = { dumbie:'Dumbie', elite:'Elite', tactician:'Tactician', grandmaster:'Grandmaster', legendary:'Legendary' }[aiDifficulty.value] || aiDifficulty.value;
-        title = humanWon ? "VICTORY" : w === 2 ? "DEFEAT" : "DRAW";
-        tone = humanWon ? "victory" : w === 2 ? "bad" : "good";
+        title = humanWon ? "VICTORY" : aiWon ? "DEFEAT" : "DRAW";
+        tone = humanWon ? "victory" : aiWon ? "bad" : "good";
         const scoreMsg = `Round ${aiRound.value}  ·  You ${aiScore.p1} – ${aiScore.p2} AI\nDifficulty: ${diffLabel}`;
         showModal({
           title,
@@ -4404,6 +4442,8 @@ function _launchAi(diff) {
   aiRound.value = 1;
   aiScore.p1 = 0;
   aiScore.p2 = 0;
+  // Randomize who goes first to eliminate P1 first-mover advantage
+  humanPlayer.value = Math.random() < 0.5 ? 1 : 2;
   stopPolling();
   myPlayer.value = null;
   screen.value = "ai";
@@ -4416,6 +4456,8 @@ function _launchAi(diff) {
 
 function nextAiRound() {
   aiRound.value++;
+  // Alternate who gets first-move advantage
+  humanPlayer.value = humanPlayer.value === 1 ? 2 : 1;
   myPlayer.value = null;
   game.boardW = 10;
   game.boardH = 6;
@@ -4429,16 +4471,20 @@ function nextAiRound() {
    Four difficulty levels: easy / normal / hard / master
 ========================= */
 
+// humanPlayer: which player number the human controls (randomized each game for fairness)
+const humanPlayer = ref(1); // 1 or 2
+
 let _aiTimer = null;
 
 function _cancelAiTimer() {
   if (_aiTimer) { clearTimeout(_aiTimer); _aiTimer = null; }
 }
 
-// ── Shared helper: collect ALL valid placements for AI (player 2) ──
+// ── Shared helper: collect ALL valid placements for AI ──
 function _getAllValidMoves() {
+  const aiP = humanPlayer.value === 1 ? 2 : 1;
   const { boardW, boardH, board, placedCount, allowFlip: af, remaining } = game;
-  const pieces = [...(remaining[2] || [])];
+  const pieces = [...(remaining[aiP] || [])];
   const flipOptions = af ? [false, true] : [false];
   const dirs = [[1,0],[-1,0],[0,1],[0,-1]];
   const moves = [];
@@ -4493,6 +4539,7 @@ function _getAllValidMoves() {
 function _aiMovesEasy(moves) {
   if (!moves.length) return null;
   if (Math.random() < 0.80) return moves[Math.floor(Math.random() * moves.length)];
+  const aiP = humanPlayer.value === 1 ? 2 : 1;
   const { board, boardW, boardH } = game;
   let best = null, bestScore = -Infinity;
   const dirs = [[1,0],[-1,0],[0,1],[0,-1]];
@@ -4502,7 +4549,7 @@ function _aiMovesEasy(moves) {
       for (const [ox, oy] of dirs) {
         const nx = x+ox, ny = y+oy;
         if (nx < 0 || ny < 0 || nx >= boardW || ny >= boardH) continue;
-        if (board[ny][nx]?.player === 2) score += 1;
+        if (board[ny][nx]?.player === aiP) score += 1;
       }
     }
     if (score > bestScore) { bestScore = score; best = m; }
@@ -4510,75 +4557,104 @@ function _aiMovesEasy(moves) {
   return best;
 }
 
-// ── NORMAL: grow own territory, light pressure, some randomness ───
+// ── NORMAL: grow own territory, blocks opponent, moderate randomness ───
 function _aiMovesNormal(moves) {
   if (!moves.length) return null;
+  const aiP = humanPlayer.value === 1 ? 2 : 1;
+  const humanP = humanPlayer.value;
   const { board, boardW, boardH } = game;
   const dirs = [[1,0],[-1,0],[0,1],[0,-1]];
   let best = null, bestScore = -Infinity;
   for (const m of moves) {
-    let score = Math.random() * 0.5;
+    let score = Math.random() * 0.4;
     for (const [x, y] of m.abs) {
       for (const [ox, oy] of dirs) {
         const nx = x+ox, ny = y+oy;
         if (nx < 0 || ny < 0 || nx >= boardW || ny >= boardH) continue;
         const cell = board[ny][nx];
-        if (cell?.player === 2) score += 2.0;
-        if (cell?.player === 1) score += 0.8;
+        if (cell?.player === aiP) score += 2.0;
+        if (cell?.player === humanP) score += 1.5; // improved blocking
       }
-      if (x > 0 && x < boardW-1 && y > 0 && y < boardH-1) score += 0.15;
+      if (x > 0 && x < boardW-1 && y > 0 && y < boardH-1) score += 0.2;
     }
     if (score > bestScore) { bestScore = score; best = m; }
   }
   return best;
 }
 
-// ── HARD: aggressive territory + strong blocking + compactness ────
+// ── HARD: aggressive territory + blocking + flood-fill preview ────
 function _aiMovesHard(moves) {
   if (!moves.length) return null;
+  const aiP = humanPlayer.value === 1 ? 2 : 1;
+  const humanP = humanPlayer.value;
   const { board, boardW, boardH } = game;
   const dirs = [[1,0],[-1,0],[0,1],[0,-1]];
   const diag = [[1,1],[1,-1],[-1,1],[-1,-1]];
+
+  function floodCount(simBoard, player) {
+    const visited = new Set();
+    const queue = [];
+    for (let y = 0; y < boardH; y++)
+      for (let x = 0; x < boardW; x++)
+        if (simBoard[y][x]?.player === player) {
+          const k = y * boardW + x;
+          if (!visited.has(k)) { visited.add(k); queue.push([x, y]); }
+        }
+    let count = 0;
+    while (queue.length) {
+      const [cx, cy] = queue.shift();
+      for (const [ox, oy] of dirs) {
+        const nx = cx+ox, ny = cy+oy;
+        if (nx < 0 || ny < 0 || nx >= boardW || ny >= boardH) continue;
+        const k = ny * boardW + nx;
+        if (visited.has(k)) continue;
+        visited.add(k);
+        if (simBoard[ny][nx] === null) { count++; queue.push([nx, ny]); }
+        else if (simBoard[ny][nx]?.player === player) queue.push([nx, ny]);
+      }
+    }
+    return count;
+  }
+
   let best = null, bestScore = -Infinity;
   for (const m of moves) {
-    let score = Math.random() * 0.15;
+    let score = Math.random() * 0.10;
     const simBoard = board.map(r => [...r]);
-    for (const [x, y] of m.abs) simBoard[y][x] = { player: 2, pieceKey: m.pk };
+    for (const [x, y] of m.abs) simBoard[y][x] = { player: aiP, pieceKey: m.pk };
+
+    // Territory delta
+    const ownSpace = floodCount(simBoard, aiP);
+    const oppSpace = floodCount(simBoard, humanP);
+    score += (ownSpace - oppSpace) * 1.8;
+
     let ownAdj = 0, oppAdj = 0;
     for (const [x, y] of m.abs) {
       for (const [ox, oy] of dirs) {
         const nx = x+ox, ny = y+oy;
         if (nx < 0 || ny < 0 || nx >= boardW || ny >= boardH) continue;
         const cell = board[ny][nx];
-        if (cell?.player === 2) ownAdj++;
-        if (cell?.player === 1) oppAdj++;
+        if (cell?.player === aiP) ownAdj++;
+        if (cell?.player === humanP) oppAdj++;
       }
       for (const [ox, oy] of diag) {
         const nx = x+ox, ny = y+oy;
         if (nx < 0 || ny < 0 || nx >= boardW || ny >= boardH) continue;
-        if (board[ny][nx]?.player === 2) score += 0.25;
+        if (board[ny][nx]?.player === aiP) score += 0.25;
       }
       const edgeDist = Math.min(x, boardW-1-x, y, boardH-1-y);
-      score += edgeDist * 0.2;
+      score += edgeDist * 0.15;
     }
-    score += ownAdj * 2.5;
-    score += oppAdj * 1.8;
-    let openAdj = 0;
-    for (const [x, y] of m.abs) {
-      for (const [ox, oy] of dirs) {
-        const nx = x+ox, ny = y+oy;
-        if (nx >= 0 && ny >= 0 && nx < boardW && ny < boardH && simBoard[ny][nx] === null) openAdj++;
-      }
-    }
-    score += openAdj * 0.4;
+    score += ownAdj * 2.5 + oppAdj * 2.2;
     if (score > bestScore) { bestScore = score; best = m; }
   }
   return best;
 }
 
-// ── MASTER: flood-fill territory evaluation, near-optimal ─────────
+// ── MASTER: flood-fill territory + opponent best-response simulation ─────────
 function _aiMovesMaster(moves) {
   if (!moves.length) return null;
+  const aiP = humanPlayer.value === 1 ? 2 : 1;
+  const humanP = humanPlayer.value;
   const { board, boardW, boardH } = game;
   const dirs = [[1,0],[-1,0],[0,1],[0,-1]];
 
@@ -4607,40 +4683,41 @@ function _aiMovesMaster(moves) {
     return count;
   }
 
-  const baseOwn = reachableFrom(board, 2);
-  const baseOpp = reachableFrom(board, 1);
+  const baseOwn = reachableFrom(board, aiP);
+  const baseOpp = reachableFrom(board, humanP);
   const baseline = baseOwn - baseOpp;
 
   let best = null, bestScore = -Infinity;
   for (const m of moves) {
     const simBoard = board.map(r => [...r]);
-    for (const [x, y] of m.abs) simBoard[y][x] = { player: 2, pieceKey: m.pk };
-    const ownSpace = reachableFrom(simBoard, 2);
-    const oppSpace = reachableFrom(simBoard, 1);
+    for (const [x, y] of m.abs) simBoard[y][x] = { player: aiP, pieceKey: m.pk };
+    const ownSpace = reachableFrom(simBoard, aiP);
+    const oppSpace = reachableFrom(simBoard, humanP);
     const delta = ownSpace - oppSpace;
-    let score = (delta - baseline) * 3.0;
+    let score = (delta - baseline) * 3.5;
     let oppAdj = 0, ownAdj = 0;
     for (const [x, y] of m.abs) {
       for (const [ox, oy] of dirs) {
         const nx = x+ox, ny = y+oy;
         if (nx < 0 || ny < 0 || nx >= boardW || ny >= boardH) continue;
         const cell = board[ny][nx];
-        if (cell?.player === 1) oppAdj++;
-        if (cell?.player === 2) ownAdj++;
+        if (cell?.player === humanP) oppAdj++;
+        if (cell?.player === aiP) ownAdj++;
       }
     }
-    score += oppAdj * 1.5;
-    score += ownAdj * 0.8;
+    score += oppAdj * 2.0 + ownAdj * 1.0;
     score += Math.random() * 0.04;
     if (score > bestScore) { bestScore = score; best = m; }
   }
   return best;
 }
 
-// ── LEGENDARY: max territory + opponent blocking, zero random noise ─
+// ── LEGENDARY: max territory + opponent-best-reply simulation, zero noise ─
 function _aiMovesLegendary(moves) {
   if (!moves.length) return null;
-  const { board, boardW, boardH } = game;
+  const aiP = humanPlayer.value === 1 ? 2 : 1;
+  const humanP = humanPlayer.value;
+  const { board, boardW, boardH, remaining } = game;
   const dirs = [[1,0],[-1,0],[0,1],[0,-1]];
 
   function reachableFromLeg(simBoard, player) {
@@ -4668,26 +4745,73 @@ function _aiMovesLegendary(moves) {
     return count;
   }
 
+  // Simulate opponent's best response to a given board state
+  function oppBestResponseScore(simBoard, oppPieces) {
+    let bestOppScore = -Infinity;
+    const af = game.allowFlip;
+    const flipOpts = af ? [false, true] : [false];
+    for (const pk of oppPieces.slice(0, 5)) { // limit depth for performance
+      const baseCells = PENTOMINOES[pk];
+      const seen = new Set();
+      for (const flip of flipOpts) {
+        for (let rot = 0; rot < 4; rot++) {
+          const shape = transformCells(baseCells, rot, flip);
+          const oKey = shape.map(([x,y])=>`${x},${y}`).join('|');
+          if (seen.has(oKey)) continue; seen.add(oKey);
+          for (let ay = 0; ay < boardH; ay++) {
+            for (let ax = 0; ax < boardW; ax++) {
+              let valid = true;
+              const abs2 = [];
+              for (const [dx, dy] of shape) {
+                const x = ax+dx, y = ay+dy;
+                if (x < 0 || y < 0 || x >= boardW || y >= boardH || simBoard[y][x] !== null) { valid = false; break; }
+                abs2.push([x, y]);
+              }
+              if (!valid) continue;
+              let touches = false;
+              outer2: for (const [x, y] of abs2) {
+                for (const [ox, oy] of dirs) {
+                  const nx = x+ox, ny = y+oy;
+                  if (nx >= 0 && ny >= 0 && nx < boardW && ny < boardH && simBoard[ny][nx] !== null) { touches = true; break outer2; }
+                }
+              }
+              if (!touches && game.placedCount > 0) continue;
+              const sim2 = simBoard.map(r => [...r]);
+              for (const [x, y] of abs2) sim2[y][x] = { player: humanP, pieceKey: pk };
+              const s = reachableFromLeg(sim2, humanP) * 4.5 - reachableFromLeg(sim2, aiP) * 4.0;
+              if (s > bestOppScore) bestOppScore = s;
+            }
+          }
+        }
+      }
+    }
+    return bestOppScore === -Infinity ? 0 : bestOppScore;
+  }
+
+  const oppPieces = [...(remaining[humanP] || [])];
+
   let best = null, bestScore = -Infinity;
   for (const m of moves) {
     const simBoard = board.map(r => [...r]);
-    for (const [x, y] of m.abs) simBoard[y][x] = { player: 2, pieceKey: m.pk };
-    const ownSpace = reachableFromLeg(simBoard, 2);
-    const oppSpace = reachableFromLeg(simBoard, 1);
-    let score = ownSpace * 4.5 - oppSpace * 4.0;
+    for (const [x, y] of m.abs) simBoard[y][x] = { player: aiP, pieceKey: m.pk };
+    const ownSpace = reachableFromLeg(simBoard, aiP);
+    const oppSpace = reachableFromLeg(simBoard, humanP);
+    // Subtract opponent's best response score to find moves that limit their future
+    const oppReply = oppBestResponseScore(simBoard, oppPieces);
+    let score = ownSpace * 4.5 - oppSpace * 4.0 - oppReply * 0.6;
     let oppAdj = 0, ownAdj = 0;
     for (const [x, y] of m.abs) {
       for (const [ox, oy] of dirs) {
         const nx = x+ox, ny = y+oy;
         if (nx < 0 || ny < 0 || nx >= boardW || ny >= boardH) continue;
         const cell = board[ny][nx];
-        if (cell?.player === 1) oppAdj++;
-        if (cell?.player === 2) ownAdj++;
+        if (cell?.player === humanP) oppAdj++;
+        if (cell?.player === aiP) ownAdj++;
       }
       const cx = Math.abs(x - boardW/2), cy = Math.abs(y - boardH/2);
       score -= (cx + cy) * 0.08;
     }
-    score += oppAdj * 2.5 + ownAdj * 1.0;
+    score += oppAdj * 3.0 + ownAdj * 1.2;
     if (score > bestScore) { bestScore = score; best = m; }
   }
   return best;
@@ -4727,14 +4851,15 @@ function _aiDraftPick() {
 function _doAiMove() {
   if (screen.value !== 'ai') return;
   if (game.phase === 'gameover') return;
+  const aiP = humanPlayer.value === 1 ? 2 : 1;
 
-  if (game.phase === 'draft' && game.draftTurn === 2) {
+  if (game.phase === 'draft' && game.draftTurn === aiP) {
     const pick = _aiDraftPick();
     if (pick) game.draftPick(pick);
     return;
   }
 
-  if (game.phase === 'place' && game.currentPlayer === 2) {
+  if (game.phase === 'place' && game.currentPlayer === aiP) {
     const moves = _getAllValidMoves();
     if (!moves.length) return;
     const diff = aiDifficulty.value;
@@ -4766,13 +4891,14 @@ function _aiThinkDelay() {
 }
 
 watch(
-  () => [screen.value, game.phase, game.draftTurn, game.currentPlayer],
+  () => [screen.value, game.phase, game.draftTurn, game.currentPlayer, humanPlayer.value],
   () => {
     if (screen.value !== 'ai') { _cancelAiTimer(); return; }
     if (game.phase === 'gameover') { _cancelAiTimer(); return; }
+    const aiP = humanPlayer.value === 1 ? 2 : 1;
     const isAiTurn =
-      (game.phase === 'draft' && game.draftTurn === 2) ||
-      (game.phase === 'place' && game.currentPlayer === 2);
+      (game.phase === 'draft' && game.draftTurn === aiP) ||
+      (game.phase === 'place' && game.currentPlayer === aiP);
     if (isAiTurn) {
       _cancelAiTimer();
       _aiTimer = setTimeout(_doAiMove, _aiThinkDelay());
@@ -5487,6 +5613,36 @@ onBeforeUnmount(() => {
   box-shadow: none;
 }
 .menuShell{ max-width: 720px; margin: 0 auto; display: grid; gap: 14px; padding: 6px 0 16px; }
+
+/* Section labels for mode menu */
+.pbSectionLabel{
+  font-size: 10px;
+  font-weight: 900;
+  letter-spacing: 3px;
+  text-transform: uppercase;
+  opacity: .42;
+  padding: 0 4px;
+  margin-bottom: -6px;
+}
+
+/* Half-width tile grid for small tiles (settings/credits) */
+.pbTilesHalf{
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+}
+
+/* Compact tile list */
+.pbTilesCompact{
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+/* Small tile variant */
+.pbTile.pbTileSmall .pbTileGlyph{ width: 32px; height: 32px; font-size: 18px; }
+.pbTile.pbTileSmall .pbTileGlyphSm{ width: 32px; height: 32px; font-size: 16px; }
+.pbTile.pbTileSmall{ padding: 10px 16px 10px 14px; }
 
 /* Neon tile system (inspired by the reference image) */
 .menuShell{
@@ -6574,6 +6730,11 @@ onBeforeUnmount(() => {
   background: rgba(0,229,255,0.08);
   color: rgba(0,229,255,0.95);
 }
+.tbDraftTimer.tbDraftP2{
+  border-color: rgba(255,64,96,0.22);
+  background: rgba(255,64,96,0.08);
+  color: rgba(255,64,96,0.95);
+}
 .tbDraftTimer.tbDraftUrgent{
   border-color: rgba(255,64,96,0.45);
   background: rgba(255,64,96,0.12);
@@ -6653,6 +6814,30 @@ onBeforeUnmount(() => {
 }
 .hudYouInline{
   opacity: .7;
+}
+.hudYouBadge{
+  font-size: 11px;
+  font-weight: 900;
+  letter-spacing: 2px;
+  text-transform: uppercase;
+  padding: 4px 10px;
+  border-radius: 999px;
+  border: 1px solid rgba(255,255,255,0.18);
+  background: rgba(255,255,255,0.06);
+  margin-left: auto;
+  white-space: nowrap;
+}
+.hudYouBadgeP1{
+  color: rgba(0,229,255,0.95);
+  border-color: rgba(0,229,255,0.35);
+  background: rgba(0,229,255,0.10);
+  box-shadow: 0 0 12px rgba(0,229,255,0.12);
+}
+.hudYouBadgeP2{
+  color: rgba(255,64,96,0.95);
+  border-color: rgba(255,64,96,0.35);
+  background: rgba(255,64,96,0.10);
+  box-shadow: 0 0 12px rgba(255,64,96,0.12);
 }
 .hudControlsHint{
   margin-left: auto;
@@ -7443,6 +7628,75 @@ onBeforeUnmount(() => {
 .joinBtn{
   flex: 0 0 auto;
   min-width: 110px;
+}
+
+/* Settings screen: toggle rows */
+.pbField--toggle{
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 12px 0;
+  border-bottom: 1px solid rgba(255,255,255,0.06);
+  cursor: pointer;
+}
+.pbField--toggle:last-child{ border-bottom: none; }
+.pbFieldLabel{
+  font-size: 13px;
+  font-weight: 700;
+  letter-spacing: .5px;
+  opacity: .88;
+}
+
+/* Settings slider row */
+.pbSliderRow{
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-top: 4px;
+}
+.pbSlider{
+  flex: 1;
+  accent-color: rgba(0,229,255,0.8);
+  height: 4px;
+}
+.pbSliderVal{
+  min-width: 38px;
+  text-align: right;
+  font-size: 13px;
+  font-weight: 900;
+  font-variant-numeric: tabular-nums;
+  opacity: .8;
+}
+
+/* Credits body */
+.pbCreditsBody{
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  margin-top: 12px;
+}
+.pbCreditItem{
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 10px 0;
+  border-bottom: 1px solid rgba(255,255,255,0.06);
+}
+.pbCreditItem:last-child{ border-bottom: none; }
+.pbCreditRole{
+  font-size: 10px;
+  font-weight: 900;
+  letter-spacing: 2.5px;
+  text-transform: uppercase;
+  opacity: .5;
+}
+.pbCreditName{
+  font-size: 13px;
+  font-weight: 700;
+  letter-spacing: .5px;
+  text-align: right;
+  opacity: .92;
+  color: rgba(0,229,255,0.9);
 }
 
 /* Responsive: keep everything visible on smaller screens */
