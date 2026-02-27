@@ -4557,7 +4557,192 @@ function _aiMovesNormal(moves) {
   return best;
 }
 
-// ── TACTICIAN: pattern-based blocking + territory corridors ────────
+// ── SHARED AI UTILITIES ──────────────────────────────────────────────
+
+// Parity imbalance of a set of cells — a region that can't be tiled by pentominoes
+// if the imbalance is odd (pentominoes always cover 2B+3W or 3B+2W, net ±1)
+function _parityImbalance(cells) {
+  let b = 0, w = 0;
+  for (const [x, y] of cells) (x + y) % 2 === 0 ? b++ : w++;
+  return Math.abs(b - w);
+}
+
+// Flood-fill all empty regions on simBoard
+function _floodFillRegions(simBoard, boardW, boardH) {
+  const dirs = [[1,0],[-1,0],[0,1],[0,-1]];
+  const visited = new Set();
+  const regions = [];
+  for (let y = 0; y < boardH; y++) {
+    for (let x = 0; x < boardW; x++) {
+      const k = y * boardW + x;
+      if (simBoard[y][x] !== null || visited.has(k)) continue;
+      const region = [];
+      const q = [[x, y]];
+      visited.add(k);
+      while (q.length) {
+        const [cx, cy] = q.shift();
+        region.push([cx, cy]);
+        for (const [ox, oy] of dirs) {
+          const nx = cx+ox, ny = cy+oy;
+          if (nx < 0 || ny < 0 || nx >= boardW || ny >= boardH) continue;
+          const nk = ny * boardW + nx;
+          if (simBoard[ny][nx] === null && !visited.has(nk)) {
+            visited.add(nk); q.push([nx, ny]);
+          }
+        }
+      }
+      regions.push(region);
+    }
+  }
+  return regions;
+}
+
+// Reachable empty cells connected to player's territory
+function _reachableFrom(simBoard, boardW, boardH, player) {
+  const dirs = [[1,0],[-1,0],[0,1],[0,-1]];
+  const visited = new Set();
+  const q = [];
+  for (let y = 0; y < boardH; y++)
+    for (let x = 0; x < boardW; x++)
+      if (simBoard[y][x]?.player === player) {
+        const k = y * boardW + x;
+        if (!visited.has(k)) { visited.add(k); q.push([x, y]); }
+      }
+  let count = 0;
+  while (q.length) {
+    const [cx, cy] = q.shift();
+    for (const [ox, oy] of dirs) {
+      const nx = cx+ox, ny = cy+oy;
+      if (nx < 0 || ny < 0 || nx >= boardW || ny >= boardH) continue;
+      const k = ny * boardW + nx;
+      if (visited.has(k)) continue;
+      visited.add(k);
+      if (simBoard[ny][nx] === null) { count++; q.push([nx, ny]); }
+      else if (simBoard[ny][nx]?.player === player) q.push([nx, ny]);
+    }
+  }
+  return count;
+}
+
+// Score parity trap bonus: reward regions near opponent that are parity-broken
+function _parityTrapBonus(regions, simBoard, boardW, boardH, hp) {
+  const dirs = [[1,0],[-1,0],[0,1],[0,-1]];
+  let bonus = 0;
+  for (const reg of regions) {
+    const imbalance = _parityImbalance(reg);
+    if (imbalance === 0) continue; // balanced, might be tileable
+    // Check if adjacent to human territory
+    let touchesHuman = false;
+    for (const [cx, cy] of reg) {
+      for (const [ox, oy] of dirs) {
+        const nx = cx+ox, ny = cy+oy;
+        if (nx < 0 || ny < 0 || nx >= boardW || ny >= boardH) continue;
+        if (simBoard[ny][nx]?.player === hp) { touchesHuman = true; break; }
+      }
+      if (touchesHuman) break;
+    }
+    if (!touchesHuman) continue;
+    // Parity-broken region near human = human wastes pieces there
+    // Bigger bonus for odd-imbalance that can't be resolved by any combo
+    if (imbalance % 2 === 1) bonus += imbalance * 5.0;
+    else bonus += imbalance * 2.0;
+    // Small locked regions (1-4) are extra bad for opponent
+    if (reg.length <= 4) bonus += (5 - reg.length) * 6.0;
+  }
+  return bonus;
+}
+
+// Zone claiming bonus: reward placing into a clean 2×5 or 5×2 corridor
+function _zoneClaimBonus(abs, simBoard, boardW, boardH) {
+  let bonus = 0;
+  // Check several rectangular zones covering the piece cells
+  for (const [px, py] of abs) {
+    // Try 2×5 and 5×2 windows anchored near each piece cell
+    const zones = [
+      // w=5, h=2
+      ...Array.from({length: 5}, (_, i) => ({x: px - i, y: py, w: 5, h: 2})),
+      ...Array.from({length: 2}, (_, i) => ({x: px - i, y: py - 1, w: 5, h: 2})),
+      // w=2, h=5
+      ...Array.from({length: 2}, (_, i) => ({x: px - i, y: py, w: 2, h: 5})),
+      ...Array.from({length: 5}, (_, i) => ({x: px, y: py - i, w: 2, h: 5})),
+    ];
+    for (const {x: zx, y: zy, w: zw, h: zh} of zones) {
+      if (zx < 0 || zy < 0 || zx + zw > boardW || zy + zh > boardH) continue;
+      // Check if zone is entirely empty or belongs to AI
+      let allClear = true;
+      let emptyCount = 0;
+      for (let dy = 0; dy < zh && allClear; dy++) {
+        for (let dx = 0; dx < zw && allClear; dx++) {
+          const cell = simBoard[zy + dy][zx + dx];
+          if (cell === null) emptyCount++;
+          else if (cell.player !== undefined) allClear = false; // human piece blocks zone
+          // AI piece in zone is fine (we're building toward it)
+        }
+      }
+      if (allClear && emptyCount >= 5) {
+        // Bonus proportional to how much of the zone our piece occupies
+        const pieceInZone = abs.filter(([ax, ay]) =>
+          ax >= zx && ax < zx + zw && ay >= zy && ay < zy + zh).length;
+        bonus += pieceInZone * 1.8;
+      }
+    }
+  }
+  return Math.min(bonus, 15.0); // cap so it doesn't dominate
+}
+
+// Count feasible pieces for a player — how many of their remaining pieces have ≥1 valid placement
+function _countFeasiblePieces(simBoard, boardW, boardH, playerNum) {
+  const { remaining, allowFlip: af } = game;
+  const pieces = remaining[playerNum] || [];
+  const flipOptions = af ? [false, true] : [false];
+  const dirs = [[1,0],[-1,0],[0,1],[0,-1]];
+  const { placedCount } = game;
+  let feasible = 0;
+
+  outer: for (const pk of pieces) {
+    const baseCells = PENTOMINOES[pk];
+    const seenOrients = new Set();
+    for (const flip of flipOptions) {
+      for (let rot = 0; rot < 4; rot++) {
+        const shape = transformCells(baseCells, rot, flip);
+        const oKey = shape.map(([x,y])=>`${x},${y}`).join('|');
+        if (seenOrients.has(oKey)) continue;
+        seenOrients.add(oKey);
+        for (let ay = 0; ay < boardH; ay++) {
+          for (let ax = 0; ax < boardW; ax++) {
+            let valid = true;
+            const abs = [];
+            for (const [dx, dy] of shape) {
+              const x = ax + dx, y = ay + dy;
+              if (x < 0 || y < 0 || x >= boardW || y >= boardH || simBoard[y][x] !== null) {
+                valid = false; break;
+              }
+              abs.push([x, y]);
+            }
+            if (!valid) continue;
+            if (placedCount > 0) {
+              let touches = false;
+              touchLoop: for (const [x, y] of abs) {
+                for (const [ox, oy] of dirs) {
+                  const nx = x+ox, ny = y+oy;
+                  if (nx >= 0 && ny >= 0 && nx < boardW && ny < boardH && simBoard[ny][nx] !== null) {
+                    touches = true; break touchLoop;
+                  }
+                }
+              }
+              if (!touches) continue;
+            }
+            feasible++;
+            continue outer; // found one valid placement — piece is feasible
+          }
+        }
+      }
+    }
+  }
+  return feasible;
+}
+
+// ── TACTICIAN: pattern-based blocking + parity traps ───────────────
 function _aiMovesTactician(moves) {
   if (!moves.length) return null;
   const { board, boardW, boardH } = game;
@@ -4593,7 +4778,11 @@ function _aiMovesTactician(moves) {
     score += ownAdj * 3.0; // strongly reward compactness
     score += oppAdj * 2.2; // block opponent
 
-    // Penalize placing next to open spaces adjacent to opponent (don't leave doors open)
+    // Parity trap analysis — find regions near opponent that are imbalanced
+    const regions = _floodFillRegions(simBoard, boardW, boardH);
+    score += _parityTrapBonus(regions, simBoard, boardW, boardH, hp);
+
+    // Penalize leaving large open doors for opponent
     let openAdj = 0;
     for (const [x, y] of m.abs) {
       for (const [ox, oy] of dirs) {
@@ -4608,197 +4797,46 @@ function _aiMovesTactician(moves) {
   return best;
 }
 
-// ── GRANDMASTER: territorial god — creates combo zones ─────────────
-// Plays as P1, uses flood fill + territory locking to create regions
-// that human's remaining pieces can't fit into
+// ── GRANDMASTER: territorial god — zone claiming + parity traps ─────
+// Plays as P1, aggressively builds rectangle combos and poisons human territory
 function _aiMovesGrandmaster(moves) {
   if (!moves.length) return null;
   const { board, boardW, boardH, remaining } = game;
   const dirs = [[1,0],[-1,0],[0,1],[0,-1]];
   const ap = aiPlayer.value;
   const hp = humanPlayer.value;
-
-  function floodFillRegions(simBoard) {
-    // Find all connected empty regions and their sizes
-    const visited = new Set();
-    const regions = [];
-    for (let y = 0; y < boardH; y++) {
-      for (let x = 0; x < boardW; x++) {
-        const k = y * boardW + x;
-        if (simBoard[y][x] !== null || visited.has(k)) continue;
-        const region = [];
-        const q = [[x, y]];
-        visited.add(k);
-        while (q.length) {
-          const [cx, cy] = q.shift();
-          region.push([cx, cy]);
-          for (const [ox, oy] of dirs) {
-            const nx = cx+ox, ny = cy+oy;
-            if (nx < 0 || ny < 0 || nx >= boardW || ny >= boardH) continue;
-            const nk = ny * boardW + nx;
-            if (simBoard[ny][nx] === null && !visited.has(nk)) {
-              visited.add(nk);
-              q.push([nx, ny]);
-            }
-          }
-        }
-        regions.push(region);
-      }
-    }
-    return regions;
-  }
-
-  function reachable(simBoard, player) {
-    const visited = new Set();
-    const q = [];
-    for (let y = 0; y < boardH; y++)
-      for (let x = 0; x < boardW; x++)
-        if (simBoard[y][x]?.player === player) { const k = y * boardW + x; if (!visited.has(k)) { visited.add(k); q.push([x, y]); } }
-    let count = 0;
-    while (q.length) {
-      const [cx, cy] = q.shift();
-      for (const [ox, oy] of dirs) {
-        const nx = cx+ox, ny = cy+oy;
-        if (nx < 0 || ny < 0 || nx >= boardW || ny >= boardH) continue;
-        const k = ny * boardW + nx;
-        if (visited.has(k)) continue;
-        visited.add(k);
-        if (simBoard[ny][nx] === null) { count++; q.push([nx, ny]); }
-        else if (simBoard[ny][nx]?.player === player) q.push([nx, ny]);
-      }
-    }
-    return count;
-  }
+  const humanPieceCount = (remaining[hp] || []).length;
 
   let best = null, bestScore = -Infinity;
   for (const m of moves) {
     const simBoard = board.map(r => [...r]);
     for (const [x, y] of m.abs) simBoard[y][x] = { player: ap, pieceKey: m.pk };
 
-    const ownSpace = reachable(simBoard, ap);
-    const oppSpace = reachable(simBoard, hp);
+    const ownSpace = _reachableFrom(simBoard, boardW, boardH, ap);
+    const oppSpace = _reachableFrom(simBoard, boardW, boardH, hp);
 
-    // Core: maximize own reachable - minimize opponent reachable
-    let score = ownSpace * 5.0 - oppSpace * 4.5;
-
-    // Bonus: if we create small locked-off regions (size 1-4), opponent can't fill them easily
-    const regions = floodFillRegions(simBoard);
-    for (const reg of regions) {
-      if (reg.length <= 4 && reg.length >= 1) {
-        // Small trapped region — big bonus (opponent wastes turn)
-        score += (5 - reg.length) * 6.0;
-      }
-      if (reg.length === 5) score -= 2.0; // perfect pentomino fit — opponent benefits
-    }
-
-    let oppAdj = 0, ownAdj = 0;
-    for (const [x, y] of m.abs) {
-      for (const [ox, oy] of dirs) {
-        const nx = x+ox, ny = y+oy;
-        if (nx < 0 || ny < 0 || nx >= boardW || ny >= boardH) continue;
-        const cell = board[ny][nx];
-        if (cell?.player === hp) oppAdj++;
-        if (cell?.player === ap) ownAdj++;
-      }
-      // Strong preference for center control
-      const cx = Math.abs(x - boardW/2), cy = Math.abs(y - boardH/2);
-      score -= (cx + cy) * 0.1;
-    }
-    score += oppAdj * 3.0 + ownAdj * 1.5;
-
-    if (score > bestScore) { bestScore = score; best = m; }
-  }
-  return best;
-}
-
-// ── LEGENDARY: reads human picks, creates near-impossible territory ─
-// Plays as P1, analyzes human draft + board state to counter optimally
-function _aiMovesLegendary(moves) {
-  if (!moves.length) return null;
-  const { board, boardW, boardH, remaining, picks } = game;
-  const dirs = [[1,0],[-1,0],[0,1],[0,-1]];
-  const ap = aiPlayer.value;
-  const hp = humanPlayer.value;
-
-  function reachableFrom(simBoard, player) {
-    const visited = new Set();
-    const q = [];
-    for (let y = 0; y < boardH; y++)
-      for (let x = 0; x < boardW; x++)
-        if (simBoard[y][x]?.player === player) { const k = y * boardW + x; if (!visited.has(k)) { visited.add(k); q.push([x, y]); } }
-    let count = 0;
-    while (q.length) {
-      const [cx, cy] = q.shift();
-      for (const [ox, oy] of dirs) {
-        const nx = cx+ox, ny = cy+oy;
-        if (nx < 0 || ny < 0 || nx >= boardW || ny >= boardH) continue;
-        const k = ny * boardW + nx;
-        if (visited.has(k)) continue;
-        visited.add(k);
-        if (simBoard[ny][nx] === null) { count++; q.push([nx, ny]); }
-        else if (simBoard[ny][nx]?.player === player) q.push([nx, ny]);
-      }
-    }
-    return count;
-  }
-
-  function floodFillRegions(simBoard) {
-    const visited = new Set();
-    const regions = [];
-    for (let y = 0; y < boardH; y++) {
-      for (let x = 0; x < boardW; x++) {
-        const k = y * boardW + x;
-        if (simBoard[y][x] !== null || visited.has(k)) continue;
-        const region = [];
-        const q = [[x, y]];
-        visited.add(k);
-        while (q.length) {
-          const [cx, cy] = q.shift();
-          region.push([cx, cy]);
-          for (const [ox, oy] of dirs) {
-            const nx = cx+ox, ny = cy+oy;
-            if (nx < 0 || ny < 0 || nx >= boardW || ny >= boardH) continue;
-            const nk = ny * boardW + nx;
-            if (simBoard[ny][nx] === null && !visited.has(nk)) {
-              visited.add(nk);
-              q.push([nx, ny]);
-            }
-          }
-        }
-        regions.push(region);
-      }
-    }
-    return regions;
-  }
-
-  // Analyze human remaining pieces to estimate their spatial need
-  const humanRemaining = remaining[hp] || [];
-  const humanPieceCount = humanRemaining.length;
-
-  let best = null, bestScore = -Infinity;
-  for (const m of moves) {
-    const simBoard = board.map(r => [...r]);
-    for (const [x, y] of m.abs) simBoard[y][x] = { player: ap, pieceKey: m.pk };
-
-    const ownSpace = reachableFrom(simBoard, ap);
-    const oppSpace = reachableFrom(simBoard, hp);
-
-    // Aggressive territory domination
+    // Core territory control
     let score = ownSpace * 6.0 - oppSpace * 5.5;
 
-    // Locking regions analysis — bonus for making opponent's pieces unplaceable
-    const regions = floodFillRegions(simBoard);
+    // Flood-fill regions for analysis
+    const regions = _floodFillRegions(simBoard, boardW, boardH);
+
+    // Parity trap bonus — poison human regions
+    score += _parityTrapBonus(regions, simBoard, boardW, boardH, hp);
+
+    // Region size analysis
     let lockedPenalty = 0;
     for (const reg of regions) {
-      // Perfect pentomino regions (size 5) that aren't filled are bonus for human
-      if (reg.length % 5 === 0) score -= 1.5; 
-      // Locked regions (1-4 cells) — huge bonus since opponent can't fill
-      if (reg.length <= 4) score += (5 - reg.length) * 8.0;
-      // Regions matching human pieces — penalize (leaves nice space for them)
+      if (reg.length <= 4) score += (5 - reg.length) * 8.0; // locked cell bonus
+      if (reg.length % 5 === 0) score -= 1.5; // clean multiple — good for human
       if (reg.length === 5 * humanPieceCount) lockedPenalty += 3.0;
     }
     score -= lockedPenalty;
 
+    // Zone claiming — reward building toward clean rectangles
+    score += _zoneClaimBonus(m.abs, simBoard, boardW, boardH);
+
+    // Adjacency bonuses
     let oppAdj = 0, ownAdj = 0;
     for (const [x, y] of m.abs) {
       for (const [ox, oy] of dirs) {
@@ -4809,9 +4847,69 @@ function _aiMovesLegendary(moves) {
         if (cell?.player === ap) ownAdj++;
       }
       const cx2 = Math.abs(x - boardW/2), cy2 = Math.abs(y - boardH/2);
-      score -= (cx2 + cy2) * 0.12;
+      score -= (cx2 + cy2) * 0.12; // prefer center
     }
     score += oppAdj * 4.0 + ownAdj * 2.0;
+
+    if (score > bestScore) { bestScore = score; best = m; }
+  }
+  return best;
+}
+
+// ── LEGENDARY: reads human picks, feasibility count, parity denial ──
+// Plays as P1 — zero randomness, full board analysis, piece feasibility tracking
+function _aiMovesLegendary(moves) {
+  if (!moves.length) return null;
+  const { board, boardW, boardH, remaining } = game;
+  const dirs = [[1,0],[-1,0],[0,1],[0,-1]];
+  const ap = aiPlayer.value;
+  const hp = humanPlayer.value;
+
+  let best = null, bestScore = -Infinity;
+  for (const m of moves) {
+    const simBoard = board.map(r => [...r]);
+    for (const [x, y] of m.abs) simBoard[y][x] = { player: ap, pieceKey: m.pk };
+
+    const ownSpace = _reachableFrom(simBoard, boardW, boardH, ap);
+    const oppSpace = _reachableFrom(simBoard, boardW, boardH, hp);
+
+    // Feasibility count — true measure of piece mobility
+    const ownFeasible = _countFeasiblePieces(simBoard, boardW, boardH, ap);
+    const oppFeasible = _countFeasiblePieces(simBoard, boardW, boardH, hp);
+
+    // Parity traps — maximize damage to opponent's tileable space
+    const regions = _floodFillRegions(simBoard, boardW, boardH);
+    const trapBonus = _parityTrapBonus(regions, simBoard, boardW, boardH, hp);
+
+    // Zone claiming — build toward tight rectangles
+    const zoneBonus = _zoneClaimBonus(m.abs, simBoard, boardW, boardH);
+
+    // Region locking analysis
+    let lockBonus = 0;
+    for (const reg of regions) {
+      if (reg.length <= 4) lockBonus += (5 - reg.length) * 5.0;
+      if (reg.length === 5) lockBonus -= 1.5; // clean pentomino slot — bad
+    }
+
+    // Legendary score formula — feasibility dominates
+    let score = ownFeasible * 8.0 - oppFeasible * 10.0
+      + trapBonus
+      + zoneBonus
+      + lockBonus
+      + ownSpace * 3.0 - oppSpace * 2.5;
+
+    // Adjacency pressure — never random
+    for (const [x, y] of m.abs) {
+      for (const [ox, oy] of dirs) {
+        const nx = x+ox, ny = y+oy;
+        if (nx < 0 || ny < 0 || nx >= boardW || ny >= boardH) continue;
+        const cell = board[ny][nx];
+        if (cell?.player === hp) score += 3.5;
+        if (cell?.player === ap) score += 2.0;
+      }
+      const cx = Math.abs(x - boardW/2), cy = Math.abs(y - boardH/2);
+      score -= (cx + cy) * 0.08;
+    }
 
     if (score > bestScore) { bestScore = score; best = m; }
   }
@@ -4824,6 +4922,31 @@ const _VERSATILE_PIECES = new Set(['I','L','T','Y','N','S','Z','P']);
 const _TRICKY_PIECES = new Set(['F','W','X','U','V']);
 // Piece shape scores for territory control
 const SHAPE_SCORE = { I:5, L:5, Y:5, N:4, T:4, S:4, Z:4, P:3, W:3, F:2, U:2, X:1, V:2 };
+
+// Synergy pairs: two pieces whose union can tile a clean 2×5 rectangle
+// If human picks one, the other is the combo-completing partner they want
+const SYNERGY_PAIRS = {
+  P: ['Z','S','L','N'],
+  Z: ['P','S'],
+  S: ['P','Z'],
+  L: ['P','N'],
+  N: ['P','L'],
+  I: ['I','L','Y','N','S','Z'],
+  T: ['Y'],
+  Y: ['T','N'],
+};
+
+function _getSynergyTargets(humanPicks, pool) {
+  // Returns pool pieces that complete combos with any human pick
+  const targets = new Set();
+  for (const hk of humanPicks) {
+    const partners = SYNERGY_PAIRS[hk] || [];
+    for (const p of partners) {
+      if (pool.includes(p)) targets.add(p);
+    }
+  }
+  return [...targets];
+}
 
 function _aiDraftPick() {
   const pool = [...game.pool];
@@ -4841,15 +4964,16 @@ function _aiDraftPick() {
     return good.length ? good[Math.floor(Math.random() * good.length)] : pool[Math.floor(Math.random() * pool.length)];
   }
   if (diff === 'tactician') {
-    // Tactician: prioritize versatile pieces, but also try to deny human's best pieces
-    // If human already has versatile pieces, steal remaining versatile ones
-    const humanHasVersatile = humanPicks.some(k => _VERSATILE_PIECES.has(k));
+    // SYNERGY DENIAL: if human picked something with a partner still in pool, steal it
+    const synergyTargets = _getSynergyTargets(humanPicks, pool);
+    if (synergyTargets.length && Math.random() < 0.85) {
+      return synergyTargets[Math.floor(Math.random() * synergyTargets.length)];
+    }
+    // Otherwise take versatile pieces
     const good = pool.filter(k => _VERSATILE_PIECES.has(k));
-    // If good pieces remain, take them - deny human the best
     if (good.length && Math.random() < 0.80) {
       return good[Math.floor(Math.random() * good.length)];
     }
-    // Otherwise pick tricky pieces to deny human easy placements
     const tricky = pool.filter(k => _TRICKY_PIECES.has(k));
     if (tricky.length && Math.random() < 0.55) {
       return tricky[Math.floor(Math.random() * tricky.length)];
@@ -4857,37 +4981,70 @@ function _aiDraftPick() {
     return pool[Math.floor(Math.random() * pool.length)];
   }
   if (diff === 'grandmaster') {
-    // Grandmaster: always take highest-value piece by shape score
-    // Slightly reads human picks to avoid leaving them easy combos
+    // SYNERGY DENIAL: steal human's combo partners first
+    const synergyTargets = _getSynergyTargets(humanPicks, pool);
+    if (synergyTargets.length) {
+      // Pick the synergy target with highest shape score
+      let best = synergyTargets[0], bestS = -1;
+      for (const k of synergyTargets) {
+        const s = (SHAPE_SCORE[k] || 2) + Math.random() * 0.1;
+        if (s > bestS) { bestS = s; best = k; }
+      }
+      return best;
+    }
+    // PERSONAL SYNERGY: pick pieces that form internal pairs with own picks
+    const ap = aiPlayer.value;
+    const aiPicks = game.picks[ap] || [];
+    const ownSynergyTargets = _getSynergyTargets(aiPicks, pool);
+    if (ownSynergyTargets.length) {
+      let best = ownSynergyTargets[0], bestS = -1;
+      for (const k of ownSynergyTargets) {
+        const s = (SHAPE_SCORE[k] || 2) + Math.random() * 0.1;
+        if (s > bestS) { bestS = s; best = k; }
+      }
+      return best;
+    }
+    // Fallback: highest shape score piece
     const noise = 0.15;
-    let bestPick = pool[0], bestS = -1;
+    let bestPick = pool[0], bestScore = -1;
     for (const k of pool) {
-      // Slight bonus for pieces that deny combos with what human picked
-      const humanWouldWant = humanPicks.some(hp2 => _VERSATILE_PIECES.has(hp2)) && _VERSATILE_PIECES.has(k);
-      const s = (SHAPE_SCORE[k] || 2) + (humanWouldWant ? 2.0 : 0) + Math.random() * noise;
-      if (s > bestS) { bestS = s; bestPick = k; }
+      const s = (SHAPE_SCORE[k] || 2) + Math.random() * noise;
+      if (s > bestScore) { bestScore = s; bestPick = k; }
     }
     return bestPick;
   }
-  // legendary: reads human picks + takes highest-value, pure counter-pick
+  // ── LEGENDARY: full counter-draft ──────────────────────────────────
+  // Track all human picks, deny every combo chain, push unpairables to human
   {
-    // Identify what human has to infer their strategy
+    // Unpairable pieces (X, W, F, U) are hard to place — deny these last
+    // so the human ends up with them
+    const unpairables = new Set(['X','W','F','U']);
+
+    // SYNERGY DENIAL: steal all remaining combo partners for human's pieces
+    const synergyTargets = _getSynergyTargets(humanPicks, pool);
+    if (synergyTargets.length) {
+      // Take the highest-value synergy target
+      let best = synergyTargets[0], bestS = -1;
+      for (const k of synergyTargets) {
+        const s = (SHAPE_SCORE[k] || 2) * 2.0 + (unpairables.has(k) ? -5 : 0);
+        if (s > bestS) { bestS = s; best = k; }
+      }
+      return best;
+    }
+
+    // Score every piece in pool
     const humanHasLong = humanPicks.some(k => ['I','L','Y','N'].includes(k));
     const humanHasBranchy = humanPicks.some(k => ['T','F','Y','X'].includes(k));
-    const humanHasCompact = humanPicks.some(k => ['P','W','U','V'].includes(k));
 
-    let bestPick = pool[0], bestS = -1;
+    let bestPick = pool[0], bestS2 = -1;
     for (const k of pool) {
       let s = (SHAPE_SCORE[k] || 2) * 2.0;
-      // Counter human strategy: if they have long pieces, take pieces that create narrow zones
-      if (humanHasLong && ['T','F','X','W','U'].includes(k)) s += 3.0;
-      // If they have branchy pieces, take compact ones to fill efficiently
+      // Deny useful pieces; deprioritize unpairables (leave them for human)
+      if (unpairables.has(k)) s -= 4.0;
+      if (humanHasLong && ['T','F','X','W','U'].includes(k)) s += 1.0;
       if (humanHasBranchy && ['I','L','P'].includes(k)) s += 2.5;
-      // Always deny the best remaining pieces
       if (_VERSATILE_PIECES.has(k)) s += 2.5;
-      // Deny tricky pieces from human too
-      if (_TRICKY_PIECES.has(k)) s += 1.5;
-      if (s > bestS) { bestS = s; bestPick = k; }
+      if (s > bestS2) { bestS2 = s; bestPick = k; }
     }
     return bestPick;
   }
