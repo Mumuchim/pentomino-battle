@@ -34,7 +34,7 @@
       </button>
     </div>
 
-    <!-- PC Submit / Confirm Placement button — only shown on desktop when requireSubmit is on -->
+    <!-- PC Submit button — only shown on desktop when requireSubmit is on -->
     <div v-if="game.ui?.requireSubmit" class="row submitRow hideOnMobile">
       <button
         class="btn submitBtn"
@@ -42,7 +42,7 @@
         :disabled="!isPendingValid || !props.canAct"
         @click="onPcSubmit"
       >
-        <span class="submitIcon">✓</span> Confirm Placement
+        <span class="submitIcon">✓</span> Submit (Space)
       </button>
     </div>
 

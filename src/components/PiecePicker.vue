@@ -210,36 +210,88 @@ function onPiecePointerMove(e) {
 function onPiecePointerUp(e) {
   const p = dragPending.value;
   dragPending.value = null;
-  activeDragKey.value = null;
   cleanupPointerListeners();
 
-  if (!p) return;
+  if (!p) {
+    activeDragKey.value = null;
+    return;
+  }
 
   // Click without movement: let onPick (click handler) fire normally
   if (!p.started) {
+    activeDragKey.value = null;
     game.endDrag();
     return;
   }
 
-  // ── pointercancel: secondary touch interrupted drag (e.g. rotate/flip button tapped mid-drag)
-  // Do NOT commit or abort the placement. Keep piece selected.
-  // Only stage if requireSubmit is ON and we were over the board.
-  // If requireSubmit is OFF, just end the drag — the piece stays selected for re-drag/click.
+  // ── pointercancel: a second touch (e.g. rotate/flip button) interrupted the drag ──
+  // The drag finger is still on screen — we just lost pointer capture.
+  // Strategy:
+  //   • If over the board AND requireSubmit ON → stage at current position, end drag.
+  //   • Otherwise → keep drag alive, re-track the finger via raw touch events so
+  //     the piece keeps following the finger after rotate/flip outside the map.
   if (e.type === 'pointercancel') {
     const t = game.drag?.target;
     const requireSubmit = game.ui?.requireSubmit ?? true;
+
     if (t && t.inside && requireSubmit) {
-      // Stage unconditionally so the ghost stays visible (even if invalid/red).
-      // The user can then rotate/flip to a valid state and hit Submit.
+      // Stage unconditionally (may be invalid/red); user can rotate/flip then submit.
       game.$patch({ pendingPlace: { x: t.x, y: t.y } });
+      game.endDrag();
+      activeDragKey.value = null;
+      return;
     }
-    // NOTE: if outside board OR requireSubmit is off, we simply end the drag.
-    // The piece remains selected (selectedPieceKey is NOT cleared by endDrag),
-    // so the user can drag again or click the board to place.
-    game.endDrag();
+
+    // Outside board (or requireSubmit OFF): keep the drag alive.
+    // Switch from pointer-captured events to raw touch tracking.
+    const dragKey = p.key;
+    activeDragKey.value = dragKey; // chip stays faded while drag continues
+
+    let moveFn, endFn;
+    function cleanupContinueTouch() {
+      window.removeEventListener('touchmove', moveFn);
+      window.removeEventListener('touchend', endFn);
+      window.removeEventListener('touchcancel', endFn);
+    }
+
+    moveFn = (te) => {
+      if (!game.drag?.active) { cleanupContinueTouch(); return; }
+      te.preventDefault();
+      const touch = te.touches[0];
+      if (!touch) return;
+      game.updateDrag(touch.clientX, touch.clientY);
+    };
+
+    endFn = () => {
+      cleanupContinueTouch();
+      activeDragKey.value = null;
+
+      const t2 = game.drag?.target;
+      const req = game.ui?.requireSubmit ?? true;
+
+      if (t2 && t2.inside) {
+        if (req) {
+          const staged = game.stagePlacement(t2.x, t2.y);
+          if (!staged) {
+            game.$patch({ pendingPlace: { x: t2.x, y: t2.y } });
+            playBuzz();
+          }
+        } else {
+          const ok = game.placeAt(t2.x, t2.y);
+          if (!ok) playBuzz();
+        }
+      }
+      game.endDrag();
+    };
+
+    window.addEventListener('touchmove', moveFn, { passive: false });
+    window.addEventListener('touchend', endFn, { passive: true });
+    window.addEventListener('touchcancel', endFn, { passive: true });
     return;
   }
 
+  // ── Normal pointerup ──────────────────────────────────────────────────────
+  activeDragKey.value = null;
   game.updateDrag(e.clientX, e.clientY);
 
   if (props.isOnline && !props.canAct) {
@@ -250,28 +302,25 @@ function onPiecePointerUp(e) {
   const t = game.drag?.target;
   if (t && t.inside) {
     const requireSubmit = game.ui?.requireSubmit ?? true;
-    if (p.isTouch && requireSubmit) {
-      // Mobile + requireSubmit ON: stage the piece so user can reposition & confirm
+    if (requireSubmit) {
+      // requireSubmit ON — stage for both touch AND mouse (PC waits for Submit button)
       const staged = game.stagePlacement(t.x, t.y);
       if (!staged) {
-        // Invalid spot — stage unconditionally so ghost stays and user can rotate/flip
+        // Invalid spot: stage unconditionally so ghost stays, user can rotate/flip
         game.$patch({ pendingPlace: { x: t.x, y: t.y } });
         playBuzz();
-        game.endDrag(); // stop the floating ghost, selection stays
-      } else {
-        game.endDrag(); // ghost now shows via pendingPlace
       }
+      game.endDrag();
     } else {
-      // Desktop OR requireSubmit OFF: commit immediately
+      // requireSubmit OFF — commit immediately (touch and mouse both place directly)
       const ok = game.placeAt(t.x, t.y);
       if (!ok) {
-        // Invalid — keep piece selected, don't wipe state
         playBuzz();
         game.endDrag();
       }
     }
   } else {
-    // Released outside board: cancel drag, keep piece selected for retry
+    // Released outside board: end drag, piece stays selected for retry
     game.endDrag();
   }
 }
