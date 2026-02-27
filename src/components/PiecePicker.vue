@@ -223,14 +223,19 @@ function onPiecePointerUp(e) {
 
   // ── pointercancel: secondary touch interrupted drag (e.g. rotate/flip button tapped mid-drag)
   // Do NOT commit or abort the placement. Keep piece selected.
-  // If the finger was over the board, stage the last known position (ghost stays visible, may be red).
+  // Only stage if requireSubmit is ON and we were over the board.
+  // If requireSubmit is OFF, just end the drag — the piece stays selected for re-drag/click.
   if (e.type === 'pointercancel') {
     const t = game.drag?.target;
-    if (t && t.inside) {
+    const requireSubmit = game.ui?.requireSubmit ?? true;
+    if (t && t.inside && requireSubmit) {
       // Stage unconditionally so the ghost stays visible (even if invalid/red).
       // The user can then rotate/flip to a valid state and hit Submit.
       game.$patch({ pendingPlace: { x: t.x, y: t.y } });
     }
+    // NOTE: if outside board OR requireSubmit is off, we simply end the drag.
+    // The piece remains selected (selectedPieceKey is NOT cleared by endDrag),
+    // so the user can drag again or click the board to place.
     game.endDrag();
     return;
   }
