@@ -1408,9 +1408,13 @@ const quick = reactive({
 const rankedTier = computed(() => (loggedIn.value ? "Wood" : "—"));
 
 const isInGame = computed(() => screen.value === "couch" || screen.value === "ai" || screen.value === "online");
-const modeLabel = computed(() =>
-  screen.value === "ai" ? "Practice vs AI" : screen.value === "couch" ? "Couch Play" : screen.value === "online" ? "Online Match" : "—"
-);
+const modeLabel = computed(() => {
+  if (screen.value === "ai") {
+    const labels = { easy: "Easy", normal: "Normal", hard: "Hard", master: "Master" };
+    return `VS AI · ${labels[aiDifficulty.value] || "Normal"}`;
+  }
+  return screen.value === "couch" ? "Couch Play" : screen.value === "online" ? "Online Match" : "—";
+});
 
 const phaseTitle = computed(() => {
   if (game.phase === "draft") return "Drafting";
@@ -4178,7 +4182,27 @@ function startCouchPlay() {
   tryPlayGameBgm();
 }
 
+// ── AI Difficulty state ────────────────────────────────────────────
+// 'easy' | 'normal' | 'hard' | 'master'
+const aiDifficulty = ref('normal');
+
 function startPracticeAi() {
+  // Show difficulty picker before starting
+  showModal({
+    title: "SELECT DIFFICULTY",
+    tone: "info",
+    message: "Choose how challenging the AI opponent will be.",
+    actions: [
+      { label: "EASY",   tone: "soft",    onClick: () => _launchAi('easy') },
+      { label: "NORMAL", tone: "primary", onClick: () => _launchAi('normal') },
+      { label: "HARD",   tone: "primary", onClick: () => _launchAi('hard') },
+      { label: "MASTER", tone: "primary", onClick: () => _launchAi('master') },
+    ],
+  });
+}
+
+function _launchAi(diff) {
+  aiDifficulty.value = diff;
   stopPolling();
   myPlayer.value = null;
   screen.value = "ai";
@@ -4186,13 +4210,13 @@ function startPracticeAi() {
   game.boardH = 6;
   game.allowFlip = allowFlip.value;
   game.resetGame();
-
   tryPlayGameBgm();
 }
 
 /* =========================
    ✅ AI ENGINE (Practice vs AI)
    Player 1 = Human | Player 2 = Computer
+   Four difficulty levels: easy / normal / hard / master
 ========================= */
 
 let _aiTimer = null;
@@ -4201,25 +4225,27 @@ function _cancelAiTimer() {
   if (_aiTimer) { clearTimeout(_aiTimer); _aiTimer = null; }
 }
 
-function _aiComputeBestMove() {
+// ── Shared helper: collect ALL valid placements for AI (player 2) ──
+function _getAllValidMoves() {
   const { boardW, boardH, board, placedCount, allowFlip: af, remaining } = game;
   const pieces = [...(remaining[2] || [])];
-  if (!pieces.length) return null;
-
   const flipOptions = af ? [false, true] : [false];
   const dirs = [[1,0],[-1,0],[0,1],[0,-1]];
-  let bestScore = -Infinity;
-  let bestMove = null;
+  const moves = [];
 
   for (const pk of pieces) {
     const baseCells = PENTOMINOES[pk];
+    const seenOrients = new Set();
+
     for (const flip of flipOptions) {
       for (let rot = 0; rot < 4; rot++) {
         const shape = transformCells(baseCells, rot, flip);
+        const oKey = shape.map(([x,y])=>`${x},${y}`).join('|');
+        if (seenOrients.has(oKey)) continue;
+        seenOrients.add(oKey);
 
         for (let ay = 0; ay < boardH; ay++) {
           for (let ax = 0; ax < boardW; ax++) {
-            // Validity: bounds + no overlap
             let valid = true;
             const abs = [];
             for (const [dx, dy] of shape) {
@@ -4231,7 +4257,6 @@ function _aiComputeBestMove() {
             }
             if (!valid) continue;
 
-            // Must touch existing structure (unless first move)
             if (placedCount > 0) {
               let touches = false;
               outer: for (const [x, y] of abs) {
@@ -4245,57 +4270,230 @@ function _aiComputeBestMove() {
               if (!touches) continue;
             }
 
-            // Scoring: grow own territory, lightly block opponent
-            let score = Math.random() * 0.4; // natural tiebreak variety
-            for (const [x, y] of abs) {
-              for (const [ox, oy] of dirs) {
-                const nx = x+ox, ny = y+oy;
-                if (nx < 0 || ny < 0 || nx >= boardW || ny >= boardH) continue;
-                const cell = board[ny][nx];
-                if (cell?.player === 2) score += 2.0;   // expand own territory
-                if (cell?.player === 1) score += 0.8;   // pressure opponent
-              }
-              // Mild prefer non-edge cells (avoids getting stuck in corners)
-              if (x > 0 && x < boardW-1 && y > 0 && y < boardH-1) score += 0.15;
-            }
-
-            if (score > bestScore) {
-              bestScore = score;
-              bestMove = { pk, rot, flip, ax, ay };
-            }
+            moves.push({ pk, rot, flip, ax, ay, abs });
           }
         }
       }
     }
   }
-  return bestMove;
+  return moves;
 }
 
+// ── EASY: almost pure random, barely strategic ────────────────────
+function _aiMovesEasy(moves) {
+  if (!moves.length) return null;
+  if (Math.random() < 0.80) return moves[Math.floor(Math.random() * moves.length)];
+  const { board, boardW, boardH } = game;
+  let best = null, bestScore = -Infinity;
+  const dirs = [[1,0],[-1,0],[0,1],[0,-1]];
+  for (const m of moves) {
+    let score = Math.random() * 2;
+    for (const [x, y] of m.abs) {
+      for (const [ox, oy] of dirs) {
+        const nx = x+ox, ny = y+oy;
+        if (nx < 0 || ny < 0 || nx >= boardW || ny >= boardH) continue;
+        if (board[ny][nx]?.player === 2) score += 1;
+      }
+    }
+    if (score > bestScore) { bestScore = score; best = m; }
+  }
+  return best;
+}
+
+// ── NORMAL: grow own territory, light pressure, some randomness ───
+function _aiMovesNormal(moves) {
+  if (!moves.length) return null;
+  const { board, boardW, boardH } = game;
+  const dirs = [[1,0],[-1,0],[0,1],[0,-1]];
+  let best = null, bestScore = -Infinity;
+  for (const m of moves) {
+    let score = Math.random() * 0.5;
+    for (const [x, y] of m.abs) {
+      for (const [ox, oy] of dirs) {
+        const nx = x+ox, ny = y+oy;
+        if (nx < 0 || ny < 0 || nx >= boardW || ny >= boardH) continue;
+        const cell = board[ny][nx];
+        if (cell?.player === 2) score += 2.0;
+        if (cell?.player === 1) score += 0.8;
+      }
+      if (x > 0 && x < boardW-1 && y > 0 && y < boardH-1) score += 0.15;
+    }
+    if (score > bestScore) { bestScore = score; best = m; }
+  }
+  return best;
+}
+
+// ── HARD: aggressive territory + strong blocking + compactness ────
+function _aiMovesHard(moves) {
+  if (!moves.length) return null;
+  const { board, boardW, boardH } = game;
+  const dirs = [[1,0],[-1,0],[0,1],[0,-1]];
+  const diag = [[1,1],[1,-1],[-1,1],[-1,-1]];
+  let best = null, bestScore = -Infinity;
+  for (const m of moves) {
+    let score = Math.random() * 0.15;
+    const simBoard = board.map(r => [...r]);
+    for (const [x, y] of m.abs) simBoard[y][x] = { player: 2, pieceKey: m.pk };
+    let ownAdj = 0, oppAdj = 0;
+    for (const [x, y] of m.abs) {
+      for (const [ox, oy] of dirs) {
+        const nx = x+ox, ny = y+oy;
+        if (nx < 0 || ny < 0 || nx >= boardW || ny >= boardH) continue;
+        const cell = board[ny][nx];
+        if (cell?.player === 2) ownAdj++;
+        if (cell?.player === 1) oppAdj++;
+      }
+      for (const [ox, oy] of diag) {
+        const nx = x+ox, ny = y+oy;
+        if (nx < 0 || ny < 0 || nx >= boardW || ny >= boardH) continue;
+        if (board[ny][nx]?.player === 2) score += 0.25;
+      }
+      const edgeDist = Math.min(x, boardW-1-x, y, boardH-1-y);
+      score += edgeDist * 0.2;
+    }
+    score += ownAdj * 2.5;
+    score += oppAdj * 1.8;
+    let openAdj = 0;
+    for (const [x, y] of m.abs) {
+      for (const [ox, oy] of dirs) {
+        const nx = x+ox, ny = y+oy;
+        if (nx >= 0 && ny >= 0 && nx < boardW && ny < boardH && simBoard[ny][nx] === null) openAdj++;
+      }
+    }
+    score += openAdj * 0.4;
+    if (score > bestScore) { bestScore = score; best = m; }
+  }
+  return best;
+}
+
+// ── MASTER: flood-fill territory evaluation, near-optimal ─────────
+function _aiMovesMaster(moves) {
+  if (!moves.length) return null;
+  const { board, boardW, boardH } = game;
+  const dirs = [[1,0],[-1,0],[0,1],[0,-1]];
+
+  function reachableFrom(simBoard, player) {
+    const visited = new Set();
+    const queue = [];
+    for (let y = 0; y < boardH; y++)
+      for (let x = 0; x < boardW; x++)
+        if (simBoard[y][x]?.player === player) {
+          const k = y * boardW + x;
+          if (!visited.has(k)) { visited.add(k); queue.push([x, y]); }
+        }
+    let count = 0;
+    while (queue.length) {
+      const [cx, cy] = queue.shift();
+      for (const [ox, oy] of dirs) {
+        const nx = cx+ox, ny = cy+oy;
+        if (nx < 0 || ny < 0 || nx >= boardW || ny >= boardH) continue;
+        const k = ny * boardW + nx;
+        if (visited.has(k)) continue;
+        visited.add(k);
+        if (simBoard[ny][nx] === null) { count++; queue.push([nx, ny]); }
+        else if (simBoard[ny][nx]?.player === player) { queue.push([nx, ny]); }
+      }
+    }
+    return count;
+  }
+
+  const baseOwn = reachableFrom(board, 2);
+  const baseOpp = reachableFrom(board, 1);
+  const baseline = baseOwn - baseOpp;
+
+  let best = null, bestScore = -Infinity;
+  for (const m of moves) {
+    const simBoard = board.map(r => [...r]);
+    for (const [x, y] of m.abs) simBoard[y][x] = { player: 2, pieceKey: m.pk };
+    const ownSpace = reachableFrom(simBoard, 2);
+    const oppSpace = reachableFrom(simBoard, 1);
+    const delta = ownSpace - oppSpace;
+    let score = (delta - baseline) * 3.0;
+    let oppAdj = 0, ownAdj = 0;
+    for (const [x, y] of m.abs) {
+      for (const [ox, oy] of dirs) {
+        const nx = x+ox, ny = y+oy;
+        if (nx < 0 || ny < 0 || nx >= boardW || ny >= boardH) continue;
+        const cell = board[ny][nx];
+        if (cell?.player === 1) oppAdj++;
+        if (cell?.player === 2) ownAdj++;
+      }
+    }
+    score += oppAdj * 1.5;
+    score += ownAdj * 0.8;
+    score += Math.random() * 0.04;
+    if (score > bestScore) { bestScore = score; best = m; }
+  }
+  return best;
+}
+
+// ── Draft pickers per difficulty ──────────────────────────────────
+const _VERSATILE_PIECES = new Set(['I','L','T','Y','N','S','Z','P']);
+
+function _aiDraftPick() {
+  const pool = [...game.pool];
+  if (!pool.length) return null;
+  const diff = aiDifficulty.value;
+  if (diff === 'easy') {
+    return pool[Math.floor(Math.random() * pool.length)];
+  }
+  if (diff === 'normal') {
+    if (Math.random() < 0.6) return pool[Math.floor(Math.random() * pool.length)];
+    const good = pool.filter(k => _VERSATILE_PIECES.has(k));
+    return good.length ? good[Math.floor(Math.random() * good.length)] : pool[Math.floor(Math.random() * pool.length)];
+  }
+  if (diff === 'hard') {
+    const good = pool.filter(k => _VERSATILE_PIECES.has(k));
+    return good.length ? good[Math.floor(Math.random() * good.length)] : pool[Math.floor(Math.random() * pool.length)];
+  }
+  // master: pick highest-value piece by shape versatility score
+  const SHAPE_SCORE = { I:5, L:5, Y:5, N:4, T:4, S:4, Z:4, P:3, W:3, F:2, U:2, X:1, V:2 };
+  let bestPick = pool[0], bestS = -1;
+  for (const k of pool) {
+    const s = (SHAPE_SCORE[k] || 2) + Math.random() * 0.3;
+    if (s > bestS) { bestS = s; bestPick = k; }
+  }
+  return bestPick;
+}
+
+// ── Main AI move dispatcher ───────────────────────────────────────
 function _doAiMove() {
   if (screen.value !== 'ai') return;
   if (game.phase === 'gameover') return;
 
   if (game.phase === 'draft' && game.draftTurn === 2) {
-    const pool = [...game.pool];
-    if (!pool.length) return;
-    // Draft: pick randomly — creates variety and unpredictability
-    const pick = pool[Math.floor(Math.random() * pool.length)];
-    game.draftPick(pick);
+    const pick = _aiDraftPick();
+    if (pick) game.draftPick(pick);
     return;
   }
 
   if (game.phase === 'place' && game.currentPlayer === 2) {
-    const move = _aiComputeBestMove();
-    if (!move) return; // no valid moves → game.playerHasAnyMove already handled gameover
+    const moves = _getAllValidMoves();
+    if (!moves.length) return;
+    const diff = aiDifficulty.value;
+    let move;
+    if      (diff === 'easy')   move = _aiMovesEasy(moves);
+    else if (diff === 'normal') move = _aiMovesNormal(moves);
+    else if (diff === 'hard')   move = _aiMovesHard(moves);
+    else                        move = _aiMovesMaster(moves);
+    if (!move) return;
     game.selectedPieceKey = move.pk;
     game.rotation = move.rot;
     game.flipped = move.flip;
     game.placeAt(move.ax, move.ay);
-    // Clear selection after AI move
     game.selectedPieceKey = null;
     game.rotation = 0;
     game.flipped = false;
   }
+}
+
+// Think delay: easy hesitates, master snaps instantly
+function _aiThinkDelay() {
+  const diff = aiDifficulty.value;
+  if (diff === 'easy')   return 900  + Math.random() * 900;   // 0.9–1.8s
+  if (diff === 'normal') return 550  + Math.random() * 600;   // 0.55–1.15s
+  if (diff === 'hard')   return 380  + Math.random() * 380;   // 0.38–0.76s
+  /* master */           return 220  + Math.random() * 200;   // 0.22–0.42s
 }
 
 watch(
@@ -4308,8 +4506,7 @@ watch(
       (game.phase === 'place' && game.currentPlayer === 2);
     if (isAiTurn) {
       _cancelAiTimer();
-      // Think delay: 550ms–1150ms gives human-like feel
-      _aiTimer = setTimeout(_doAiMove, 550 + Math.random() * 600);
+      _aiTimer = setTimeout(_doAiMove, _aiThinkDelay());
     } else {
       _cancelAiTimer();
     }
