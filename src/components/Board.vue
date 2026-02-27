@@ -669,10 +669,21 @@ function onCellClick(x, y, evt) {
     return;
   }
 
-  // requireSubmit OFF, or no pending place yet: touch taps place via drag flow
-  // Only respond to mouse clicks here for direct placement
+  // Touch: handled entirely by the drag/drop flow, ignore synthetic click
   if (evt?.pointerType === "touch") return;
 
+  // requireSubmit ON (PC mouse click): stage for confirmation
+  if (game.ui?.requireSubmit) {
+    if (game.canPlaceAt(x, y)) {
+      game.pendingPlace = { x, y };
+    } else {
+      playBuzz();
+      showWarning("Illegal placement — try rotating or flipping.");
+    }
+    return;
+  }
+
+  // requireSubmit OFF: place immediately on click
   const ok = game.placeAt(x, y);
   if (!ok) {
     playBuzz();
