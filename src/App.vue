@@ -54,6 +54,20 @@
       </div>
     </div>
 
+    <!-- 📱 Soft portrait suggestion (non-blocking, mobile only, dismissable) -->
+    <Transition name="portraitHint">
+      <div
+        v-if="portraitSuggestionVisible"
+        class="portraitHint"
+        role="status"
+        aria-live="polite"
+      >
+        <span class="portraitHintIcon">📱↻</span>
+        <span class="portraitHintText">Rotate to landscape for the best experience</span>
+        <button class="portraitHintDismiss" tabindex="-1" @click="dismissPortraitHint">✕</button>
+      </div>
+    </Transition>
+
     <header class="topbar" :class="{ pbBar: showMenuChrome }">
       <!-- Menu-style top bar (menus) -->
       <template v-if="showMenuChrome">
@@ -957,17 +971,34 @@ function uiClick() {
 // Cross-platform: optional landscape lock for mobile
 const isPortrait = ref(false);
 function computeIsPortrait() {
-  if (typeof window === "undefined") return false;
-  // Prefer matchMedia when available
+  if (typeof window === 'undefined') return false;
   try {
     if (window.matchMedia) {
-      isPortrait.value = window.matchMedia("(orientation: portrait)").matches;
+      isPortrait.value = window.matchMedia('(orientation: portrait)').matches;
       return;
     }
   } catch {}
   isPortrait.value = window.innerHeight > window.innerWidth;
 }
 const landscapeLockActive = computed(() => isInGame.value && !!game.ui?.lockLandscape && isPortrait.value);
+
+// Soft portrait suggestion (non-blocking, dismissable, shown once per session)
+const portraitHintDismissed = ref(false);
+function dismissPortraitHint() { portraitHintDismissed.value = true; }
+
+const portraitSuggestionVisible = computed(() => {
+  if (landscapeLockActive.value) return false; // hard lock overlay already shown
+  if (portraitHintDismissed.value) return false;
+  if (!isInGame.value) return false;
+  if (!isPortrait.value) return false;
+  // Only show on touch/mobile devices
+  try {
+    if (window.matchMedia?.('(pointer: coarse)').matches) return true;
+    const small = Math.min(window.innerWidth || 0, window.innerHeight || 0) <= 820;
+    if (small && (navigator?.maxTouchPoints || 0) > 0) return true;
+  } catch {}
+  return false;
+});
 
 // In-game settings modal (Esc)
 
@@ -4193,9 +4224,16 @@ function maybeWarnMobile() {
 
 onMounted(() => {
   // ✅ Initial boot gate — prevent accidental clicks before first paint.
-  startUiLock({ label: "Booting…", hint: "Loading UI, sounds, and neon vibes…", minMs: 750 });
+  startUiLock({ label: 'Booting…', hint: 'Loading UI, sounds, and neon vibes…', minMs: 750 });
 
   loadAudioPrefs();
+
+  // ── PC default: disable Verify Move (requireSubmit) on desktop pointer devices.
+  // Mobile/touch devices keep it enabled for the "stage → Submit" flow.
+  try {
+    const isDesktop = window.matchMedia?.('(pointer: fine)').matches ?? false;
+    if (isDesktop) game.ui.requireSubmit = false;
+  } catch {}
 
   // Try to autoplay menu BGM on the welcome/menu screens.
   // Note: some browsers may block autoplay until a user gesture.
@@ -4404,6 +4442,58 @@ onBeforeUnmount(() => {
 }
 .rotateTitle{ font-weight: 1000; letter-spacing: 1.2px; text-transform: uppercase; font-size: 16px; }
 .rotateSub{ margin-top: 6px; opacity: 0.85; font-weight: 700; }
+
+/* ── Soft portrait hint banner ─────────────────────────────────── */
+.portraitHint {
+  position: fixed;
+  top: 72px; /* below top bar */
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 60;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 14px;
+  border-radius: 999px;
+  border: 1px solid rgba(255, 255, 255, 0.18);
+  background: rgba(12, 14, 24, 0.90);
+  backdrop-filter: blur(12px);
+  box-shadow: 0 10px 36px rgba(0, 0, 0, 0.55), 0 0 0 1px rgba(0, 229, 255, 0.08) inset;
+  font-size: 13px;
+  font-weight: 700;
+  white-space: nowrap;
+  pointer-events: auto;
+  max-width: 90vw;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.portraitHintIcon { font-size: 18px; flex-shrink: 0; }
+.portraitHintText { opacity: 0.92; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+.portraitHintDismiss {
+  flex-shrink: 0;
+  width: 24px;
+  height: 24px;
+  border-radius: 50%;
+  border: 1px solid rgba(255,255,255,0.20);
+  background: rgba(255,255,255,0.08);
+  color: #eaeaea;
+  font-size: 12px;
+  cursor: pointer;
+  display: grid;
+  place-items: center;
+  padding: 0;
+  transition: background 120ms ease;
+}
+.portraitHintDismiss:hover { background: rgba(255,255,255,0.18); }
+
+/* Transition for the hint */
+.portraitHint-enter-active, .portraitHint-leave-active {
+  transition: opacity 0.3s ease, transform 0.3s ease;
+}
+.portraitHint-enter-from, .portraitHint-leave-to {
+  opacity: 0;
+  transform: translateX(-50%) translateY(-12px);
+}
 
 @keyframes popIn{
   from{ transform: translateY(8px) scale(0.98); opacity: 0; }

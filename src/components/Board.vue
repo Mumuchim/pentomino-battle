@@ -94,7 +94,9 @@
       <!-- ROTATE -->
       <button
         class="mobileBtn mobileIconBtn"
+        tabindex="-1"
         @touchstart.prevent="handleRotate()"
+        @touchend.prevent
         @click="handleRotate()"
         aria-label="Rotate piece"
       >
@@ -108,7 +110,9 @@
         class="mobileBtn mobileSubmitBtn"
         :class="{ hasPending: isPendingValid }"
         :disabled="!isPendingValid"
+        tabindex="-1"
         @touchstart.prevent="onMobileSubmit"
+        @touchend.prevent
         @click="onMobileSubmit"
         aria-label="Confirm placement"
       >
@@ -120,7 +124,9 @@
       <button
         class="mobileBtn mobileIconBtn"
         :disabled="!game.allowFlip"
+        tabindex="-1"
         @touchstart.prevent="handleFlip()"
+        @touchend.prevent
         @click="handleFlip()"
         aria-label="Flip piece"
       >
@@ -241,33 +247,47 @@ const isPendingValid = computed(() => {
   return game.canPlaceAt(game.pendingPlace.x, game.pendingPlace.y);
 });
 
-// ── Rotate/flip handlers that gracefully stop a mid-board-drag ────────────
-// When user taps rotate/flip while doing a board-initiated touch drag we
-// stage the current position first and stop the drag so the touchend that
-// follows doesn't accidentally commit the piece at the wrong spot.
+// ── Rotate/flip handlers that gracefully handle mid-board-drag ────────────
+// requireSubmit ON:  stage current position then stop drag (user confirms via Submit).
+// requireSubmit OFF: just rotate/flip in place — the drag continues naturally.
+//                    Stopping the drag here would "drop" the piece and cause accidental placements.
 function handleRotate() {
   if (boardDragging.value) {
-    const t = game.drag?.target;
-    if (t && t.inside) {
-      game.$patch({ pendingPlace: { x: t.x, y: t.y } });
+    if (game.ui?.requireSubmit) {
+      const t = game.drag?.target;
+      if (t && t.inside) {
+        game.$patch({ pendingPlace: { x: t.x, y: t.y } });
+      }
+      boardDragging.value = false;
+      game.endDrag();
     }
-    boardDragging.value = false;
-    game.endDrag();
+    // requireSubmit OFF: keep drag active, just rotate the shape in place.
   }
+  // Preserve scroll position so mobile doesn't snap back to the left panel.
+  const scrollEl = document.querySelector('.app.inGame .main');
+  const savedLeft = scrollEl?.scrollLeft ?? 0;
   game.rotateSelected();
+  if (scrollEl) requestAnimationFrame(() => { scrollEl.scrollLeft = savedLeft; });
 }
 
 function handleFlip() {
   if (!game.allowFlip) return;
   if (boardDragging.value) {
-    const t = game.drag?.target;
-    if (t && t.inside) {
-      game.$patch({ pendingPlace: { x: t.x, y: t.y } });
+    if (game.ui?.requireSubmit) {
+      const t = game.drag?.target;
+      if (t && t.inside) {
+        game.$patch({ pendingPlace: { x: t.x, y: t.y } });
+      }
+      boardDragging.value = false;
+      game.endDrag();
     }
-    boardDragging.value = false;
-    game.endDrag();
+    // requireSubmit OFF: keep drag active, just flip the shape in place.
   }
+  // Preserve scroll position so mobile doesn't snap back to the left panel.
+  const scrollEl = document.querySelector('.app.inGame .main');
+  const savedLeft = scrollEl?.scrollLeft ?? 0;
   game.flipSelected();
+  if (scrollEl) requestAnimationFrame(() => { scrollEl.scrollLeft = savedLeft; });
 }
 
 const warningMessage = ref("");
@@ -334,14 +354,16 @@ const ghostOverlay = computed(() => ghostData.value);
 
 function setHover(x, y) {
   if (!game.ui?.enableHoverPreview) return;
-  if (game.phase !== "place") return;
+  if (game.phase !== 'place') return;
   if (!game.ui?.enableClickPlace) return;
   if (!game.selectedPieceKey) return;
   hover.value = { x, y };
+  game.hoverCell = { x, y };
 }
 
 function clearHover() {
   hover.value = null;
+  game.hoverCell = null;
 }
 
 function updateHoverFromClientXY(clientX, clientY) {
@@ -367,6 +389,7 @@ function updateHoverFromClientXY(clientX, clientY) {
   if (!inside) {
     targetCell.value = null;
     if (game.ui?.enableHoverPreview) hover.value = null;
+    game.hoverCell = null;
 
     if (game.drag?.active) {
       game.drag.target = { inside: false, ok: false, x: null, y: null };
@@ -385,6 +408,7 @@ function updateHoverFromClientXY(clientX, clientY) {
 
   targetCell.value = { x, y };
   if (game.ui?.enableHoverPreview) hover.value = { x, y };
+  game.hoverCell = { x, y };
 
   if (game.drag?.active) {
     const ok = game.canPlaceAt(x, y);
