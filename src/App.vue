@@ -1064,6 +1064,7 @@ import { supabase as sbRealtime } from "./lib/supabase";
 import { getPieceStyle } from "./lib/pieceStyles";
 import { boundsOf, transformCells } from "./lib/geom";
 import { PENTOMINOES } from "./lib/pentominoes";
+import { createAiEngine } from "./lib/aiEngine.js";
 
 import Board from "./components/Board.vue";
 import DraftPanel from "./components/DraftPanel.vue";
@@ -3539,14 +3540,21 @@ watch(
         title = humanWon ? "VICTORY" : w === 2 ? "DEFEAT" : "DRAW";
         tone = humanWon ? "victory" : w === 2 ? "bad" : "good";
         const scoreMsg = `Round ${aiRound.value}  ·  You ${aiScore.p1} – ${aiScore.p2} AI\nDifficulty: ${diffLabel}`;
+        // Grandmaster / Legendary play as P1 — no running series, just Play Again or Main Menu
+        const isSeriesDiff = aiDifficulty.value === 'grandmaster' || aiDifficulty.value === 'legendary';
         showModal({
           title,
           message: `${winnerMessage(w ?? "?")} \n${scoreMsg}`,
           tone,
-          actions: [
-            { label: "Next Round", tone: "primary", onClick: () => { closeModal(); nextAiRound(); } },
-            { label: "Main Menu", tone: "soft", onClick: () => { screen.value = 'mode'; } },
-          ],
+          actions: isSeriesDiff
+            ? [
+                { label: "Play Again", tone: "primary", onClick: () => { closeModal(); nextAiRound(); } },
+                { label: "Main Menu", tone: "soft", onClick: () => { screen.value = 'mode'; } },
+              ]
+            : [
+                { label: "Next Round", tone: "primary", onClick: () => { closeModal(); nextAiRound(); } },
+                { label: "Main Menu", tone: "soft", onClick: () => { screen.value = 'mode'; } },
+              ],
         });
         return;
       }
@@ -4447,607 +4455,17 @@ function nextAiRound() {
 }
 
 /* =========================
-   ✅ AI ENGINE (Practice vs AI)
-   Player 1 = Human | Player 2 = Computer
-   Four difficulty levels: easy / normal / hard / master
+   ✅ AI ENGINE WIRING
+   All AI logic lives in src/lib/aiEngine.js.
+   This section only wires the reactive context and dispatches moves.
 ========================= */
 
-let _aiTimer = null;
+// Instantiate engine — passes reactive refs so the engine reads live state
+const _ai = createAiEngine({ game, aiPlayer, humanPlayer, aiDifficulty, PENTOMINOES, transformCells });
 
+let _aiTimer = null;
 function _cancelAiTimer() {
   if (_aiTimer) { clearTimeout(_aiTimer); _aiTimer = null; }
-}
-
-// ── Shared helper: collect ALL valid placements for AI ──
-function _getAllValidMoves() {
-  const { boardW, boardH, board, placedCount, allowFlip: af, remaining } = game;
-  const ap = aiPlayer.value;
-  const pieces = [...(remaining[ap] || [])];
-  const flipOptions = af ? [false, true] : [false];
-  const dirs = [[1,0],[-1,0],[0,1],[0,-1]];
-  const moves = [];
-
-  for (const pk of pieces) {
-    const baseCells = PENTOMINOES[pk];
-    const seenOrients = new Set();
-
-    for (const flip of flipOptions) {
-      for (let rot = 0; rot < 4; rot++) {
-        const shape = transformCells(baseCells, rot, flip);
-        const oKey = shape.map(([x,y])=>`${x},${y}`).join('|');
-        if (seenOrients.has(oKey)) continue;
-        seenOrients.add(oKey);
-
-        for (let ay = 0; ay < boardH; ay++) {
-          for (let ax = 0; ax < boardW; ax++) {
-            let valid = true;
-            const abs = [];
-            for (const [dx, dy] of shape) {
-              const x = ax + dx, y = ay + dy;
-              if (x < 0 || y < 0 || x >= boardW || y >= boardH || board[y][x] !== null) {
-                valid = false; break;
-              }
-              abs.push([x, y]);
-            }
-            if (!valid) continue;
-
-            if (placedCount > 0) {
-              let touches = false;
-              outer: for (const [x, y] of abs) {
-                for (const [ox, oy] of dirs) {
-                  const nx = x+ox, ny = y+oy;
-                  if (nx >= 0 && ny >= 0 && nx < boardW && ny < boardH && board[ny][nx] !== null) {
-                    touches = true; break outer;
-                  }
-                }
-              }
-              if (!touches) continue;
-            }
-
-            moves.push({ pk, rot, flip, ax, ay, abs });
-          }
-        }
-      }
-    }
-  }
-  return moves;
-}
-
-// ── EASY: almost pure random, barely strategic ────────────────────
-function _aiMovesEasy(moves) {
-  if (!moves.length) return null;
-  if (Math.random() < 0.80) return moves[Math.floor(Math.random() * moves.length)];
-  const { board, boardW, boardH } = game;
-  let best = null, bestScore = -Infinity;
-  const dirs = [[1,0],[-1,0],[0,1],[0,-1]];
-  for (const m of moves) {
-    let score = Math.random() * 2;
-    for (const [x, y] of m.abs) {
-      for (const [ox, oy] of dirs) {
-        const nx = x+ox, ny = y+oy;
-        if (nx < 0 || ny < 0 || nx >= boardW || ny >= boardH) continue;
-        if (board[ny][nx]?.player === 2) score += 1;
-      }
-    }
-    if (score > bestScore) { bestScore = score; best = m; }
-  }
-  return best;
-}
-
-// ── NORMAL: grow own territory, light pressure, some randomness ───
-function _aiMovesNormal(moves) {
-  if (!moves.length) return null;
-  const { board, boardW, boardH } = game;
-  const dirs = [[1,0],[-1,0],[0,1],[0,-1]];
-  let best = null, bestScore = -Infinity;
-  for (const m of moves) {
-    let score = Math.random() * 0.5;
-    for (const [x, y] of m.abs) {
-      for (const [ox, oy] of dirs) {
-        const nx = x+ox, ny = y+oy;
-        if (nx < 0 || ny < 0 || nx >= boardW || ny >= boardH) continue;
-        const cell = board[ny][nx];
-        if (cell?.player === 2) score += 2.0;
-        if (cell?.player === 1) score += 0.8;
-      }
-      if (x > 0 && x < boardW-1 && y > 0 && y < boardH-1) score += 0.15;
-    }
-    if (score > bestScore) { bestScore = score; best = m; }
-  }
-  return best;
-}
-
-// ── SHARED AI UTILITIES ──────────────────────────────────────────────
-
-// Parity imbalance of a set of cells — a region that can't be tiled by pentominoes
-// if the imbalance is odd (pentominoes always cover 2B+3W or 3B+2W, net ±1)
-function _parityImbalance(cells) {
-  let b = 0, w = 0;
-  for (const [x, y] of cells) (x + y) % 2 === 0 ? b++ : w++;
-  return Math.abs(b - w);
-}
-
-// Flood-fill all empty regions on simBoard
-function _floodFillRegions(simBoard, boardW, boardH) {
-  const dirs = [[1,0],[-1,0],[0,1],[0,-1]];
-  const visited = new Set();
-  const regions = [];
-  for (let y = 0; y < boardH; y++) {
-    for (let x = 0; x < boardW; x++) {
-      const k = y * boardW + x;
-      if (simBoard[y][x] !== null || visited.has(k)) continue;
-      const region = [];
-      const q = [[x, y]];
-      visited.add(k);
-      while (q.length) {
-        const [cx, cy] = q.shift();
-        region.push([cx, cy]);
-        for (const [ox, oy] of dirs) {
-          const nx = cx+ox, ny = cy+oy;
-          if (nx < 0 || ny < 0 || nx >= boardW || ny >= boardH) continue;
-          const nk = ny * boardW + nx;
-          if (simBoard[ny][nx] === null && !visited.has(nk)) {
-            visited.add(nk); q.push([nx, ny]);
-          }
-        }
-      }
-      regions.push(region);
-    }
-  }
-  return regions;
-}
-
-// Reachable empty cells connected to player's territory
-function _reachableFrom(simBoard, boardW, boardH, player) {
-  const dirs = [[1,0],[-1,0],[0,1],[0,-1]];
-  const visited = new Set();
-  const q = [];
-  for (let y = 0; y < boardH; y++)
-    for (let x = 0; x < boardW; x++)
-      if (simBoard[y][x]?.player === player) {
-        const k = y * boardW + x;
-        if (!visited.has(k)) { visited.add(k); q.push([x, y]); }
-      }
-  let count = 0;
-  while (q.length) {
-    const [cx, cy] = q.shift();
-    for (const [ox, oy] of dirs) {
-      const nx = cx+ox, ny = cy+oy;
-      if (nx < 0 || ny < 0 || nx >= boardW || ny >= boardH) continue;
-      const k = ny * boardW + nx;
-      if (visited.has(k)) continue;
-      visited.add(k);
-      if (simBoard[ny][nx] === null) { count++; q.push([nx, ny]); }
-      else if (simBoard[ny][nx]?.player === player) q.push([nx, ny]);
-    }
-  }
-  return count;
-}
-
-// Score parity trap bonus: reward regions near opponent that are parity-broken
-function _parityTrapBonus(regions, simBoard, boardW, boardH, hp) {
-  const dirs = [[1,0],[-1,0],[0,1],[0,-1]];
-  let bonus = 0;
-  for (const reg of regions) {
-    const imbalance = _parityImbalance(reg);
-    if (imbalance === 0) continue; // balanced, might be tileable
-    // Check if adjacent to human territory
-    let touchesHuman = false;
-    for (const [cx, cy] of reg) {
-      for (const [ox, oy] of dirs) {
-        const nx = cx+ox, ny = cy+oy;
-        if (nx < 0 || ny < 0 || nx >= boardW || ny >= boardH) continue;
-        if (simBoard[ny][nx]?.player === hp) { touchesHuman = true; break; }
-      }
-      if (touchesHuman) break;
-    }
-    if (!touchesHuman) continue;
-    // Parity-broken region near human = human wastes pieces there
-    // Bigger bonus for odd-imbalance that can't be resolved by any combo
-    if (imbalance % 2 === 1) bonus += imbalance * 5.0;
-    else bonus += imbalance * 2.0;
-    // Small locked regions (1-4) are extra bad for opponent
-    if (reg.length <= 4) bonus += (5 - reg.length) * 6.0;
-  }
-  return bonus;
-}
-
-// Zone claiming bonus: reward placing into a clean 2×5 or 5×2 corridor
-function _zoneClaimBonus(abs, simBoard, boardW, boardH) {
-  let bonus = 0;
-  // Check several rectangular zones covering the piece cells
-  for (const [px, py] of abs) {
-    // Try 2×5 and 5×2 windows anchored near each piece cell
-    const zones = [
-      // w=5, h=2
-      ...Array.from({length: 5}, (_, i) => ({x: px - i, y: py, w: 5, h: 2})),
-      ...Array.from({length: 2}, (_, i) => ({x: px - i, y: py - 1, w: 5, h: 2})),
-      // w=2, h=5
-      ...Array.from({length: 2}, (_, i) => ({x: px - i, y: py, w: 2, h: 5})),
-      ...Array.from({length: 5}, (_, i) => ({x: px, y: py - i, w: 2, h: 5})),
-    ];
-    for (const {x: zx, y: zy, w: zw, h: zh} of zones) {
-      if (zx < 0 || zy < 0 || zx + zw > boardW || zy + zh > boardH) continue;
-      // Check if zone is entirely empty or belongs to AI
-      let allClear = true;
-      let emptyCount = 0;
-      for (let dy = 0; dy < zh && allClear; dy++) {
-        for (let dx = 0; dx < zw && allClear; dx++) {
-          const cell = simBoard[zy + dy][zx + dx];
-          if (cell === null) emptyCount++;
-          else if (cell.player !== undefined) allClear = false; // human piece blocks zone
-          // AI piece in zone is fine (we're building toward it)
-        }
-      }
-      if (allClear && emptyCount >= 5) {
-        // Bonus proportional to how much of the zone our piece occupies
-        const pieceInZone = abs.filter(([ax, ay]) =>
-          ax >= zx && ax < zx + zw && ay >= zy && ay < zy + zh).length;
-        bonus += pieceInZone * 1.8;
-      }
-    }
-  }
-  return Math.min(bonus, 15.0); // cap so it doesn't dominate
-}
-
-// Count feasible pieces for a player — how many of their remaining pieces have ≥1 valid placement
-function _countFeasiblePieces(simBoard, boardW, boardH, playerNum) {
-  const { remaining, allowFlip: af } = game;
-  const pieces = remaining[playerNum] || [];
-  const flipOptions = af ? [false, true] : [false];
-  const dirs = [[1,0],[-1,0],[0,1],[0,-1]];
-  const { placedCount } = game;
-  let feasible = 0;
-
-  outer: for (const pk of pieces) {
-    const baseCells = PENTOMINOES[pk];
-    const seenOrients = new Set();
-    for (const flip of flipOptions) {
-      for (let rot = 0; rot < 4; rot++) {
-        const shape = transformCells(baseCells, rot, flip);
-        const oKey = shape.map(([x,y])=>`${x},${y}`).join('|');
-        if (seenOrients.has(oKey)) continue;
-        seenOrients.add(oKey);
-        for (let ay = 0; ay < boardH; ay++) {
-          for (let ax = 0; ax < boardW; ax++) {
-            let valid = true;
-            const abs = [];
-            for (const [dx, dy] of shape) {
-              const x = ax + dx, y = ay + dy;
-              if (x < 0 || y < 0 || x >= boardW || y >= boardH || simBoard[y][x] !== null) {
-                valid = false; break;
-              }
-              abs.push([x, y]);
-            }
-            if (!valid) continue;
-            if (placedCount > 0) {
-              let touches = false;
-              touchLoop: for (const [x, y] of abs) {
-                for (const [ox, oy] of dirs) {
-                  const nx = x+ox, ny = y+oy;
-                  if (nx >= 0 && ny >= 0 && nx < boardW && ny < boardH && simBoard[ny][nx] !== null) {
-                    touches = true; break touchLoop;
-                  }
-                }
-              }
-              if (!touches) continue;
-            }
-            feasible++;
-            continue outer; // found one valid placement — piece is feasible
-          }
-        }
-      }
-    }
-  }
-  return feasible;
-}
-
-// ── TACTICIAN: pattern-based blocking + parity traps ───────────────
-function _aiMovesTactician(moves) {
-  if (!moves.length) return null;
-  const { board, boardW, boardH } = game;
-  const dirs = [[1,0],[-1,0],[0,1],[0,-1]];
-  const diag = [[1,1],[1,-1],[-1,1],[-1,-1]];
-  const ap = aiPlayer.value;
-  const hp = humanPlayer.value;
-  let best = null, bestScore = -Infinity;
-
-  for (const m of moves) {
-    let score = Math.random() * 0.10;
-    const simBoard = board.map(r => [...r]);
-    for (const [x, y] of m.abs) simBoard[y][x] = { player: ap, pieceKey: m.pk };
-
-    // Reward adjacency to own pieces
-    let ownAdj = 0, oppAdj = 0;
-    for (const [x, y] of m.abs) {
-      for (const [ox, oy] of dirs) {
-        const nx = x+ox, ny = y+oy;
-        if (nx < 0 || ny < 0 || nx >= boardW || ny >= boardH) continue;
-        const cell = board[ny][nx];
-        if (cell?.player === ap) ownAdj++;
-        if (cell?.player === hp) oppAdj++;
-      }
-      for (const [ox, oy] of diag) {
-        const nx = x+ox, ny = y+oy;
-        if (nx < 0 || ny < 0 || nx >= boardW || ny >= boardH) continue;
-        if (board[ny][nx]?.player === ap) score += 0.30;
-      }
-      const edgeDist = Math.min(x, boardW-1-x, y, boardH-1-y);
-      score += edgeDist * 0.25; // prefer interior
-    }
-    score += ownAdj * 3.0; // strongly reward compactness
-    score += oppAdj * 2.2; // block opponent
-
-    // Parity trap analysis — find regions near opponent that are imbalanced
-    const regions = _floodFillRegions(simBoard, boardW, boardH);
-    score += _parityTrapBonus(regions, simBoard, boardW, boardH, hp);
-
-    // Penalize leaving large open doors for opponent
-    let openAdj = 0;
-    for (const [x, y] of m.abs) {
-      for (const [ox, oy] of dirs) {
-        const nx = x+ox, ny = y+oy;
-        if (nx >= 0 && ny >= 0 && nx < boardW && ny < boardH && simBoard[ny][nx] === null) openAdj++;
-      }
-    }
-    score += openAdj * 0.3;
-
-    if (score > bestScore) { bestScore = score; best = m; }
-  }
-  return best;
-}
-
-// ── GRANDMASTER: territorial god — zone claiming + parity traps ─────
-// Plays as P1, aggressively builds rectangle combos and poisons human territory
-function _aiMovesGrandmaster(moves) {
-  if (!moves.length) return null;
-  const { board, boardW, boardH, remaining } = game;
-  const dirs = [[1,0],[-1,0],[0,1],[0,-1]];
-  const ap = aiPlayer.value;
-  const hp = humanPlayer.value;
-  const humanPieceCount = (remaining[hp] || []).length;
-
-  let best = null, bestScore = -Infinity;
-  for (const m of moves) {
-    const simBoard = board.map(r => [...r]);
-    for (const [x, y] of m.abs) simBoard[y][x] = { player: ap, pieceKey: m.pk };
-
-    const ownSpace = _reachableFrom(simBoard, boardW, boardH, ap);
-    const oppSpace = _reachableFrom(simBoard, boardW, boardH, hp);
-
-    // Core territory control
-    let score = ownSpace * 6.0 - oppSpace * 5.5;
-
-    // Flood-fill regions for analysis
-    const regions = _floodFillRegions(simBoard, boardW, boardH);
-
-    // Parity trap bonus — poison human regions
-    score += _parityTrapBonus(regions, simBoard, boardW, boardH, hp);
-
-    // Region size analysis
-    let lockedPenalty = 0;
-    for (const reg of regions) {
-      if (reg.length <= 4) score += (5 - reg.length) * 8.0; // locked cell bonus
-      if (reg.length % 5 === 0) score -= 1.5; // clean multiple — good for human
-      if (reg.length === 5 * humanPieceCount) lockedPenalty += 3.0;
-    }
-    score -= lockedPenalty;
-
-    // Zone claiming — reward building toward clean rectangles
-    score += _zoneClaimBonus(m.abs, simBoard, boardW, boardH);
-
-    // Adjacency bonuses
-    let oppAdj = 0, ownAdj = 0;
-    for (const [x, y] of m.abs) {
-      for (const [ox, oy] of dirs) {
-        const nx = x+ox, ny = y+oy;
-        if (nx < 0 || ny < 0 || nx >= boardW || ny >= boardH) continue;
-        const cell = board[ny][nx];
-        if (cell?.player === hp) oppAdj++;
-        if (cell?.player === ap) ownAdj++;
-      }
-      const cx2 = Math.abs(x - boardW/2), cy2 = Math.abs(y - boardH/2);
-      score -= (cx2 + cy2) * 0.12; // prefer center
-    }
-    score += oppAdj * 4.0 + ownAdj * 2.0;
-
-    if (score > bestScore) { bestScore = score; best = m; }
-  }
-  return best;
-}
-
-// ── LEGENDARY: reads human picks, feasibility count, parity denial ──
-// Plays as P1 — zero randomness, full board analysis, piece feasibility tracking
-function _aiMovesLegendary(moves) {
-  if (!moves.length) return null;
-  const { board, boardW, boardH, remaining } = game;
-  const dirs = [[1,0],[-1,0],[0,1],[0,-1]];
-  const ap = aiPlayer.value;
-  const hp = humanPlayer.value;
-
-  let best = null, bestScore = -Infinity;
-  for (const m of moves) {
-    const simBoard = board.map(r => [...r]);
-    for (const [x, y] of m.abs) simBoard[y][x] = { player: ap, pieceKey: m.pk };
-
-    const ownSpace = _reachableFrom(simBoard, boardW, boardH, ap);
-    const oppSpace = _reachableFrom(simBoard, boardW, boardH, hp);
-
-    // Feasibility count — true measure of piece mobility
-    const ownFeasible = _countFeasiblePieces(simBoard, boardW, boardH, ap);
-    const oppFeasible = _countFeasiblePieces(simBoard, boardW, boardH, hp);
-
-    // Parity traps — maximize damage to opponent's tileable space
-    const regions = _floodFillRegions(simBoard, boardW, boardH);
-    const trapBonus = _parityTrapBonus(regions, simBoard, boardW, boardH, hp);
-
-    // Zone claiming — build toward tight rectangles
-    const zoneBonus = _zoneClaimBonus(m.abs, simBoard, boardW, boardH);
-
-    // Region locking analysis
-    let lockBonus = 0;
-    for (const reg of regions) {
-      if (reg.length <= 4) lockBonus += (5 - reg.length) * 5.0;
-      if (reg.length === 5) lockBonus -= 1.5; // clean pentomino slot — bad
-    }
-
-    // Legendary score formula — feasibility dominates
-    let score = ownFeasible * 8.0 - oppFeasible * 10.0
-      + trapBonus
-      + zoneBonus
-      + lockBonus
-      + ownSpace * 3.0 - oppSpace * 2.5;
-
-    // Adjacency pressure — never random
-    for (const [x, y] of m.abs) {
-      for (const [ox, oy] of dirs) {
-        const nx = x+ox, ny = y+oy;
-        if (nx < 0 || ny < 0 || nx >= boardW || ny >= boardH) continue;
-        const cell = board[ny][nx];
-        if (cell?.player === hp) score += 3.5;
-        if (cell?.player === ap) score += 2.0;
-      }
-      const cx = Math.abs(x - boardW/2), cy = Math.abs(y - boardH/2);
-      score -= (cx + cy) * 0.08;
-    }
-
-    if (score > bestScore) { bestScore = score; best = m; }
-  }
-  return best;
-}
-
-// ── Draft pickers per difficulty ──────────────────────────────────
-const _VERSATILE_PIECES = new Set(['I','L','T','Y','N','S','Z','P']);
-// Pieces that are harder to place (irregular shapes) — good to pick to deny human
-const _TRICKY_PIECES = new Set(['F','W','X','U','V']);
-// Piece shape scores for territory control
-const SHAPE_SCORE = { I:5, L:5, Y:5, N:4, T:4, S:4, Z:4, P:3, W:3, F:2, U:2, X:1, V:2 };
-
-// Synergy pairs: two pieces whose union can tile a clean 2×5 rectangle
-// If human picks one, the other is the combo-completing partner they want
-const SYNERGY_PAIRS = {
-  P: ['Z','S','L','N'],
-  Z: ['P','S'],
-  S: ['P','Z'],
-  L: ['P','N'],
-  N: ['P','L'],
-  I: ['I','L','Y','N','S','Z'],
-  T: ['Y'],
-  Y: ['T','N'],
-};
-
-function _getSynergyTargets(humanPicks, pool) {
-  // Returns pool pieces that complete combos with any human pick
-  const targets = new Set();
-  for (const hk of humanPicks) {
-    const partners = SYNERGY_PAIRS[hk] || [];
-    for (const p of partners) {
-      if (pool.includes(p)) targets.add(p);
-    }
-  }
-  return [...targets];
-}
-
-function _aiDraftPick() {
-  const pool = [...game.pool];
-  if (!pool.length) return null;
-  const diff = aiDifficulty.value;
-  const hp = humanPlayer.value;
-  const humanPicks = game.picks[hp] || [];
-
-  if (diff === 'dumbie') {
-    return pool[Math.floor(Math.random() * pool.length)];
-  }
-  if (diff === 'elite') {
-    if (Math.random() < 0.5) return pool[Math.floor(Math.random() * pool.length)];
-    const good = pool.filter(k => _VERSATILE_PIECES.has(k));
-    return good.length ? good[Math.floor(Math.random() * good.length)] : pool[Math.floor(Math.random() * pool.length)];
-  }
-  if (diff === 'tactician') {
-    // SYNERGY DENIAL: if human picked something with a partner still in pool, steal it
-    const synergyTargets = _getSynergyTargets(humanPicks, pool);
-    if (synergyTargets.length && Math.random() < 0.85) {
-      return synergyTargets[Math.floor(Math.random() * synergyTargets.length)];
-    }
-    // Otherwise take versatile pieces
-    const good = pool.filter(k => _VERSATILE_PIECES.has(k));
-    if (good.length && Math.random() < 0.80) {
-      return good[Math.floor(Math.random() * good.length)];
-    }
-    const tricky = pool.filter(k => _TRICKY_PIECES.has(k));
-    if (tricky.length && Math.random() < 0.55) {
-      return tricky[Math.floor(Math.random() * tricky.length)];
-    }
-    return pool[Math.floor(Math.random() * pool.length)];
-  }
-  if (diff === 'grandmaster') {
-    // SYNERGY DENIAL: steal human's combo partners first
-    const synergyTargets = _getSynergyTargets(humanPicks, pool);
-    if (synergyTargets.length) {
-      // Pick the synergy target with highest shape score
-      let best = synergyTargets[0], bestS = -1;
-      for (const k of synergyTargets) {
-        const s = (SHAPE_SCORE[k] || 2) + Math.random() * 0.1;
-        if (s > bestS) { bestS = s; best = k; }
-      }
-      return best;
-    }
-    // PERSONAL SYNERGY: pick pieces that form internal pairs with own picks
-    const ap = aiPlayer.value;
-    const aiPicks = game.picks[ap] || [];
-    const ownSynergyTargets = _getSynergyTargets(aiPicks, pool);
-    if (ownSynergyTargets.length) {
-      let best = ownSynergyTargets[0], bestS = -1;
-      for (const k of ownSynergyTargets) {
-        const s = (SHAPE_SCORE[k] || 2) + Math.random() * 0.1;
-        if (s > bestS) { bestS = s; best = k; }
-      }
-      return best;
-    }
-    // Fallback: highest shape score piece
-    const noise = 0.15;
-    let bestPick = pool[0], bestScore = -1;
-    for (const k of pool) {
-      const s = (SHAPE_SCORE[k] || 2) + Math.random() * noise;
-      if (s > bestScore) { bestScore = s; bestPick = k; }
-    }
-    return bestPick;
-  }
-  // ── LEGENDARY: full counter-draft ──────────────────────────────────
-  // Track all human picks, deny every combo chain, push unpairables to human
-  {
-    // Unpairable pieces (X, W, F, U) are hard to place — deny these last
-    // so the human ends up with them
-    const unpairables = new Set(['X','W','F','U']);
-
-    // SYNERGY DENIAL: steal all remaining combo partners for human's pieces
-    const synergyTargets = _getSynergyTargets(humanPicks, pool);
-    if (synergyTargets.length) {
-      // Take the highest-value synergy target
-      let best = synergyTargets[0], bestS = -1;
-      for (const k of synergyTargets) {
-        const s = (SHAPE_SCORE[k] || 2) * 2.0 + (unpairables.has(k) ? -5 : 0);
-        if (s > bestS) { bestS = s; best = k; }
-      }
-      return best;
-    }
-
-    // Score every piece in pool
-    const humanHasLong = humanPicks.some(k => ['I','L','Y','N'].includes(k));
-    const humanHasBranchy = humanPicks.some(k => ['T','F','Y','X'].includes(k));
-
-    let bestPick = pool[0], bestS2 = -1;
-    for (const k of pool) {
-      let s = (SHAPE_SCORE[k] || 2) * 2.0;
-      // Deny useful pieces; deprioritize unpairables (leave them for human)
-      if (unpairables.has(k)) s -= 4.0;
-      if (humanHasLong && ['T','F','X','W','U'].includes(k)) s += 1.0;
-      if (humanHasBranchy && ['I','L','P'].includes(k)) s += 2.5;
-      if (_VERSATILE_PIECES.has(k)) s += 2.5;
-      if (s > bestS2) { bestS2 = s; bestPick = k; }
-    }
-    return bestPick;
-  }
 }
 
 // ── Main AI move dispatcher ───────────────────────────────────────
@@ -5057,21 +4475,15 @@ function _doAiMove() {
   const ap = aiPlayer.value;
 
   if (game.phase === 'draft' && game.draftTurn === ap) {
-    const pick = _aiDraftPick();
+    const pick = _ai.pickDraftPiece();
     if (pick) game.draftPick(pick);
     return;
   }
 
   if (game.phase === 'place' && game.currentPlayer === ap) {
-    const moves = _getAllValidMoves();
+    const moves = _ai.getAllValidMoves();
     if (!moves.length) return;
-    const diff = aiDifficulty.value;
-    let move;
-    if      (diff === 'dumbie')      move = _aiMovesEasy(moves);
-    else if (diff === 'elite')       move = _aiMovesNormal(moves);
-    else if (diff === 'tactician')   move = _aiMovesTactician(moves);
-    else if (diff === 'grandmaster') move = _aiMovesGrandmaster(moves);
-    else                             move = _aiMovesLegendary(moves);
+    const move = _ai.choosePlacement(moves);
     if (!move) return;
     game.selectedPieceKey = move.pk;
     game.rotation = move.rot;
@@ -5081,16 +4493,6 @@ function _doAiMove() {
     game.rotation = 0;
     game.flipped = false;
   }
-}
-
-// Think delay: dumbie hesitates, legendary snaps instantly
-function _aiThinkDelay() {
-  const diff = aiDifficulty.value;
-  if (diff === 'dumbie')      return 900  + Math.random() * 900;   // 0.9–1.8s
-  if (diff === 'elite')       return 550  + Math.random() * 600;   // 0.55–1.15s
-  if (diff === 'tactician')   return 380  + Math.random() * 380;   // 0.38–0.76s
-  if (diff === 'grandmaster') return 220  + Math.random() * 200;   // 0.22–0.42s
-  /* legendary */             return 80   + Math.random() * 80;    // 0.08–0.16s — instant
 }
 
 watch(
@@ -5104,13 +4506,14 @@ watch(
       (game.phase === 'place' && game.currentPlayer === ap);
     if (isAiTurn) {
       _cancelAiTimer();
-      _aiTimer = setTimeout(_doAiMove, _aiThinkDelay());
+      _aiTimer = setTimeout(_doAiMove, _ai.thinkDelay());
     } else {
       _cancelAiTimer();
     }
   },
   { immediate: false }
 );
+
 
 function applySettings() {
   saveAudioPrefs();
