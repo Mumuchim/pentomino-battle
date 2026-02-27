@@ -232,8 +232,9 @@ export const useGameStore = defineStore("game", {
     turnLimitDraftSec: 30,
     turnLimitPlaceSec: 60,
 
-    // Battle clock (place phase): 2 minutes per player, counts down only on that player's turn
-    battleClockSec: { 1: 120, 2: 120 },
+    // Battle clock (place phase): default 3 minutes per player, counts down only on that player's turn
+    battleClockInitSec: 180,
+    battleClockSec: { 1: 180, 2: 180 },
     battleClockLastTickAt: null,
 
     // Timeout confirmation (helps avoid false timeouts under latency)
@@ -375,7 +376,7 @@ export const useGameStore = defineStore("game", {
       this.matchInvalid = false;
       this.matchInvalidReason = null;
 
-      this.battleClockSec = { 1: 120, 2: 120 };
+      this.battleClockSec = { 1: this.battleClockInitSec || 180, 2: this.battleClockInitSec || 180 };
       this.battleClockLastTickAt = null;
 
       this.timeoutPendingAt = null;
@@ -436,8 +437,9 @@ export const useGameStore = defineStore("game", {
 
         // placement board starts empty
 
-        // reset battle clocks (2 mins per player)
-        this.battleClockSec = { 1: 120, 2: 120 };
+        // reset battle clocks (per-player timer from lobby or default 3 min)
+        const initSec = this.battleClockInitSec || 180;
+        this.battleClockSec = { 1: initSec, 2: initSec };
         this.battleClockLastTickAt = Date.now();
 
         // placement board starts empty

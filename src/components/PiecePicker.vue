@@ -110,7 +110,7 @@ onMounted(() => {
 function canSelect(player) {
   if (game.phase !== "place") return false;
   if (game.currentPlayer !== player) return false;
-  if (!props.isOnline) return true;
+  if (!props.isOnline) return props.canAct;
   return props.canAct && props.myPlayer === player;
 }
 
@@ -294,7 +294,7 @@ function onPiecePointerUp(e) {
   activeDragKey.value = null;
   game.updateDrag(e.clientX, e.clientY);
 
-  if (props.isOnline && !props.canAct) {
+  if (!props.canAct) {
     game.endDrag();
     return;
   }
