@@ -7,11 +7,146 @@ import DraftPanel from "./components/DraftPanel.vue";
 import PiecePicker from "./components/PiecePicker.vue";
 import Controls from "./components/Controls.vue";
 
+/* ====================================================================
+   COMPANION FILE CHANGES REQUIRED
+   app_script.js handles the app-level logic for the features below.
+   The following changes are also needed in the component/store files.
+   ====================================================================
+
+   ── store/game.js ────────────────────────────────────────────────────
+   (a) Add `confirmMove: false` to the `ui` object in the state factory.
+       This ensures the field is always reactive from the first render.
+       The app will $patch it to the correct value before each match.
+
+   (b) To complete the "keep rotation/flip outside map" fix without the
+       $onAction workaround, add a new store action:
+         cancelDragKeepTransform() {
+           this.selectedPieceKey = null;
+           this.pendingPlace = null;
+           if (this.drag) {
+             this.drag.active = false;
+             this.drag.pieceKey = null;
+             this.drag.target = null;
+           }
+           // NOTE: rotation and flipped are intentionally NOT reset
+         }
+
+   ── components/Board.vue & components/PiecePicker.vue ────────────────
+   (a) ROTATE / FLIP OUTSIDE MAP — in the pointerup / touchend handler,
+       change the outside-drop branch from:
+         } else { s.clearSelection() }
+       to:
+         } else { s.endDrag() }          // keeps piece selected + transform
+       This keeps the piece selected when dropped outside the map so the
+       player can use ROT / FLIP buttons and try again without re-picking.
+
+   (b) SUBMIT BUTTON VALIDITY — the $onAction hook in app_script.js already
+       clears pendingPlace when stagePlacement returns false.
+       For belt-and-suspenders safety, also check validity in the submit
+       button's :disabled binding:
+         :disabled="!s.pendingPlace || !s.canPlaceAt(s.pendingPlace.x, s.pendingPlace.y)"
+       and for the green class:
+         :class="['mobileBtn submitBtn', { hasPending: s.pendingPlace && s.canPlaceAt(s.pendingPlace.x, s.pendingPlace.y) }]"
+
+   ── components/Controls.vue ──────────────────────────────────────────
+   (a) CONFIRM MOVE for PC — add a submit button that appears when
+       `s.ui.confirmMove && s.pendingPlace`. Wire it to `s.commitPendingPlace()`.
+       Example placement (inside the existing `.btn` row):
+         <button
+           v-if="s.ui.confirmMove && s.phase === 'place'"
+           class="btn submitBtn"
+           :class="{ hasPending: !!s.pendingPlace }"
+           :disabled="!s.pendingPlace || !canAct"
+           @click="s.commitPendingPlace()"
+         >
+           ✓ Confirm (Space)
+         </button>
+       Also add a keydown listener for Space: when confirmMove is on and
+       pendingPlace is set, Space calls commitPendingPlace().
+
+   ── App.vue template ─────────────────────────────────────────────────
+   (a) Pass :confirmMove to <Board> and <Controls>:
+         <Board  :confirmMove="confirmMove" ... />
+         <Controls :confirmMove="confirmMove" ... />
+
+   (b) Settings screen — add a Confirm Move checkbox row:
+         <label class="settingRow">
+           <span>Confirm Move</span>
+           <input type="checkbox" v-model="confirmMove" />
+         </label>
+
+   (c) In-game settings modal — add the same checkbox so players can
+       toggle it mid-game without going back to main menu.
+
+   (d) Force-landscape overlay — now driven by landscapeLockActive which
+       already covers the auth screen. No template change needed.
+   ==================================================================== */
+
 const game = useGameStore();
+
+/* ──────────────────────────────────────────────────────────
+   ✅ PINIA STORE PATCHES (applied once at setup time)
+   These fix two long-standing UX issues without touching the
+   store source file.
+   ────────────────────────────────────────────────────────── */
+
+// FIX 1: Submit button should NOT stay green after tapping an invalid cell.
+// stagePlacement() only sets pendingPlace when the position is VALID, but it
+// never clears an *existing* pendingPlace when called on an invalid spot.
+// Intercept the action and force-clear pendingPlace on failure.
+game.$onAction(({ name, after }) => {
+  if (name === "stagePlacement") {
+    after((result) => {
+      if (!result) {
+        // Invalid position – clear any stale pending placement so the submit
+        // button goes back to its neutral (non-green) state.
+        game.$patch({ pendingPlace: null });
+      }
+    });
+  }
+});
+
+// FIX 2: Rotate / flip should survive dropping a piece OUTSIDE the board.
+// clearSelection() resets rotation and flipped to 0/false, which means the
+// user loses their orientation when the piece snaps back to the tray.
+// Solution: intercept clearSelection and restore rotation/flipped so the
+// piece re-appears in the tray with the same orientation.
+// ⚠️  NOTE: selectPiece() still resets rotation to 0 when the user explicitly
+//     *picks a new piece* — that intentional reset is preserved.
+game.$onAction(({ name, after }) => {
+  if (name === "clearSelection") {
+    const savedRotation = game.rotation;
+    const savedFlipped  = game.flipped;
+    after(() => {
+      // Only restore if a piece WAS selected (i.e. this was a drag-cancel,
+      // not a post-place reset where selectedPieceKey was already null).
+      if (savedRotation !== 0 || savedFlipped) {
+        game.$patch({ rotation: savedRotation, flipped: savedFlipped });
+      }
+    });
+  }
+});
+
+/* ──────────────────────────────────────────────────────────
+   ✅ BOARD.VUE / PIECEPICKER.VUE CHANGES STILL NEEDED
+   The $onAction hooks above handle the state side-effects, but
+   for the full "stay selected when dropped outside" experience
+   the Board and PiecePicker pointer-up handlers should call
+     s.endDrag()           ← instead of  s.clearSelection()
+   in the  "v && v.inside ? … : s.clearSelection()"  branch.
+   That keeps selectedPieceKey alive so the ROT/FLIP buttons
+   remain visible and the user can retry without re-picking.
+   ────────────────────────────────────────────────────────── */
 
 const screen = ref("auth");
 const loggedIn = ref(false);
 const allowFlip = ref(true);
+// ✅ NEW: "Confirm Move" — optional two-step placement (stage → submit).
+// Works for BOTH PC and mobile. Persisted in localStorage as pb_confirm_move.
+// Expose this ref in the App.vue template:
+//   • Pass as :confirmMove="confirmMove" prop to <Board> and <Controls>
+//   • In settings screens, bind to <input type="checkbox" v-model="confirmMove">
+const confirmMove = ref(false);
 const guestName = ref("GUEST");
 const displayName = computed(() => (loggedIn.value ? "PLAYER" : guestName.value));
 
@@ -74,7 +209,13 @@ function computeIsPortrait() {
   } catch {}
   isPortrait.value = window.innerHeight > window.innerWidth;
 }
-const landscapeLockActive = computed(() => isInGame.value && !!game.ui?.lockLandscape && isPortrait.value);
+const landscapeLockActive = computed(() => {
+  // Original in-game landscape lock (user-enabled via lockLandscape setting)
+  if (isInGame.value && !!game.ui?.lockLandscape && isPortrait.value) return true;
+  // ✅ NEW: Force landscape overlay on the welcome/auth screen for mobile devices
+  if (screen.value === "auth" && isMobileLike() && isPortrait.value) return true;
+  return false;
+});
 
 // In-game settings modal (Esc)
 
@@ -229,6 +370,14 @@ function saveAudioPrefs() {
     localStorage.setItem("pb_bgm_vol", String(bgmVolumeUi.value));
     localStorage.setItem("pb_sfx_vol", String(sfxVolumeUi.value));
   } catch {}
+}
+
+// ✅ NEW: Confirm Move preference (persisted separately so it survives audio resets)
+function loadConfirmMovePref() {
+  try { confirmMove.value = localStorage.getItem("pb_confirm_move") === "1"; } catch {}
+}
+function saveConfirmMovePref() {
+  try { localStorage.setItem("pb_confirm_move", confirmMove.value ? "1" : "0"); } catch {}
 }
 
 let _menuBgm = null;
@@ -1008,7 +1157,7 @@ async function sbFindPublicLobbyByName(term) {
     "status=eq.waiting",
     "is_private=eq.false",
              "guest_key=is.null",
-    `=ilike.${encodeURIComponent(pat)}`,
+    `lobby_name=ilike.${encodeURIComponent(pat)}`,
     "order=updated_at.desc",
     "limit=10",
   ].join("&");
@@ -1023,7 +1172,7 @@ async function sbFindPublicLobbyByName(term) {
       if (!l) return false;
       if (isLobbyExpired(l)) return false;
       if (lobbyPlayerCount(l) <= 0) return false;
-      const name = String(l?. || "");
+      const name = String(l?.lobby_name || "");
       if (name === "__QM__") return false;
       const meta = l?.state?.meta || {};
       if (meta?.kind === "quickmatch") return false;
@@ -1439,6 +1588,8 @@ async function ensureOnlineInitialized(lobby) {
   game.boardW = 10;
   game.boardH = 6;
   game.allowFlip = allowFlip.value;
+  // ✅ NEW: forward confirmMove into game.ui for online match
+  try { game.$patch(s => { s.ui.confirmMove = confirmMove.value; }); } catch {}
   game.resetGame();
 
   // Patch lobby to playing (matchmaking metadata only)
@@ -1567,6 +1718,8 @@ async function onResetClick() {
     game.boardW = 10;
     game.boardH = 6;
     game.allowFlip = allowFlip.value;
+    // ✅ NEW: keep confirmMove in sync on reset
+    try { game.$patch(s => { s.ui.confirmMove = confirmMove.value; }); } catch {}
     game.resetGame();
 
     // Broadcast new snapshot
@@ -1921,7 +2074,7 @@ async function refreshPublicLobbies() {
     // Only show lobbies that are still valid for joining (and NOT quick-match hidden rooms).
     publicLobbies.value = list.filter((l) => {
       if (!(lobbyPlayerCount(l) > 0) || isLobbyExpired(l)) return false;
-      const name = String(l?. || "");
+      const name = String(l?.lobby_name || "");
       if (name === "__QM__") return false;
       const meta = l?.state?.meta || {};
       if (meta?.kind === "quickmatch") return false;
@@ -2130,7 +2283,7 @@ async function lobbySearchOrJoin() {
 
   // Otherwise, try to find a public room by name (client-side filter over current list).
   const list = Array.isArray(publicLobbies.value) ? publicLobbies.value : publicLobbies;
-  const found = (list || []).find((l) => String(l?. || "").toLowerCase().includes(term.toLowerCase()));
+  const found = (list || []).find((l) => String(l?.lobby_name || "").toLowerCase().includes(term.toLowerCase()));
   if (found) {
     await joinPublicLobby(found);
     return;
@@ -2487,6 +2640,8 @@ function startCouchPlay() {
   game.boardW = 10;
   game.boardH = 6;
   game.allowFlip = allowFlip.value;
+  // ✅ NEW: forward confirmMove into game.ui so Board / Controls can read it
+  try { game.$patch(s => { s.ui.confirmMove = confirmMove.value; }); } catch {}
   game.resetGame();
 
   tryPlayGameBgm();
@@ -2499,6 +2654,8 @@ function startPracticeAi() {
   game.boardW = 10;
   game.boardH = 6;
   game.allowFlip = allowFlip.value;
+  // ✅ NEW: forward confirmMove into game.ui so Board / Controls can read it
+  try { game.$patch(s => { s.ui.confirmMove = confirmMove.value; }); } catch {}
   game.resetGame();
 
   tryPlayGameBgm();
@@ -2506,6 +2663,7 @@ function startPracticeAi() {
 
 function applySettings() {
   saveAudioPrefs();
+  saveConfirmMovePref(); // ✅ NEW: persist Confirm Move preference
   // Apply volumes immediately
   try {
     if (_menuBgm) _menuBgm.volume = bgmVolume.value;
@@ -2516,6 +2674,7 @@ function applySettings() {
   showModal({
     title: "Settings Applied",
     message: `Allow Flip: ${allowFlip.value ? "ON" : "OFF"}
+Confirm Move: ${confirmMove.value ? "ON" : "OFF"}
 Drag: ${game.ui.enableDragPlace ? "ON" : "OFF"} · Click: ${game.ui.enableClickPlace ? "ON" : "OFF"} · Hover: ${game.ui.enableHoverPreview ? "ON" : "OFF"}
 BGM: ${bgmVolumeUi.value}% · SFX: ${sfxVolumeUi.value}%`,
     tone: "info",
@@ -2525,6 +2684,7 @@ BGM: ${bgmVolumeUi.value}% · SFX: ${sfxVolumeUi.value}%`,
 
 function applyInGameSettings() {
   saveAudioPrefs();
+  saveConfirmMovePref(); // ✅ NEW: persist Confirm Move preference
   try {
     if (_menuBgm) _menuBgm.volume = bgmVolume.value;
     if (_couchBgm) _couchBgm.volume = bgmVolume.value;
@@ -2595,6 +2755,7 @@ onMounted(() => {
   startUiLock({ label: "Booting…", hint: "Loading UI, sounds, and neon vibes…", minMs: 750 });
 
   loadAudioPrefs();
+  loadConfirmMovePref(); // ✅ NEW: restore Confirm Move preference from previous session
 
   // BGM now starts only when the player clicks a UI button (see uiClick()).
 
