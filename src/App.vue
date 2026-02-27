@@ -866,6 +866,73 @@
       </div>
     </div>
 
+<!-- ✅ VS AI Difficulty Picker -->
+    <Transition name="vsAiFade">
+      <div v-if="showVsAiPicker" class="vsAiOverlay" @click.self="showVsAiPicker = false">
+        <div class="vsAiPanel">
+          <div class="vsAiHeader">
+            <div class="vsAiHeaderGlow"></div>
+            <div class="vsAiTitle">⚔ VERSUS AI</div>
+            <div class="vsAiSubtitle">Choose your opponent's rank</div>
+          </div>
+          <div class="vsAiRanks">
+            <button
+              v-for="(rank, idx) in [
+                { id:'dumbie',      label:'DUMBIE',      sub:'The Learning Dummy',     icon:'🟢', tier:0 },
+                { id:'elite',       label:'ELITE',       sub:'Sharpened Strategist',   icon:'🔵', tier:1 },
+                { id:'tactician',   label:'TACTICIAN',   sub:'Master of Patterns',     icon:'🟣', tier:2 },
+                { id:'grandmaster', label:'GRANDMASTER', sub:'The Territorial God',    icon:'🟠', tier:3 },
+                { id:'legendary',   label:'LEGENDARY',   sub:'Beyond Human Reach',     icon:'🔴', tier:4 },
+              ]"
+              :key="rank.id"
+              class="vsAiRankCard"
+              :class="[`tier${rank.tier}`, { locked: !aiUnlocks[rank.id], unlocked: aiUnlocks[rank.id] }]"
+              @click="selectAiDifficulty(rank.id)"
+              @mouseenter="aiUnlocks[rank.id] && uiHover()"
+            >
+              <div class="vsAiRankGlow"></div>
+              <div class="vsAiRankNum">{{ String(idx + 1).padStart(2,'0') }}</div>
+              <div class="vsAiRankIcon">
+                <span v-if="!aiUnlocks[rank.id]" class="vsAiLockIcon">🔒</span>
+                <span v-else class="vsAiTierIcon">{{ rank.icon }}</span>
+              </div>
+              <div class="vsAiRankInfo">
+                <div class="vsAiRankLabel">{{ rank.label }}</div>
+                <div class="vsAiRankSub" v-if="aiUnlocks[rank.id]">{{ rank.sub }}</div>
+                <div class="vsAiRankSub locked" v-else>
+                  Beat {{ idx === 1 ? 'Dumbie' : idx === 2 ? 'Elite' : idx === 3 ? 'Tactician' : 'Grandmaster' }} to unlock
+                </div>
+              </div>
+              <div class="vsAiRankArrow" v-if="aiUnlocks[rank.id]">▶</div>
+              <div class="vsAiRankChain" v-if="idx < 4"></div>
+            </button>
+          </div>
+          <button class="vsAiClose" @click="showVsAiPicker = false">✕ CANCEL</button>
+        </div>
+      </div>
+    </Transition>
+
+    <!-- ✅ Unlock Animation Overlay -->
+    <Transition name="unlockFade">
+      <div v-if="unlockAnim.active" class="unlockOverlay" @click="closeUnlockAnim">
+        <div class="unlockBurst"></div>
+        <div class="unlockCard" :class="`unlockTier${['dumbie','elite','tactician','grandmaster','legendary'].indexOf(unlockAnim.rank)}`">
+          <div class="unlockGlowRing"></div>
+          <div class="unlockEmoji">
+            {{ unlockAnim.rank === 'elite' ? '🔵' : unlockAnim.rank === 'tactician' ? '🟣' : unlockAnim.rank === 'grandmaster' ? '🟠' : '🔴' }}
+          </div>
+          <div class="unlockLabel">NEW RANK UNLOCKED</div>
+          <div class="unlockRankName">
+            {{ unlockAnim.rank === 'elite' ? 'ELITE' : unlockAnim.rank === 'tactician' ? 'TACTICIAN' : unlockAnim.rank === 'grandmaster' ? 'GRANDMASTER' : 'LEGENDARY' }}
+          </div>
+          <div class="unlockRankDesc">
+            {{ unlockAnim.rank === 'elite' ? 'Sharpened Strategist' : unlockAnim.rank === 'tactician' ? 'Master of Patterns' : unlockAnim.rank === 'grandmaster' ? 'The Territorial God' : 'Beyond Human Reach' }}
+          </div>
+          <div class="unlockTap">Tap to continue</div>
+        </div>
+      </div>
+    </Transition>
+
 <!-- ✅ In-game Settings Modal (Esc) -->
     <div v-if="inGameSettingsOpen" class="modalOverlay" @click.self="closeInGameSettings">
       <div class="modalCard" role="dialog" aria-modal="true">
@@ -1410,8 +1477,8 @@ const rankedTier = computed(() => (loggedIn.value ? "Wood" : "—"));
 const isInGame = computed(() => screen.value === "couch" || screen.value === "ai" || screen.value === "online");
 const modeLabel = computed(() => {
   if (screen.value === "ai") {
-    const labels = { easy: "Easy", normal: "Normal", hard: "Hard", master: "Master" };
-    return `VS AI · ${labels[aiDifficulty.value] || "Normal"}`;
+    const labels = { dumbie: "Dumbie", elite: "Elite", tactician: "Tactician", grandmaster: "Grandmaster", legendary: "Legendary" };
+    return `VS AI · ${labels[aiDifficulty.value] || "Dumbie"}`;
   }
   return screen.value === "couch" ? "Couch Play" : screen.value === "online" ? "Online Match" : "—";
 });
@@ -3388,6 +3455,10 @@ watch(
     if (!isOnline.value) {
       title = w ? `PLAYER ${w} WINS` : "MATCH ENDED";
       tone = w ? "victory" : "good";
+      // AI mode: check if player 1 won to unlock next difficulty
+      if (screen.value === 'ai' && w === 1) {
+        tryUnlockNextDifficulty(1, 1);
+      }
     } else {
       title = iWin ? "VICTORY" : w ? "DEFEAT" : "MATCH ENDED";
       tone = iWin ? "victory" : isBad ? "bad" : "good";
@@ -4183,22 +4254,66 @@ function startCouchPlay() {
 }
 
 // ── AI Difficulty state ────────────────────────────────────────────
-// 'easy' | 'normal' | 'hard' | 'master'
-const aiDifficulty = ref('normal');
+// 'dumbie' | 'elite' | 'tactician' | 'grandmaster' | 'legendary'
+const aiDifficulty = ref('dumbie');
+
+// Unlock tracking via localStorage
+const UNLOCK_KEY = 'pb_ai_unlocks_v2';
+const AI_RANK_ORDER = ['dumbie', 'elite', 'tactician', 'grandmaster', 'legendary'];
+
+function loadUnlocks() {
+  try {
+    const raw = localStorage.getItem(UNLOCK_KEY);
+    if (raw) return JSON.parse(raw);
+  } catch {}
+  return { dumbie: true, elite: false, tactician: false, grandmaster: false, legendary: false };
+}
+function saveUnlocks(u) {
+  try { localStorage.setItem(UNLOCK_KEY, JSON.stringify(u)); } catch {}
+}
+
+const aiUnlocks = ref(loadUnlocks());
+
+// VS AI picker overlay state
+const showVsAiPicker = ref(false);
+
+// Unlock animation state
+const unlockAnim = reactive({ active: false, rank: '' });
+
+function getNextRank(current) {
+  const idx = AI_RANK_ORDER.indexOf(current);
+  return idx >= 0 && idx < AI_RANK_ORDER.length - 1 ? AI_RANK_ORDER[idx + 1] : null;
+}
+
+function tryUnlockNextDifficulty(wonAsPlayer, winnerNum) {
+  if (winnerNum !== 1) return; // human is player 1
+  const current = aiDifficulty.value;
+  const next = getNextRank(current);
+  if (!next) return;
+  if (aiUnlocks.value[next]) return; // already unlocked
+  const u = { ...aiUnlocks.value, [next]: true };
+  aiUnlocks.value = u;
+  saveUnlocks(u);
+  // Show unlock animation
+  setTimeout(() => {
+    unlockAnim.rank = next;
+    unlockAnim.active = true;
+  }, 1200);
+}
+
+function closeUnlockAnim() {
+  unlockAnim.active = false;
+  unlockAnim.rank = '';
+}
 
 function startPracticeAi() {
-  // Show difficulty picker before starting
-  showModal({
-    title: "SELECT DIFFICULTY",
-    tone: "info",
-    message: "Choose how challenging the AI opponent will be.",
-    actions: [
-      { label: "EASY",   tone: "soft",    onClick: () => _launchAi('easy') },
-      { label: "NORMAL", tone: "primary", onClick: () => _launchAi('normal') },
-      { label: "HARD",   tone: "primary", onClick: () => _launchAi('hard') },
-      { label: "MASTER", tone: "primary", onClick: () => _launchAi('master') },
-    ],
-  });
+  showVsAiPicker.value = true;
+}
+
+function selectAiDifficulty(diff) {
+  if (!aiUnlocks.value[diff]) return;
+  showVsAiPicker.value = false;
+  _launchAi(diff);
 }
 
 function _launchAi(diff) {
@@ -4427,6 +4542,62 @@ function _aiMovesMaster(moves) {
   return best;
 }
 
+// ── LEGENDARY: max territory + opponent blocking, zero random noise ─
+function _aiMovesLegendary(moves) {
+  if (!moves.length) return null;
+  const { board, boardW, boardH } = game;
+  const dirs = [[1,0],[-1,0],[0,1],[0,-1]];
+
+  function reachableFromLeg(simBoard, player) {
+    const visited = new Set();
+    const queue = [];
+    for (let y = 0; y < boardH; y++)
+      for (let x = 0; x < boardW; x++)
+        if (simBoard[y][x]?.player === player) {
+          const k = y * boardW + x;
+          if (!visited.has(k)) { visited.add(k); queue.push([x, y]); }
+        }
+    let count = 0;
+    while (queue.length) {
+      const [cx, cy] = queue.shift();
+      for (const [ox, oy] of dirs) {
+        const nx = cx+ox, ny = cy+oy;
+        if (nx < 0 || ny < 0 || nx >= boardW || ny >= boardH) continue;
+        const k = ny * boardW + nx;
+        if (visited.has(k)) continue;
+        visited.add(k);
+        if (simBoard[ny][nx] === null) { count++; queue.push([nx, ny]); }
+        else if (simBoard[ny][nx]?.player === player) { queue.push([nx, ny]); }
+      }
+    }
+    return count;
+  }
+
+  let best = null, bestScore = -Infinity;
+  for (const m of moves) {
+    const simBoard = board.map(r => [...r]);
+    for (const [x, y] of m.abs) simBoard[y][x] = { player: 2, pieceKey: m.pk };
+    const ownSpace = reachableFromLeg(simBoard, 2);
+    const oppSpace = reachableFromLeg(simBoard, 1);
+    let score = ownSpace * 4.5 - oppSpace * 4.0;
+    let oppAdj = 0, ownAdj = 0;
+    for (const [x, y] of m.abs) {
+      for (const [ox, oy] of dirs) {
+        const nx = x+ox, ny = y+oy;
+        if (nx < 0 || ny < 0 || nx >= boardW || ny >= boardH) continue;
+        const cell = board[ny][nx];
+        if (cell?.player === 1) oppAdj++;
+        if (cell?.player === 2) ownAdj++;
+      }
+      const cx = Math.abs(x - boardW/2), cy = Math.abs(y - boardH/2);
+      score -= (cx + cy) * 0.08;
+    }
+    score += oppAdj * 2.5 + ownAdj * 1.0;
+    if (score > bestScore) { bestScore = score; best = m; }
+  }
+  return best;
+}
+
 // ── Draft pickers per difficulty ──────────────────────────────────
 const _VERSATILE_PIECES = new Set(['I','L','T','Y','N','S','Z','P']);
 
@@ -4434,23 +4605,24 @@ function _aiDraftPick() {
   const pool = [...game.pool];
   if (!pool.length) return null;
   const diff = aiDifficulty.value;
-  if (diff === 'easy') {
+  if (diff === 'dumbie') {
     return pool[Math.floor(Math.random() * pool.length)];
   }
-  if (diff === 'normal') {
+  if (diff === 'elite') {
     if (Math.random() < 0.6) return pool[Math.floor(Math.random() * pool.length)];
     const good = pool.filter(k => _VERSATILE_PIECES.has(k));
     return good.length ? good[Math.floor(Math.random() * good.length)] : pool[Math.floor(Math.random() * pool.length)];
   }
-  if (diff === 'hard') {
+  if (diff === 'tactician') {
     const good = pool.filter(k => _VERSATILE_PIECES.has(k));
     return good.length ? good[Math.floor(Math.random() * good.length)] : pool[Math.floor(Math.random() * pool.length)];
   }
-  // master: pick highest-value piece by shape versatility score
+  // grandmaster & legendary: pick highest-value piece by shape versatility score
   const SHAPE_SCORE = { I:5, L:5, Y:5, N:4, T:4, S:4, Z:4, P:3, W:3, F:2, U:2, X:1, V:2 };
+  const noise = diff === 'legendary' ? 0.05 : 0.3;
   let bestPick = pool[0], bestS = -1;
   for (const k of pool) {
-    const s = (SHAPE_SCORE[k] || 2) + Math.random() * 0.3;
+    const s = (SHAPE_SCORE[k] || 2) + Math.random() * noise;
     if (s > bestS) { bestS = s; bestPick = k; }
   }
   return bestPick;
@@ -4472,10 +4644,11 @@ function _doAiMove() {
     if (!moves.length) return;
     const diff = aiDifficulty.value;
     let move;
-    if      (diff === 'easy')   move = _aiMovesEasy(moves);
-    else if (diff === 'normal') move = _aiMovesNormal(moves);
-    else if (diff === 'hard')   move = _aiMovesHard(moves);
-    else                        move = _aiMovesMaster(moves);
+    if      (diff === 'dumbie')      move = _aiMovesEasy(moves);
+    else if (diff === 'elite')       move = _aiMovesNormal(moves);
+    else if (diff === 'tactician')   move = _aiMovesHard(moves);
+    else if (diff === 'grandmaster') move = _aiMovesMaster(moves);
+    else                             move = _aiMovesLegendary(moves);
     if (!move) return;
     game.selectedPieceKey = move.pk;
     game.rotation = move.rot;
@@ -4487,13 +4660,14 @@ function _doAiMove() {
   }
 }
 
-// Think delay: easy hesitates, master snaps instantly
+// Think delay: dumbie hesitates, legendary snaps instantly
 function _aiThinkDelay() {
   const diff = aiDifficulty.value;
-  if (diff === 'easy')   return 900  + Math.random() * 900;   // 0.9–1.8s
-  if (diff === 'normal') return 550  + Math.random() * 600;   // 0.55–1.15s
-  if (diff === 'hard')   return 380  + Math.random() * 380;   // 0.38–0.76s
-  /* master */           return 220  + Math.random() * 200;   // 0.22–0.42s
+  if (diff === 'dumbie')      return 900  + Math.random() * 900;   // 0.9–1.8s
+  if (diff === 'elite')       return 550  + Math.random() * 600;   // 0.55–1.15s
+  if (diff === 'tactician')   return 380  + Math.random() * 380;   // 0.38–0.76s
+  if (diff === 'grandmaster') return 220  + Math.random() * 200;   // 0.22–0.42s
+  /* legendary */             return 80   + Math.random() * 80;    // 0.08–0.16s — instant
 }
 
 watch(
@@ -5607,6 +5781,340 @@ onBeforeUnmount(() => {
 @keyframes victoryPop{
   from{ transform: translateY(10px) scale(0.97); opacity: 0; filter: saturate(1.1); }
   to{ transform: translateY(0) scale(1); opacity: 1; filter: saturate(1.0); }
+}
+
+/* ============================================================
+   VS AI DIFFICULTY PICKER
+   ============================================================ */
+.vsAiFade-enter-active{ animation: vsAiFadeIn .22s ease-out; }
+.vsAiFade-leave-active{ animation: vsAiFadeIn .16s ease-in reverse; }
+@keyframes vsAiFadeIn{
+  from{ opacity: 0; }
+  to{ opacity: 1; }
+}
+
+.vsAiOverlay{
+  position: fixed; inset: 0; z-index: 60;
+  background:
+    radial-gradient(ellipse 120% 80% at 50% 0%, rgba(0,229,255,0.08), transparent 60%),
+    radial-gradient(ellipse 80% 120% at 80% 100%, rgba(180,50,255,0.10), transparent 60%),
+    rgba(4,4,14,0.88);
+  backdrop-filter: blur(16px);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 20px;
+}
+
+.vsAiPanel{
+  width: min(520px, 100%);
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+  animation: vsAiPanelIn .28s cubic-bezier(.22,1,.36,1);
+}
+@keyframes vsAiPanelIn{
+  from{ transform: translateY(30px) scale(0.96); opacity: 0; }
+  to{ transform: translateY(0) scale(1); opacity: 1; }
+}
+
+.vsAiHeader{
+  position: relative;
+  text-align: center;
+  padding: 0 0 20px;
+  overflow: hidden;
+}
+.vsAiHeaderGlow{
+  position: absolute;
+  inset: -40px;
+  background: radial-gradient(ellipse 60% 80% at 50% 0%, rgba(0,229,255,0.18), transparent 70%);
+  filter: blur(20px);
+  pointer-events: none;
+}
+.vsAiTitle{
+  font-size: 28px;
+  font-weight: 900;
+  letter-spacing: 4px;
+  text-transform: uppercase;
+  background: linear-gradient(90deg, rgba(0,229,255,1), rgba(180,80,255,1), rgba(255,43,214,1));
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+  position: relative;
+}
+.vsAiSubtitle{
+  font-size: 12px;
+  letter-spacing: 3px;
+  text-transform: uppercase;
+  opacity: .45;
+  margin-top: 4px;
+  position: relative;
+}
+
+.vsAiRanks{ display: flex; flex-direction: column; gap: 6px; position: relative; }
+
+/* Hierarchy connector line */
+.vsAiRanks::before{
+  content: "";
+  position: absolute;
+  left: 28px;
+  top: 30px;
+  bottom: 30px;
+  width: 2px;
+  background: linear-gradient(180deg,
+    rgba(80,255,120,0.5),
+    rgba(80,170,255,0.5),
+    rgba(160,80,255,0.5),
+    rgba(255,140,40,0.5),
+    rgba(255,40,80,0.5)
+  );
+  opacity: .35;
+}
+
+.vsAiRankCard{
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 14px 18px 14px 14px;
+  border-radius: 16px;
+  border: 1px solid rgba(255,255,255,0.07);
+  background: rgba(255,255,255,0.03);
+  cursor: pointer;
+  transition: transform .15s, box-shadow .15s, border-color .15s, background .15s;
+  text-align: left;
+  overflow: hidden;
+}
+.vsAiRankCard.locked{
+  opacity: .5;
+  cursor: not-allowed;
+  filter: grayscale(.7);
+}
+.vsAiRankCard.unlocked:hover{
+  transform: translateX(6px) scale(1.02);
+}
+.vsAiRankCard.unlocked:active{
+  transform: translateX(4px) scale(0.99);
+}
+
+/* Per-tier accent colors */
+.vsAiRankCard.tier0.unlocked{ --t: 80,255,120; }
+.vsAiRankCard.tier1.unlocked{ --t: 80,170,255; }
+.vsAiRankCard.tier2.unlocked{ --t: 160,80,255; }
+.vsAiRankCard.tier3.unlocked{ --t: 255,140,40; }
+.vsAiRankCard.tier4.unlocked{ --t: 255,40,80; }
+
+.vsAiRankCard.unlocked{
+  border-color: rgba(var(--t), 0.22);
+  background: rgba(var(--t), 0.06);
+}
+.vsAiRankCard.unlocked:hover{
+  border-color: rgba(var(--t), 0.45);
+  background: rgba(var(--t), 0.12);
+  box-shadow: 0 0 28px rgba(var(--t), 0.18), 0 6px 24px rgba(0,0,0,0.4);
+}
+
+.vsAiRankGlow{
+  position: absolute;
+  inset: 0;
+  background: radial-gradient(ellipse 120% 200% at 0% 50%, rgba(var(--t, 255,255,255), 0.08), transparent 60%);
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity .2s;
+}
+.vsAiRankCard.unlocked:hover .vsAiRankGlow{ opacity: 1; }
+
+.vsAiRankNum{
+  font-size: 11px;
+  font-weight: 900;
+  letter-spacing: 1px;
+  opacity: .25;
+  width: 22px;
+  flex-shrink: 0;
+  z-index: 1;
+}
+.vsAiRankIcon{ font-size: 22px; flex-shrink: 0; z-index: 1; }
+.vsAiLockIcon{ filter: grayscale(1); opacity: .4; }
+.vsAiRankInfo{ flex: 1; z-index: 1; }
+.vsAiRankLabel{
+  font-size: 15px;
+  font-weight: 900;
+  letter-spacing: 2.5px;
+  text-transform: uppercase;
+  color: rgba(var(--t, 255,255,255), 0.92);
+}
+.vsAiRankCard.locked .vsAiRankLabel{ color: rgba(255,255,255,0.5); }
+.vsAiRankSub{
+  font-size: 11px;
+  letter-spacing: 1px;
+  opacity: .55;
+  margin-top: 2px;
+}
+.vsAiRankSub.locked{ opacity: .35; font-style: italic; }
+.vsAiRankArrow{
+  font-size: 12px;
+  opacity: .4;
+  z-index: 1;
+  transition: opacity .15s, transform .15s;
+}
+.vsAiRankCard.unlocked:hover .vsAiRankArrow{
+  opacity: .9;
+  transform: translateX(4px);
+  color: rgb(var(--t, 255,255,255));
+}
+
+.vsAiClose{
+  margin-top: 16px;
+  background: transparent;
+  border: 1px solid rgba(255,255,255,0.1);
+  border-radius: 12px;
+  padding: 10px;
+  color: rgba(255,255,255,0.4);
+  font-size: 12px;
+  letter-spacing: 2px;
+  cursor: pointer;
+  transition: color .15s, border-color .15s;
+  align-self: center;
+  width: 100%;
+}
+.vsAiClose:hover{
+  color: rgba(255,255,255,0.8);
+  border-color: rgba(255,255,255,0.25);
+}
+
+/* ============================================================
+   UNLOCK ANIMATION OVERLAY
+   ============================================================ */
+.unlockFade-enter-active{ animation: unlockFadeIn .3s ease-out; }
+.unlockFade-leave-active{ animation: unlockFadeIn .22s ease-in reverse; }
+@keyframes unlockFadeIn{
+  from{ opacity: 0; }
+  to{ opacity: 1; }
+}
+
+.unlockOverlay{
+  position: fixed; inset: 0; z-index: 70;
+  background: rgba(0,0,0,0.75);
+  backdrop-filter: blur(14px);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+}
+
+.unlockBurst{
+  position: absolute;
+  inset: 0;
+  background: radial-gradient(ellipse 60% 60% at 50% 50%,
+    rgba(255,220,60,0.18), transparent 70%);
+  animation: unlockPulse 1.2s ease-in-out infinite alternate;
+  pointer-events: none;
+}
+@keyframes unlockPulse{
+  from{ opacity: .6; transform: scale(0.95); }
+  to{ opacity: 1; transform: scale(1.05); }
+}
+
+.unlockCard{
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  padding: 36px 40px 28px;
+  border-radius: 28px;
+  border: 1px solid rgba(255,220,60,0.3);
+  background:
+    radial-gradient(ellipse 80% 60% at 50% 0%, rgba(255,220,60,0.12), transparent 70%),
+    linear-gradient(180deg, rgba(22,18,8,0.97), rgba(10,8,4,0.97));
+  box-shadow:
+    0 0 80px rgba(255,200,40,0.22),
+    0 30px 80px rgba(0,0,0,0.7),
+    0 0 0 1px rgba(255,200,40,0.12) inset;
+  animation: unlockCardIn .5s cubic-bezier(.22,1,.36,1);
+  text-align: center;
+  max-width: 340px;
+  width: 100%;
+}
+@keyframes unlockCardIn{
+  from{ transform: scale(0.7) translateY(40px); opacity: 0; }
+  to{ transform: scale(1) translateY(0); opacity: 1; }
+}
+
+/* Per-tier unlock card colors */
+.unlockTier1{ --u: 80,170,255; border-color: rgba(80,170,255,0.4); background: radial-gradient(ellipse 80% 60% at 50% 0%, rgba(80,170,255,0.14), transparent 70%), linear-gradient(180deg, rgba(8,14,28,0.97), rgba(4,8,16,0.97)); box-shadow: 0 0 80px rgba(80,170,255,0.24), 0 30px 80px rgba(0,0,0,0.7); }
+.unlockTier2{ --u: 160,80,255; border-color: rgba(160,80,255,0.4); background: radial-gradient(ellipse 80% 60% at 50% 0%, rgba(160,80,255,0.14), transparent 70%), linear-gradient(180deg, rgba(14,8,28,0.97), rgba(8,4,16,0.97)); box-shadow: 0 0 80px rgba(160,80,255,0.24), 0 30px 80px rgba(0,0,0,0.7); }
+.unlockTier3{ --u: 255,140,40; border-color: rgba(255,140,40,0.4); background: radial-gradient(ellipse 80% 60% at 50% 0%, rgba(255,140,40,0.14), transparent 70%), linear-gradient(180deg, rgba(28,16,4,0.97), rgba(16,8,4,0.97)); box-shadow: 0 0 80px rgba(255,140,40,0.24), 0 30px 80px rgba(0,0,0,0.7); }
+.unlockTier4{ --u: 255,40,80; border-color: rgba(255,40,80,0.4); background: radial-gradient(ellipse 80% 60% at 50% 0%, rgba(255,40,80,0.14), transparent 70%), linear-gradient(180deg, rgba(28,4,8,0.97), rgba(16,4,8,0.97)); box-shadow: 0 0 80px rgba(255,40,80,0.24), 0 30px 80px rgba(0,0,0,0.7); }
+
+.unlockGlowRing{
+  position: absolute;
+  top: -30px; left: 50%; transform: translateX(-50%);
+  width: 120px; height: 120px;
+  border-radius: 50%;
+  background: radial-gradient(circle at 50% 50%, rgba(255,200,40,0.22), transparent 70%);
+  filter: blur(18px);
+  animation: unlockPulse 1.2s ease-in-out infinite alternate;
+  pointer-events: none;
+}
+.unlockTier1 .unlockGlowRing{ background: radial-gradient(circle at 50% 50%, rgba(80,170,255,0.22), transparent 70%); }
+.unlockTier2 .unlockGlowRing{ background: radial-gradient(circle at 50% 50%, rgba(160,80,255,0.22), transparent 70%); }
+.unlockTier3 .unlockGlowRing{ background: radial-gradient(circle at 50% 50%, rgba(255,140,40,0.22), transparent 70%); }
+.unlockTier4 .unlockGlowRing{ background: radial-gradient(circle at 50% 50%, rgba(255,40,80,0.22), transparent 70%); }
+
+.unlockEmoji{
+  font-size: 52px;
+  animation: unlockBounce .6s cubic-bezier(.22,1,.36,1) .15s both;
+  position: relative;
+  z-index: 1;
+}
+@keyframes unlockBounce{
+  from{ transform: scale(0.4) rotate(-20deg); opacity: 0; }
+  to{ transform: scale(1) rotate(0deg); opacity: 1; }
+}
+.unlockLabel{
+  font-size: 11px;
+  letter-spacing: 3px;
+  text-transform: uppercase;
+  opacity: .5;
+  animation: unlockFadeUp .4s ease-out .25s both;
+}
+.unlockRankName{
+  font-size: 32px;
+  font-weight: 900;
+  letter-spacing: 3px;
+  text-transform: uppercase;
+  animation: unlockFadeUp .4s ease-out .35s both;
+  background: linear-gradient(90deg, rgba(255,220,60,1), rgba(255,160,40,1));
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+}
+.unlockTier1 .unlockRankName{ background: linear-gradient(90deg, rgba(80,170,255,1), rgba(140,220,255,1)); -webkit-background-clip: text; background-clip: text; }
+.unlockTier2 .unlockRankName{ background: linear-gradient(90deg, rgba(160,80,255,1), rgba(210,140,255,1)); -webkit-background-clip: text; background-clip: text; }
+.unlockTier3 .unlockRankName{ background: linear-gradient(90deg, rgba(255,140,40,1), rgba(255,200,80,1)); -webkit-background-clip: text; background-clip: text; }
+.unlockTier4 .unlockRankName{ background: linear-gradient(90deg, rgba(255,40,80,1), rgba(255,120,80,1)); -webkit-background-clip: text; background-clip: text; }
+.unlockRankDesc{
+  font-size: 13px;
+  opacity: .55;
+  letter-spacing: 1px;
+  animation: unlockFadeUp .4s ease-out .42s both;
+}
+.unlockTap{
+  font-size: 11px;
+  letter-spacing: 2px;
+  opacity: .3;
+  margin-top: 12px;
+  text-transform: uppercase;
+  animation: unlockFadeUp .4s ease-out .55s both, unlockTapPulse 2s ease-in-out 1s infinite alternate;
+}
+@keyframes unlockFadeUp{
+  from{ transform: translateY(12px); opacity: 0; }
+  to{ transform: translateY(0); opacity: 1; }
+}
+@keyframes unlockTapPulse{
+  from{ opacity: .2; }
+  to{ opacity: .5; }
 }
 
 /* Fit-to-viewport in-game (no scroll): keep the whole layout within the main area */
