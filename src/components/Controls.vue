@@ -72,7 +72,7 @@ const isPendingValid = computed(() => {
 
 function onPcSubmit() {
   if (!isPendingValid.value) return;
-  if (props.isOnline && !props.canAct) return;
+  if (!props.canAct) return;
   const ok = game.commitPendingPlace();
   if (!ok) playBuzz();
 }

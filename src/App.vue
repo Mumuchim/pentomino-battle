@@ -129,10 +129,10 @@
             <img :src="mainBtnUrl" class="btnPng floatingLogo" alt="Main Menu" />
           </button>
 
-          <!-- Couch Play: Undo last placement (local only) -->
+          <!-- Couch Play / AI Mode: Undo last placement (local only) -->
           <button
             class="btn ghost imgBtn"
-            v-if="screen === 'couch'"
+            v-if="screen === 'couch' || screen === 'ai'"
             :disabled="(game.history?.length || 0) === 0"
             @click="(game.history?.length || 0) > 0 && (uiClick(), game.undoLastMove())"
             aria-label="Undo"
@@ -339,7 +339,7 @@
               </div>
             </button>
 
-            <button class="pbTile accentBlue disabled" disabled title="Practice vs. AI is locked for now" @mouseenter="uiHover">
+            <button class="pbTile accentBlue" @mouseenter="uiHover" @click="uiClick(); startPracticeAi()">
               <div class="pbTileInner">
                 <div class="pbTileGlyph">
                   <template v-if="useMenuPngs">
@@ -354,7 +354,7 @@
                     </template>
                     <template v-else>PRACTICE VS AI</template>
                   </div>
-                  <div class="pbTileDesc">locked for now</div>
+                  <div class="pbTileDesc">local 1-player vs computer</div>
                 </div>
               </div>
             </button>
@@ -652,6 +652,7 @@
               <div class="hudPhaseSub" v-if="phaseSub">{{ phaseSub }}</div>
             </div>
 
+            <!-- Online HUD: ping, code, status, timer -->
             <div v-if="isOnline" class="hudGrid">
               <div class="hudStat ping" :class="pingLevelClass">
                 <span class="pingDot" aria-hidden="true"></span>
@@ -690,6 +691,20 @@
                   </span>
                   <span class="statValue clockValue">{{ timerHud.value }}</span>
                 </template>
+              </div>
+            </div>
+
+            <!-- AI mode HUD: show both player clocks + AI indicator -->
+            <div v-else-if="screen === 'ai' && game.phase === 'place'" class="hudGrid">
+              <div class="hudStat timer p1">
+                <span class="statLabel">YOU</span>
+                <span class="clockBadge p1">P1</span>
+                <span class="statValue clockValue">{{ fmtClock(game.battleClockSec?.[1] ?? 0) }}</span>
+              </div>
+              <div class="hudStat timer p2" :class="{ urgent: (game.battleClockSec?.[2] ?? 0) <= 30 }">
+                <span class="statLabel">AI</span>
+                <span class="clockBadge p2">P2</span>
+                <span class="statValue clockValue">{{ fmtClock(game.battleClockSec?.[2] ?? 0) }}</span>
               </div>
             </div>
 
@@ -906,7 +921,8 @@ import { computed, onBeforeUnmount, onMounted, reactive, ref, watch } from "vue"
 import { useGameStore } from "./store/game";
 import { supabase as sbRealtime } from "./lib/supabase";
 import { getPieceStyle } from "./lib/pieceStyles";
-import { boundsOf } from "./lib/geom";
+import { boundsOf, transformCells } from "./lib/geom";
+import { PENTOMINOES } from "./lib/pentominoes";
 
 import Board from "./components/Board.vue";
 import DraftPanel from "./components/DraftPanel.vue";
@@ -1404,8 +1420,18 @@ const phaseTitle = computed(() => {
 });
 
 const phaseSub = computed(() => {
-  if (game.phase === "draft") return `Pick: P${game.draftTurn}`;
-  if (game.phase === "place") return `Turn: P${game.currentPlayer}`;
+  if (game.phase === "draft") {
+    if (screen.value === "ai") {
+      return game.draftTurn === 1 ? "Your Pick" : "AI Picking…";
+    }
+    return `Pick: P${game.draftTurn}`;
+  }
+  if (game.phase === "place") {
+    if (screen.value === "ai") {
+      return game.currentPlayer === 1 ? "Your Turn" : "AI Thinking…";
+    }
+    return `Turn: P${game.currentPlayer}`;
+  }
   return "";
 });
 
@@ -1543,8 +1569,9 @@ const timerHud = computed(() => {
     return { kind: "draft", seconds: s, value: `${s}s` };
   }
 
-  // Battle clock (interchanges depending on whose turn it is)
+  // Battle clock (place phase): show for online AND AI mode
   if (game.phase === "place") {
+    if (!isOnline.value && screen.value !== "ai") return null;
     const p = game.currentPlayer === 2 ? 2 : 1;
     const v = fmtClock(game.battleClockSec?.[p] ?? 0);
     return { kind: "clock", player: p, value: v };
@@ -1561,6 +1588,13 @@ const primaryMatchActionLabel = computed(() => {
 });
 
 const canAct = computed(() => {
+  // AI mode: P2 is the AI — only let P1 (human) act on their own turns
+  if (screen.value === 'ai') {
+    if (game.phase === 'gameover') return false;
+    if (game.phase === 'draft') return game.draftTurn === 1;
+    if (game.phase === 'place') return game.currentPlayer === 1;
+    return false;
+  }
   if (!isOnline.value) return true;
   if (!myPlayer.value) return false;
   if (game.phase === "gameover") return false;
@@ -2288,6 +2322,7 @@ function buildSyncedState(meta = {}) {
       rematchDeclinedBy: game.rematchDeclinedBy,
 
       battleClockSec: deepClone(game.battleClockSec),
+      battleClockInitSec: game.battleClockInitSec || 180,
       battleClockLastTickAt: game.battleClockLastTickAt,
 
       // Helps prevent false timeouts under latency
@@ -2350,6 +2385,7 @@ function applySyncedState(state) {
       rematch: g.rematch,
       rematchDeclinedBy: g.rematchDeclinedBy,
       battleClockSec: g.battleClockSec,
+      battleClockInitSec: g.battleClockInitSec || 180,
       battleClockLastTickAt: g.battleClockLastTickAt,
 
       timeoutPendingAt: g.timeoutPendingAt,
@@ -2558,6 +2594,12 @@ async function ensureOnlineInitialized(lobby) {
   game.boardH = 6;
   game.allowFlip = allowFlip.value;
   game.resetGame();
+
+  // Apply lobby timer (set by host when creating the room: 3, 5, or 7 minutes)
+  const timerMins = Number(prevMeta?.timerMinutes || 3);
+  const timerSecs = Math.max(60, Math.min(1800, timerMins * 60));
+  game.battleClockInitSec = timerSecs;
+  game.battleClockSec = { 1: timerSecs, 2: timerSecs };
 
   const prevMeta = lobby.state?.meta ? lobby.state.meta : {};
   const nextRound = Number(prevMeta.round || 0) + 1;
@@ -3539,7 +3581,7 @@ async function joinByCode() {
   }
 }
 
-async function quickMake() {
+async function quickMake(timerMinutes = 3) {
   if (!(await ensureSupabaseReadyOrExplain())) return;
 
   // ✅ Require a lobby name (prevents null/empty name DB errors)
@@ -3555,6 +3597,7 @@ async function quickMake() {
     const created = await sbCreateLobby({
       isPrivate: quick.isPrivate,
       lobbyName: nm,
+      extraStateMeta: { timerMinutes: Number(timerMinutes) || 3 },
     });
 
     closeModal();
@@ -3594,7 +3637,18 @@ async function refreshLobby() {
 }
 
 function lobbyCreate() {
-  return quickMake();
+  // Show timer picker before creating the lobby
+  showModal({
+    title: "MATCH TIMER",
+    tone: "info",
+    message: "Choose the battle clock duration for each player.\nThis applies to both players in the match.",
+    actions: [
+      { label: "3 MIN", tone: "primary", onClick: () => quickMake(3) },
+      { label: "5 MIN", tone: "primary", onClick: () => quickMake(5) },
+      { label: "7 MIN", tone: "primary", onClick: () => quickMake(7) },
+      { label: "CANCEL", tone: "soft" },
+    ],
+  });
 }
 
 async function lobbySearchOrJoin() {
@@ -4136,6 +4190,133 @@ function startPracticeAi() {
   tryPlayGameBgm();
 }
 
+/* =========================
+   ✅ AI ENGINE (Practice vs AI)
+   Player 1 = Human | Player 2 = Computer
+========================= */
+
+let _aiTimer = null;
+
+function _cancelAiTimer() {
+  if (_aiTimer) { clearTimeout(_aiTimer); _aiTimer = null; }
+}
+
+function _aiComputeBestMove() {
+  const { boardW, boardH, board, placedCount, allowFlip: af, remaining } = game;
+  const pieces = [...(remaining[2] || [])];
+  if (!pieces.length) return null;
+
+  const flipOptions = af ? [false, true] : [false];
+  const dirs = [[1,0],[-1,0],[0,1],[0,-1]];
+  let bestScore = -Infinity;
+  let bestMove = null;
+
+  for (const pk of pieces) {
+    const baseCells = PENTOMINOES[pk];
+    for (const flip of flipOptions) {
+      for (let rot = 0; rot < 4; rot++) {
+        const shape = transformCells(baseCells, rot, flip);
+
+        for (let ay = 0; ay < boardH; ay++) {
+          for (let ax = 0; ax < boardW; ax++) {
+            // Validity: bounds + no overlap
+            let valid = true;
+            const abs = [];
+            for (const [dx, dy] of shape) {
+              const x = ax + dx, y = ay + dy;
+              if (x < 0 || y < 0 || x >= boardW || y >= boardH || board[y][x] !== null) {
+                valid = false; break;
+              }
+              abs.push([x, y]);
+            }
+            if (!valid) continue;
+
+            // Must touch existing structure (unless first move)
+            if (placedCount > 0) {
+              let touches = false;
+              outer: for (const [x, y] of abs) {
+                for (const [ox, oy] of dirs) {
+                  const nx = x+ox, ny = y+oy;
+                  if (nx >= 0 && ny >= 0 && nx < boardW && ny < boardH && board[ny][nx] !== null) {
+                    touches = true; break outer;
+                  }
+                }
+              }
+              if (!touches) continue;
+            }
+
+            // Scoring: grow own territory, lightly block opponent
+            let score = Math.random() * 0.4; // natural tiebreak variety
+            for (const [x, y] of abs) {
+              for (const [ox, oy] of dirs) {
+                const nx = x+ox, ny = y+oy;
+                if (nx < 0 || ny < 0 || nx >= boardW || ny >= boardH) continue;
+                const cell = board[ny][nx];
+                if (cell?.player === 2) score += 2.0;   // expand own territory
+                if (cell?.player === 1) score += 0.8;   // pressure opponent
+              }
+              // Mild prefer non-edge cells (avoids getting stuck in corners)
+              if (x > 0 && x < boardW-1 && y > 0 && y < boardH-1) score += 0.15;
+            }
+
+            if (score > bestScore) {
+              bestScore = score;
+              bestMove = { pk, rot, flip, ax, ay };
+            }
+          }
+        }
+      }
+    }
+  }
+  return bestMove;
+}
+
+function _doAiMove() {
+  if (screen.value !== 'ai') return;
+  if (game.phase === 'gameover') return;
+
+  if (game.phase === 'draft' && game.draftTurn === 2) {
+    const pool = [...game.pool];
+    if (!pool.length) return;
+    // Draft: pick randomly — creates variety and unpredictability
+    const pick = pool[Math.floor(Math.random() * pool.length)];
+    game.draftPick(pick);
+    return;
+  }
+
+  if (game.phase === 'place' && game.currentPlayer === 2) {
+    const move = _aiComputeBestMove();
+    if (!move) return; // no valid moves → game.playerHasAnyMove already handled gameover
+    game.selectedPieceKey = move.pk;
+    game.rotation = move.rot;
+    game.flipped = move.flip;
+    game.placeAt(move.ax, move.ay);
+    // Clear selection after AI move
+    game.selectedPieceKey = null;
+    game.rotation = 0;
+    game.flipped = false;
+  }
+}
+
+watch(
+  () => [screen.value, game.phase, game.draftTurn, game.currentPlayer],
+  () => {
+    if (screen.value !== 'ai') { _cancelAiTimer(); return; }
+    if (game.phase === 'gameover') { _cancelAiTimer(); return; }
+    const isAiTurn =
+      (game.phase === 'draft' && game.draftTurn === 2) ||
+      (game.phase === 'place' && game.currentPlayer === 2);
+    if (isAiTurn) {
+      _cancelAiTimer();
+      // Think delay: 550ms–1150ms gives human-like feel
+      _aiTimer = setTimeout(_doAiMove, 550 + Math.random() * 600);
+    } else {
+      _cancelAiTimer();
+    }
+  },
+  { immediate: false }
+);
+
 function applySettings() {
   saveAudioPrefs();
   // Apply volumes immediately
@@ -4280,6 +4461,12 @@ onMounted(() => {
   tickTimer = window.setInterval(() => {
     nowTick.value = Date.now();
 
+    // AI mode: tick the battle clock for both players (P1 human timer, P2 AI timer)
+    if (screen.value === 'ai' && game.phase === 'place') {
+      game.tickBattleClock(Date.now());
+      // If AI loses on time, that's handled by game over watch
+    }
+
     if (!isOnline.value) return;
     if (!myPlayer.value) return;
 
@@ -4303,6 +4490,7 @@ onMounted(() => {
 onBeforeUnmount(() => {
   if (originalAlert) window.alert = originalAlert;
   if (tickTimer) window.clearInterval(tickTimer);
+  _cancelAiTimer();
   try { window.removeEventListener("resize", onViewportChange); } catch {}
   try { window.removeEventListener("orientationchange", onViewportChange); } catch {}
   try { if (escHandler) window.removeEventListener("keydown", escHandler); } catch {}

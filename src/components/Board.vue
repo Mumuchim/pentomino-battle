@@ -436,7 +436,7 @@ function onShellDrop() {
   if (game.phase !== "place") return;
   if (!game.ui?.enableClickPlace) return;
   if (!game.selectedPieceKey) return;
-  if (props.isOnline && !props.canAct) return;
+  if (!props.canAct) return;
 
   const ok = game.placeAt(targetCell.value.x, targetCell.value.y);
   if (!ok) {
@@ -449,7 +449,7 @@ function onDrop(x, y) {
   if (game.phase !== "place") return;
   if (!game.ui?.enableClickPlace) return;
   if (!game.selectedPieceKey) return;
-  if (props.isOnline && !props.canAct) return;
+  if (!props.canAct) return;
 
   const ok = game.placeAt(x, y);
   if (!ok) {
@@ -644,7 +644,7 @@ function onMobileSubmit() {
   // Guard against synthetic click events firing right after a drop staged the piece.
   // On mobile, pointerup → stagePlacement → 300ms later → synthetic click on submit.
   if (Date.now() - stagedAt < 480) return;
-  if (props.isOnline && !props.canAct) return;
+  if (!props.canAct) return;
   const ok = game.commitPendingPlace();
   if (!ok) {
     playBuzz();
@@ -656,7 +656,7 @@ function onMobileSubmit() {
 /** ✅ CLICK does two different things depending on phase */
 function onCellClick(x, y, evt) {
   if (game.phase === "draft") {
-    if (props.isOnline && !props.canAct) return;
+    if (!props.canAct) return;
     const v = game.draftBoard[y][x];
     if (!v) return;
     if (v.draftedBy) return;
@@ -669,7 +669,7 @@ function onCellClick(x, y, evt) {
   if (game.phase !== "place") return;
   if (!game.ui?.enableClickPlace) return;
   if (!game.selectedPieceKey) return;
-  if (props.isOnline && !props.canAct) return;
+  if (!props.canAct) return;
 
   // While a piece is staged (pendingPlace set), tapping any cell repositions the ghost
   if (game.ui?.requireSubmit && game.pendingPlace) {
