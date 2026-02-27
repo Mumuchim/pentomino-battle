@@ -525,20 +525,16 @@ export const useGameStore = defineStore("game", {
     rotateSelected() {
       if (!this.selectedPieceKey) return;
       this.rotation = (this.rotation + 1) % 4;
-      // Keep staged position if the rotated shape still fits there
-      if (this.pendingPlace && !this.canPlaceAt(this.pendingPlace.x, this.pendingPlace.y)) {
-        this.pendingPlace = null;
-      }
+      // Do NOT clear pendingPlace when invalid — ghost shows as red, allowing user
+      // to keep rotating/flipping until valid without losing position.
     },
 
     flipSelected() {
       if (!this.selectedPieceKey) return;
       if (!this.allowFlip) return;
       this.flipped = !this.flipped;
-      // Keep staged position if the flipped shape still fits there
-      if (this.pendingPlace && !this.canPlaceAt(this.pendingPlace.x, this.pendingPlace.y)) {
-        this.pendingPlace = null;
-      }
+      // Do NOT clear pendingPlace when invalid — ghost shows as red, allowing user
+      // to keep rotating/flipping until valid without losing position.
     },
 
     // ----- LEGALITY -----
