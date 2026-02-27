@@ -694,17 +694,23 @@
               </div>
             </div>
 
-            <!-- AI mode HUD: show both player clocks + AI indicator -->
-            <div v-else-if="screen === 'ai' && game.phase === 'place'" class="hudGrid">
-              <div class="hudStat timer p1">
-                <span class="statLabel">YOU</span>
+            <!-- Local modes HUD (AI / Couch): show both player clocks -->
+            <div v-else-if="(screen === 'ai' || screen === 'couch') && game.phase === 'place'" class="hudGrid">
+              <div class="hudStat timer p1" :class="{ urgent: (game.battleClockSec?.[1] ?? 0) <= 30 && game.currentPlayer === 1 }">
+                <span class="statLabel">{{ screen === 'ai' ? 'YOU' : 'P1' }}</span>
                 <span class="clockBadge p1">P1</span>
                 <span class="statValue clockValue">{{ fmtClock(game.battleClockSec?.[1] ?? 0) }}</span>
               </div>
-              <div class="hudStat timer p2" :class="{ urgent: (game.battleClockSec?.[2] ?? 0) <= 30 }">
-                <span class="statLabel">AI</span>
+              <div class="hudStat timer p2" :class="{ urgent: (game.battleClockSec?.[2] ?? 0) <= 30 && game.currentPlayer === 2 }">
+                <span class="statLabel">{{ screen === 'ai' ? 'AI' : 'P2' }}</span>
                 <span class="clockBadge p2">P2</span>
                 <span class="statValue clockValue">{{ fmtClock(game.battleClockSec?.[2] ?? 0) }}</span>
+              </div>
+              <!-- AI mode: show round + score -->
+              <div v-if="screen === 'ai' && aiRound > 1" class="hudStat code" style="grid-column: 1/-1;">
+                <span class="statLabel">SCORE</span>
+                <span class="statValue">You {{ aiScore.p1 }} – {{ aiScore.p2 }} AI</span>
+                <span class="statLabel" style="margin-left:auto;">RD {{ aiRound }}</span>
               </div>
             </div>
 
@@ -1478,7 +1484,8 @@ const isInGame = computed(() => screen.value === "couch" || screen.value === "ai
 const modeLabel = computed(() => {
   if (screen.value === "ai") {
     const labels = { dumbie: "Dumbie", elite: "Elite", tactician: "Tactician", grandmaster: "Grandmaster", legendary: "Legendary" };
-    return `VS AI · ${labels[aiDifficulty.value] || "Dumbie"}`;
+    const roundStr = aiRound.value > 1 ? ` · R${aiRound.value}` : '';
+    return `VS AI · ${labels[aiDifficulty.value] || "Dumbie"}${roundStr}`;
   }
   return screen.value === "couch" ? "Couch Play" : screen.value === "online" ? "Online Match" : "—";
 });
@@ -1640,9 +1647,8 @@ const timerHud = computed(() => {
     return { kind: "draft", seconds: s, value: `${s}s` };
   }
 
-  // Battle clock (place phase): show for online AND AI mode
+  // Battle clock (place phase): show for online, AI mode, and couch
   if (game.phase === "place") {
-    if (!isOnline.value && screen.value !== "ai") return null;
     const p = game.currentPlayer === 2 ? 2 : 1;
     const v = fmtClock(game.battleClockSec?.[p] ?? 0);
     return { kind: "clock", player: p, value: v };
@@ -2658,6 +2664,10 @@ async function ensureOnlineInitialized(lobby) {
   if (hasPlayers) return;
   if (!lobby.host_id || !lobby.guest_id) return;
 
+  // ── prevMeta MUST be declared before any usage below ──────────────
+  const prevMeta = lobby.state?.meta ? lobby.state.meta : {};
+  const nextRound = Number(prevMeta.round || 0) + 1;
+
   // Randomize player numbers for THIS round, then write it once into meta.
   const { players } = makeRandomPlayers(lobby.host_id, lobby.guest_id);
 
@@ -2671,9 +2681,6 @@ async function ensureOnlineInitialized(lobby) {
   const timerSecs = Math.max(60, Math.min(1800, timerMins * 60));
   game.battleClockInitSec = timerSecs;
   game.battleClockSec = { 1: timerSecs, 2: timerSecs };
-
-  const prevMeta = lobby.state?.meta ? lobby.state.meta : {};
-  const nextRound = Number(prevMeta.round || 0) + 1;
 
   const initState = buildSyncedState({
     ...prevMeta,
@@ -3453,12 +3460,31 @@ watch(
     let tone = "good";
 
     if (!isOnline.value) {
+      // AI mode
+      if (screen.value === 'ai') {
+        const humanWon = w === 1;
+        const aiWon = w === 2;
+        if (humanWon) { aiScore.p1++; tryUnlockNextDifficulty(1, 1); }
+        else if (aiWon) aiScore.p2++;
+
+        const diffLabel = { dumbie:'Dumbie', elite:'Elite', tactician:'Tactician', grandmaster:'Grandmaster', legendary:'Legendary' }[aiDifficulty.value] || aiDifficulty.value;
+        title = humanWon ? "VICTORY" : w === 2 ? "DEFEAT" : "DRAW";
+        tone = humanWon ? "victory" : w === 2 ? "bad" : "good";
+        const scoreMsg = `Round ${aiRound.value}  ·  You ${aiScore.p1} – ${aiScore.p2} AI\nDifficulty: ${diffLabel}`;
+        showModal({
+          title,
+          message: `${winnerMessage(w ?? "?")} \n${scoreMsg}`,
+          tone,
+          actions: [
+            { label: "Next Round", tone: "primary", onClick: () => { closeModal(); nextAiRound(); } },
+            { label: "Main Menu", tone: "soft", onClick: () => { screen.value = 'mode'; } },
+          ],
+        });
+        return;
+      }
+      // Couch mode
       title = w ? `PLAYER ${w} WINS` : "MATCH ENDED";
       tone = w ? "victory" : "good";
-      // AI mode: check if player 1 won to unlock next difficulty
-      if (screen.value === 'ai' && w === 1) {
-        tryUnlockNextDifficulty(1, 1);
-      }
     } else {
       title = iWin ? "VICTORY" : w ? "DEFEAT" : "MATCH ENDED";
       tone = iWin ? "victory" : isBad ? "bad" : "good";
@@ -4277,6 +4303,10 @@ const aiUnlocks = ref(loadUnlocks());
 // VS AI picker overlay state
 const showVsAiPicker = ref(false);
 
+// AI round tracking
+const aiRound = ref(0);
+const aiScore = reactive({ p1: 0, p2: 0 }); // human vs AI wins
+
 // Unlock animation state
 const unlockAnim = reactive({ active: false, rank: '' });
 
@@ -4318,6 +4348,9 @@ function selectAiDifficulty(diff) {
 
 function _launchAi(diff) {
   aiDifficulty.value = diff;
+  aiRound.value = 1;
+  aiScore.p1 = 0;
+  aiScore.p2 = 0;
   stopPolling();
   myPlayer.value = null;
   screen.value = "ai";
@@ -4326,6 +4359,15 @@ function _launchAi(diff) {
   game.allowFlip = allowFlip.value;
   game.resetGame();
   tryPlayGameBgm();
+}
+
+function nextAiRound() {
+  aiRound.value++;
+  myPlayer.value = null;
+  game.boardW = 10;
+  game.boardH = 6;
+  game.allowFlip = allowFlip.value;
+  game.resetGame();
 }
 
 /* =========================
@@ -4835,7 +4877,10 @@ onMounted(() => {
     // AI mode: tick the battle clock for both players (P1 human timer, P2 AI timer)
     if (screen.value === 'ai' && game.phase === 'place') {
       game.tickBattleClock(Date.now());
-      // If AI loses on time, that's handled by game over watch
+    }
+    // Couch mode: tick the battle clock for the current player
+    if (screen.value === 'couch' && game.phase === 'place') {
+      game.tickBattleClock(Date.now());
     }
 
     if (!isOnline.value) return;
