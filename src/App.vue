@@ -1505,7 +1505,9 @@ const timerHud = computed(() => {
   if (game.phase === "draft") {
     if (!game.turnStartedAt) return null;
     const limit = game.turnLimitDraftSec || 30;
-    const left = Math.max(0, limit - (nowTick.value - game.turnStartedAt) / 1000);
+    // In online mode use server-corrected clock to avoid drift from DB latency
+    const now = isOnline.value ? serverNow() : nowTick.value;
+    const left = Math.max(0, limit - (now - game.turnStartedAt) / 1000);
     const s = Math.ceil(left);
     return { kind: "draft", seconds: s, value: `${s}s` };
   }
@@ -1751,6 +1753,11 @@ const online = reactive({
   waitingForOpponent: true,
   hostWaitStartedAt: null,
   lastHbSentAt: 0,
+
+  // Clock sync: offset between local Date.now() and server epoch (ms).
+  // server_time = Date.now() + serverTimeOffset
+  // Measured once at connect via round-trip ping.
+  serverTimeOffset: 0,
 
   // Supabase Realtime (near-instant sync)
   rtEnabled: false,
@@ -2200,8 +2207,9 @@ function getMyPlayerFromPlayers(players, myId) {
 }
 
 function deepClone(obj) {
-  // State is JSON-safe (plain objects/arrays), so JSON clone is fine and avoids reference races.
+  // Use structuredClone when available (much faster than JSON round-trip for plain objects/arrays)
   try {
+    if (typeof structuredClone === "function") return structuredClone(obj);
     return JSON.parse(JSON.stringify(obj));
   } catch {
     return obj;
@@ -2233,7 +2241,11 @@ function buildSyncedState(meta = {}) {
       remaining: deepClone(game.remaining),
       placedCount: game.placedCount,
 
-      turnStartedAt: game.turnStartedAt,
+      // Normalize turnStartedAt to server epoch so both clients share the same reference point.
+      // The receiving client's timerHud uses serverNow() to measure elapsed time against it.
+      turnStartedAt: game.turnStartedAt
+        ? game.turnStartedAt + (online?.serverTimeOffset || 0)
+        : game.turnStartedAt,
       matchInvalid: game.matchInvalid,
       matchInvalidReason: game.matchInvalidReason,
       turnLimitDraftSec: game.turnLimitDraftSec,
@@ -2293,7 +2305,10 @@ function applySyncedState(state) {
       remaining: g.remaining,
       placedCount: g.placedCount,
 
-      turnStartedAt: g.turnStartedAt,
+      // Convert turnStartedAt from server epoch back to local epoch using our measured offset
+      turnStartedAt: g.turnStartedAt
+        ? g.turnStartedAt - (online?.serverTimeOffset || 0)
+        : g.turnStartedAt,
       matchInvalid: g.matchInvalid,
       matchInvalidReason: g.matchInvalidReason,
       turnLimitDraftSec: g.turnLimitDraftSec,
@@ -2464,6 +2479,21 @@ async function pushMyState(reason = "") {
       online.lastAppliedVersion = Math.max(online.lastAppliedVersion || 0, updated.version);
       online.lastSeenUpdatedAt = updated.updated_at || null;
       online.localDirty = false;
+
+      // ── Broadcast the state over the realtime channel immediately ──
+      // The opponent receives this in ~30-80ms instead of waiting for postgres_changes (~200-500ms).
+      // The DB write above is still the source of truth; broadcast is just a fast delivery layer.
+      if (online.rtChannel && online.rtEnabled) {
+        try {
+          online.rtChannel.send({
+            type: "broadcast",
+            event: "move",
+            payload: { version: updated.version, state: snapshot },
+          });
+        } catch {
+          // non-fatal — postgres_changes is the fallback
+        }
+      }
     }
   } catch {
     // quiet
@@ -2543,6 +2573,21 @@ function setupRealtimeLobby(lobbyId) {
 
     const channel = sbRealtime
       .channel(`pb_lobby_${lobbyId}`)
+      // ── Broadcast: near-instant move delivery (bypasses DB write latency) ──
+      // Host and guest push move state via broadcast on every authoritative action.
+      // Latency: ~30-80ms vs ~200-500ms for postgres_changes.
+      .on("broadcast", { event: "move" }, (payload) => {
+        try {
+          const d = payload?.payload;
+          if (!d?.state || !d?.version) return;
+          const v = Number(d.version);
+          if (v && v <= Number(online.lastAppliedVersion || 0)) return;
+          online.lastAppliedVersion = v;
+          if (d.state?.game) applySyncedState(d.state);
+        } catch {
+          // ignore
+        }
+      })
       .on(
         "postgres_changes",
         { event: "UPDATE", schema: "public", table: "pb_lobbies", filter: `id=eq.${lobbyId}` },
@@ -2581,6 +2626,35 @@ function setupRealtimeLobby(lobbyId) {
   }
 }
 
+/**
+ * Measure server time offset via a lightweight round-trip to Supabase.
+ * server_time ≈ Date.now() + online.serverTimeOffset
+ * Uses the updated_at timestamp from the lobby row as a server time reference.
+ * This lets the timer use corrected timestamps so both clients share the same clock,
+ * eliminating timer drift caused by DB latency in turnStartedAt.
+ */
+async function measureServerTimeOffset() {
+  if (!online.lobbyId) return;
+  try {
+    const t0 = Date.now();
+    const lobby = await sbSelectLobbyById(online.lobbyId);
+    const t1 = Date.now();
+    if (!lobby?.updated_at) return;
+    const rtt = t1 - t0;
+    const serverTs = new Date(lobby.updated_at).getTime();
+    if (!serverTs) return;
+    // Estimate server time at round-trip midpoint
+    online.serverTimeOffset = serverTs - (t0 + rtt / 2);
+  } catch {
+    online.serverTimeOffset = 0;
+  }
+}
+
+/** Returns current time corrected by measured server offset */
+function serverNow() {
+  return Date.now() + (online.serverTimeOffset || 0);
+}
+
 function startPollingLobby(lobbyId, role) {
   // ✅ Prevent early clicks while the online screen + first poll are not fully rendered.
   startUiLock({ label: "Connecting…", hint: "Establishing link to lobby…", minMs: 900 });
@@ -2604,6 +2678,8 @@ function startPollingLobby(lobbyId, role) {
   myPlayer.value = null;
 
   // Near-instant sync via Supabase Realtime (polling remains as fallback + presence/TTL logic)
+  // Also measure server clock offset for timer sync
+  measureServerTimeOffset();
   setupRealtimeLobby(lobbyId);
 
   screen.value = "online";
@@ -2873,21 +2949,13 @@ watch(
     game.draftTurn,
     game.currentPlayer,
     game.winner,
-    JSON.stringify(game.draftBoard),
-    JSON.stringify(game.board),
-    JSON.stringify(game.pool),
-    JSON.stringify(game.picks),
-    JSON.stringify(game.remaining),
-    String(game.placedCount),
-    String(game.turnStartedAt),
-    String(game.matchInvalid),
-    String(game.matchInvalidReason),
-    String(game.winner),
-    JSON.stringify(game.lastMove),
-    JSON.stringify(game.battleClockSec),
-    String(game.battleClockLastTickAt),
-    JSON.stringify(game.rematch),
-    String(game.rematchDeclinedBy),
+    game.placedCount,
+    game.matchInvalid,
+    game.matchInvalidReason,
+    game.moveSeq,        // captures every authoritative state change (draft pick, place, timeout, surrender)
+    game.rematchDeclinedBy,
+    game.rematch?.[1],
+    game.rematch?.[2],
   ],
   () => {
     if (!isOnline.value) return;
@@ -4177,7 +4245,9 @@ onMounted(() => {
     if (!isOnline.value) return;
     if (!myPlayer.value) return;
 
-    const changed = game.checkAndApplyTimeout?.(nowTick.value);
+    // Use server-corrected time for timeout checks to avoid false timeouts from clock drift
+    const t = serverNow();
+    const changed = game.checkAndApplyTimeout?.(t);
     if (changed) {
       // If a timeout just triggered, confirm against server once to avoid false timeouts
       // when the opponent placed a move right on the edge.

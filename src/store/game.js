@@ -264,15 +264,19 @@ export const useGameStore = defineStore("game", {
     // Local-only snapshot helper (Couch Play undo)
     _pushHistory(label = "") {
       try {
+        const clone = typeof structuredClone === "function"
+          ? (v) => structuredClone(v)
+          : (v) => JSON.parse(JSON.stringify(v));
+
         const snap = {
           label,
           at: Date.now(),
           phase: this.phase,
           currentPlayer: this.currentPlayer,
-          pool: JSON.parse(JSON.stringify(this.pool)),
-          picks: JSON.parse(JSON.stringify(this.picks)),
+          pool: clone(this.pool),
+          picks: clone(this.picks),
           draftTurn: this.draftTurn,
-          remaining: JSON.parse(JSON.stringify(this.remaining)),
+          remaining: clone(this.remaining),
           placedCount: this.placedCount,
           selectedPieceKey: this.selectedPieceKey,
           rotation: this.rotation,
@@ -280,15 +284,15 @@ export const useGameStore = defineStore("game", {
           allowFlip: this.allowFlip,
           boardW: this.boardW,
           boardH: this.boardH,
-          board: JSON.parse(JSON.stringify(this.board)),
-          draftBoard: JSON.parse(JSON.stringify(this.draftBoard)),
+          board: clone(this.board),
+          draftBoard: clone(this.draftBoard),
           winner: this.winner,
           moveSeq: this.moveSeq,
-          lastMove: JSON.parse(JSON.stringify(this.lastMove)),
+          lastMove: clone(this.lastMove),
           turnStartedAt: this.turnStartedAt,
           matchInvalid: this.matchInvalid,
           matchInvalidReason: this.matchInvalidReason,
-          battleClockSec: JSON.parse(JSON.stringify(this.battleClockSec)),
+          battleClockSec: clone(this.battleClockSec),
           battleClockLastTickAt: this.battleClockLastTickAt,
         };
         if (!Array.isArray(this.history)) this.history = [];
@@ -634,38 +638,58 @@ export const useGameStore = defineStore("game", {
       const pieces = this.remaining[player];
       if (!pieces.length) return false;
 
-      const saved = {
-        currentPlayer: this.currentPlayer,
-        selectedPieceKey: this.selectedPieceKey,
-        rotation: this.rotation,
-        flipped: this.flipped,
-      };
-
-      this.currentPlayer = player;
-      const flipOptions = this.allowFlip ? [false, true] : [false];
+      // Check directly without mutating store state - avoids triggering reactivity
+      const board = this.board;
+      const boardW = this.boardW;
+      const boardH = this.boardH;
+      const placedCount = this.placedCount;
+      const allowFlip = this.allowFlip;
+      const flipOptions = allowFlip ? [false, true] : [false];
+      const dirs = [[1,0],[-1,0],[0,1],[0,-1]];
 
       for (const pk of pieces) {
-        this.selectedPieceKey = pk;
+        const baseCells = PENTOMINOES[pk];
 
         for (const f of flipOptions) {
-          this.flipped = f;
-
           for (let r = 0; r < 4; r++) {
-            this.rotation = r;
+            const shape = transformCells(baseCells, r, f);
 
-            for (let y = 0; y < this.boardH; y++) {
-              for (let x = 0; x < this.boardW; x++) {
-                if (this.canPlaceAt(x, y)) {
-                  Object.assign(this, saved);
-                  return true;
+            for (let ay = 0; ay < boardH; ay++) {
+              for (let ax = 0; ax < boardW; ax++) {
+                // Check bounds + overlap
+                let valid = true;
+                const abs = [];
+                for (const [dx, dy] of shape) {
+                  const x = ax + dx, y = ay + dy;
+                  if (x < 0 || y < 0 || x >= boardW || y >= boardH || board[y][x] !== null) {
+                    valid = false;
+                    break;
+                  }
+                  abs.push([x, y]);
                 }
+                if (!valid) continue;
+
+                // First move anywhere
+                if (placedCount === 0) return true;
+
+                // Must touch existing
+                let touches = false;
+                outer: for (const [x, y] of abs) {
+                  for (const [ox, oy] of dirs) {
+                    const nx = x + ox, ny = y + oy;
+                    if (nx >= 0 && ny >= 0 && nx < boardW && ny < boardH && board[ny][nx] !== null) {
+                      touches = true;
+                      break outer;
+                    }
+                  }
+                }
+                if (touches) return true;
               }
             }
           }
         }
       }
 
-      Object.assign(this, saved);
       return false;
     },
 

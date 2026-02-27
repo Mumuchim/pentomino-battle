@@ -302,46 +302,35 @@ const gridStyle = computed(() => ({
 /* ---------------------------
    PLACE phase ghost preview
 ---------------------------- */
-const ghost = computed(() => {
-  if (!game.ui?.enableHoverPreview) return { map: new Set(), ok: false };
-  if (game.phase !== "place") return { map: new Set(), ok: false };
-  if (!game.selectedPieceKey) return { map: new Set(), ok: false };
+// Single computed for both ghost map (cell classes) and overlay blocks
+const ghostData = computed(() => {
+  const empty = { map: new Set(), ok: false, visible: false, blocks: [], staged: false };
+  if (!game.ui?.enableHoverPreview) return empty;
+  if (game.phase !== "place") return empty;
+  if (!game.selectedPieceKey) return empty;
 
-  // Use hover when actively dragging/hovering, otherwise fall back to pendingPlace
   const pos = hover.value ?? game.pendingPlace;
-  if (!pos) return { map: new Set(), ok: false };
+  if (!pos) return empty;
 
   const ok = game.canPlaceAt(pos.x, pos.y);
-  const set = new Set();
+  const map = new Set();
+  const blocks = [];
 
   for (const [dx, dy] of game.selectedCells) {
     const x = pos.x + dx;
     const y = pos.y + dy;
     if (x >= 0 && y >= 0 && x < game.boardW && y < game.boardH) {
-      set.add(`${x},${y}`);
+      map.add(`${x},${y}`);
     }
+    blocks.push({ x: pos.x + dx, y: pos.y + dy });
   }
-  return { map: set, ok };
-});
 
-const ghostOverlay = computed(() => {
-  if (!game.ui?.enableHoverPreview) return { visible: false };
-  if (game.phase !== "place") return { visible: false };
-  if (!game.selectedPieceKey) return { visible: false };
-
-  // Use hover when actively dragging/hovering, otherwise fall back to pendingPlace
-  const pos = hover.value ?? game.pendingPlace;
-  if (!pos) return { visible: false };
-
-  const ok = game.canPlaceAt(pos.x, pos.y);
-  const blocks = game.selectedCells.map(([dx, dy]) => ({
-    x: pos.x + dx,
-    y: pos.y + dy,
-  }));
   const staged = !hover.value && !!game.pendingPlace;
-
-  return { visible: true, ok, blocks, staged };
+  return { map, ok, visible: true, blocks, staged };
 });
+
+const ghost = computed(() => ghostData.value);
+const ghostOverlay = computed(() => ghostData.value);
 
 function setHover(x, y) {
   if (!game.ui?.enableHoverPreview) return;
