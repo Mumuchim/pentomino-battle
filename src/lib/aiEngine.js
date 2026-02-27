@@ -79,60 +79,60 @@ function floodFillRegions(board, W, H) {
  * distinguish "I own this area" from "we both reach it".
  */
 function voronoiTerritory(board, W, H, ap, hp) {
-  // dist[y][x] = { d: steps, p: playerNum, contested: bool }
-  const dist   = new Array(H * W).fill(null).map(() => ({ d: Infinity, p: 0, contested: false }));
-  const q      = [];  // [x, y, dist, player]
+  // Compute two distance fields (AI and Human) and compare.
+  // This avoids bias from contested propagation edge-cases.
+  function distFrom(player) {
+    const dist = new Array(H * W).fill(Infinity);
+    const q = [];
+    let qi = 0;
 
-  for (let y = 0; y < H; y++) {
-    for (let x = 0; x < W; x++) {
-      const p = board[y][x]?.player;
-      // Only treat valid player ids as Voronoi sources (avoid falsy traps)
-      if (p !== ap && p !== hp) continue;
-      const k = y * W + x;
-      dist[k] = { d: 0, p, contested: false };
-      q.push([x, y, 0, p]);
+    for (let y = 0; y < H; y++) {
+      for (let x = 0; x < W; x++) {
+        const p = board[y][x]?.player;
+        if (p !== player) continue;
+        const k = y * W + x;
+        dist[k] = 0;
+        q.push([x, y]);
+      }
     }
+
+    while (qi < q.length) {
+      const [cx, cy] = q[qi++];
+      const cd = dist[cy * W + cx];
+      for (const [ox, oy] of DIRS) {
+        const nx = cx + ox, ny = cy + oy;
+        if (nx < 0 || ny < 0 || nx >= W || ny >= H) continue;
+        if (board[ny][nx] !== null) continue; // cannot pass through occupied
+        const nk = ny * W + nx;
+        const nd = cd + 1;
+        if (nd < dist[nk]) {
+          dist[nk] = nd;
+          q.push([nx, ny]);
+        }
+      }
+    }
+    return dist;
   }
+
+  const da = distFrom(ap);
+  const dh = distFrom(hp);
 
   let apTerritory = 0, hpTerritory = 0;
-  let qi = 0;
-  while (qi < q.length) {
-    const [cx, cy, cd, cp] = q[qi++];
-    for (const [ox, oy] of DIRS) {
-      const nx = cx+ox, ny = cy+oy;
-      if (nx < 0 || ny < 0 || nx >= W || ny >= H) continue;
-      if (board[ny][nx] !== null) continue;  // already occupied
-      const nk  = ny * W + nx;
-      const nd  = cd + 1;
-      const cur = dist[nk];
-      // Important: do NOT freeze propagation through contested cells.
-      // We keep distance fields consistent and only mark contested for scoring.
-      if (cur.d < nd) continue;              // already claimed closer
-      if (cur.d === nd && cur.p !== cp) {
-        // tie → contested at this distance (but keep d so propagation stays correct)
-        dist[nk] = { d: nd, p: 0, contested: true };
-        // still allow propagation from this frontier cell
-        q.push([nx, ny, nd, cp]);
-        continue;
-      }
-      // first claim or strictly better
-      dist[nk] = { d: nd, p: cp, contested: false };
-      q.push([nx, ny, nd, cp]);
-    }
-  }
-
   for (let y = 0; y < H; y++) {
     for (let x = 0; x < W; x++) {
       if (board[y][x] !== null) continue;
-      const { p, contested } = dist[y * W + x];
-      if (contested) { apTerritory += 0.5; hpTerritory += 0.5; }
-      else if (p === ap) apTerritory++;
-      else if (p === hp) hpTerritory++;
+      const k = y * W + x;
+      const a = da[k], h = dh[k];
+      if (!isFinite(a) && !isFinite(h)) continue;
+      if (a < h) apTerritory++;
+      else if (h < a) hpTerritory++;
+      else { apTerritory += 0.5; hpTerritory += 0.5; }
     }
   }
 
   return { ap: apTerritory, hp: hpTerritory };
 }
+
 
 /** Net territory advantage for AI using Voronoi. */
 function territoryAdvantage(board, W, H, ap, hp) {
@@ -178,50 +178,28 @@ function regionFeasibilityBonus(regions, board, W, H, hp) {
  * Contested cells (adjacent to both) are scored 0.
  */
 function frontierScore(simBoard, W, H, ap, hp) {
-  // Stronger + less gamey than simple +/- counting:
-  // each empty cell contributes (aiTouches - hpTouches), clipped.
+  // Score empty cells by adjacency-touch difference.
+  // Contested frontier matters: if AI touches a cell more than the opponent, that's influence.
   let net = 0;
   for (let y = 0; y < H; y++) {
     for (let x = 0; x < W; x++) {
       if (simBoard[y][x] !== null) continue;
-      let aiTouch = 0, hpTouch = 0;
+      let aiT = 0, hpT = 0;
       for (const [ox, oy] of DIRS) {
         const nx = x+ox, ny = y+oy;
         if (nx < 0 || ny < 0 || nx >= W || ny >= H) continue;
         const p = simBoard[ny][nx]?.player;
-        if (p === ap) aiTouch++;
-        if (p === hp) hpTouch++;
+        if (p === ap) aiT++;
+        else if (p === hp) hpT++;
       }
-      if (aiTouch === 0 && hpTouch === 0) continue;
-      // Clip so a single cell can't explode score
-      const d = Math.max(-2, Math.min(2, aiTouch - hpTouch));
+      if (aiT === 0 && hpT === 0) continue;
+      const d = Math.max(-2, Math.min(2, aiT - hpT)); // clip to avoid domination by a few cells
       net += d;
     }
   }
-  return net * 3.0;  // slightly reduced since this version is richer
+  return net * 3.0;
 }
 
-// ─────────────────────────────────────────────────────────────────────
-//  FAST CACHES (keyed by compact 60-cell signature)
-//  Legendary/Grandmaster call move generation a lot; caching is a free boost.
-// ─────────────────────────────────────────────────────────────────────
-
-function boardSig(board, W, H) {
-  // 60 cells → 60 chars, stable + fast
-  let s = '';
-  for (let y = 0; y < H; y++) {
-    for (let x = 0; x < W; x++) {
-      const p = board[y][x]?.player;
-      s += (p === 1 ? '1' : p === 2 ? '2' : '0');
-    }
-  }
-  return s;
-}
-
-function remSig(remaining, p) {
-  const arr = (remaining[p] || []).slice().sort();
-  return arr.join('');
-}
 
 /**
  * Zone sealing bonus.
@@ -324,20 +302,40 @@ function pieceEfficiencyScore(abs, simBoard, W, H, ap) {
 // ─────────────────────────────────────────────────────────────────────
 
 export function createAiEngine({ game, aiPlayer, humanPlayer, aiDifficulty, PENTOMINOES, transformCells }) {
+  // ── Caches (speed + stronger search) ─────────────────────────────
+  const _moveCache = new Map();
+  const _moveCountCache = new Map();
+  const _feasibleCache = new Map();
 
-  // Caches (cleared naturally per engine instance).
-  const moveCache = new Map();
-  const totalMoveCache = new Map();
-  const feasibleCache = new Map();
-
-  function cacheKey(board, boardW, boardH, playerNum, remaining, placedCount, allowFlip) {
-    // placedCount only matters as a boolean gate for adjacency.
-    const pc = placedCount > 0 ? 1 : 0;
-    const af = allowFlip ? 1 : 0;
-    return `${playerNum}|${pc}|${af}|${boardSig(board, boardW, boardH)}|${remSig(remaining, playerNum)}`;
+  function _boardSig(board, W, H) {
+    // 60-char signature: '.' empty, '1' player1, '2' player2 (others treated as 'X')
+    let s = '';
+    for (let y = 0; y < H; y++) {
+      for (let x = 0; x < W; x++) {
+        const cell = board[y][x];
+        if (cell === null) s += '.';
+        else if (cell?.player === 1) s += '1';
+        else if (cell?.player === 2) s += '2';
+        else s += 'X';
+      }
+    }
+    return s;
   }
 
+  function _remKey(remaining, playerNum) {
+    return (remaining[playerNum] || []).slice().sort().join('');
+  }
+
+  function _mkKey(prefix, playerNum, board, W, H, remaining, placedCount, allowFlip) {
+    return prefix + '|' + playerNum + '|' + placedCount + '|' + (allowFlip ? 1 : 0) + '|' + _remKey(remaining, playerNum) + '|' + _boardSig(board, W, H);
+  }
+
+
   function movesOnBoard(playerNum, board, boardW, boardH, remaining, placedCount, allowFlip) {
+    const _key = _mkKey('moves', playerNum, board, boardW, boardH, remaining, placedCount, allowFlip);
+    const _cached = _moveCache.get(_key);
+    if (_cached) return _cached;
+
     const pieces = [...(remaining[playerNum] || [])];
     const flipOptions = allowFlip ? [false, true] : [false];
     const moves = [];
@@ -380,29 +378,19 @@ export function createAiEngine({ game, aiPlayer, humanPlayer, aiDifficulty, PENT
         }
       }
     }
+    _moveCache.set(_key, moves);
     return moves;
-  }
-
-  function getMovesCached(playerNum, board, boardW, boardH, remaining, placedCount, allowFlip) {
-    const k = cacheKey(board, boardW, boardH, playerNum, remaining, placedCount, allowFlip);
-    const hit = moveCache.get(k);
-    if (hit) return hit;
-    const mv = movesOnBoard(playerNum, board, boardW, boardH, remaining, placedCount, allowFlip);
-    // small guardrail to avoid unbounded growth
-    if (moveCache.size > 600) moveCache.clear();
-    moveCache.set(k, mv);
-    return mv;
   }
 
   function getAllValidMoves() {
     const { boardW, boardH, board, placedCount, allowFlip, remaining } = game;
-    return getMovesCached(aiPlayer.value, board, boardW, boardH, remaining, placedCount, allowFlip);
+    return movesOnBoard(aiPlayer.value, board, boardW, boardH, remaining, placedCount, allowFlip);
   }
 
   function countFeasiblePieces(board, boardW, boardH, playerNum, remaining, placedCount, allowFlip) {
-    const k = cacheKey(board, boardW, boardH, playerNum, remaining, placedCount, allowFlip);
-    const hit = feasibleCache.get(k);
-    if (hit !== undefined) return hit;
+    const _k = _mkKey('feasible', playerNum, board, boardW, boardH, remaining, placedCount, allowFlip);
+    const _c = _feasibleCache.get(_k);
+    if (_c !== undefined) return _c;
     const pieces = remaining[playerNum] || [];
     const flipOptions = allowFlip ? [false, true] : [false];
     let feasible = 0;
@@ -446,42 +434,52 @@ export function createAiEngine({ game, aiPlayer, humanPlayer, aiDifficulty, PENT
         }
       }
     }
-    if (feasibleCache.size > 600) feasibleCache.clear();
-    feasibleCache.set(k, feasible);
+    _feasibleCache.set(_k, feasible);
     return feasible;
   }
 
   function countTotalMoves(board, boardW, boardH, playerNum, remaining, placedCount, allowFlip) {
-    const k = cacheKey(board, boardW, boardH, playerNum, remaining, placedCount, allowFlip);
-    const hit = totalMoveCache.get(k);
-    if (hit !== undefined) return hit;
-    const n = getMovesCached(playerNum, board, boardW, boardH, remaining, placedCount, allowFlip).length;
-    if (totalMoveCache.size > 600) totalMoveCache.clear();
-    totalMoveCache.set(k, n);
-    return n;
+    const _k = _mkKey('movecount', playerNum, board, boardW, boardH, remaining, placedCount, allowFlip);
+    const _c = _moveCountCache.get(_k);
+    if (_c !== undefined) return _c;
+    const v = movesOnBoard(playerNum, board, boardW, boardH, remaining, placedCount, allowFlip).length;
+    _moveCountCache.set(_k, v);
+    return v;
   }
 
-  /** Quick score using Voronoi territory for lookahead. */
-  function quickScore(simBoard, ap, hp, boardW, boardH) {
-    // Tiny trap awareness makes lookahead drastically stronger.
-    const t = territoryAdvantage(simBoard, boardW, boardH, ap, hp);
-    const regions = floodFillRegions(simBoard, boardW, boardH);
-    const trap = regionFeasibilityBonus(regions, simBoard, boardW, boardH, hp);
-    return t * 6.0 + trap * 0.25;
-  }
+  /** Quick score (used for lookahead pruning). */
+function quickScore(simBoard, ap, hp, boardW, boardH) {
+  // Fast but trap-aware: territory + light infeasibility + light frontier.
+  const t = territoryAdvantage(simBoard, boardW, boardH, ap, hp);
+  const regs = floodFillRegions(simBoard, boardW, boardH);
+  const trap = regionFeasibilityBonus(regs, simBoard, boardW, boardH, hp);
+  const fr = frontierScore(simBoard, boardW, boardH, ap, hp);
+  return t * 6.0 + trap * 0.12 + fr * 0.15;
+}
 
   function simulateOpponentResponse(simBoard, ap, hp, boardW, boardH, remaining, placedCount, allowFlip) {
-    const oppMoves = getMovesCached(hp, simBoard, boardW, boardH, remaining, placedCount, allowFlip);
-    if (!oppMoves.length) return quickScore(simBoard, ap, hp, boardW, boardH);
-    let worst = Infinity;
-    for (const om of oppMoves) {
-      const after = simBoard.map(r => [...r]);
-      for (const [x, y] of om.abs) after[y][x] = { player: hp, pieceKey: om.pk };
-      const s = quickScore(after, ap, hp, boardW, boardH);
-      if (s < worst) worst = s;
-    }
-    return worst;
+  const oppMoves = movesOnBoard(hp, simBoard, boardW, boardH, remaining, placedCount, allowFlip);
+  if (!oppMoves.length) return quickScore(simBoard, ap, hp, boardW, boardH);
+
+  // Beam prune opponent replies by quickScore (from opponent POV => minimize AI score).
+  const beamN = Math.min(18, oppMoves.length);
+  const scored = oppMoves.map(m => {
+    const after = simBoard.map(r => [...r]);
+    for (const [x, y] of m.abs) after[y][x] = { player: hp, pieceKey: m.pk };
+    // AI perspective: opponent wants this as low as possible.
+    return { m, s: quickScore(after, ap, hp, boardW, boardH) };
+  }).sort((a,b)=>a.s-b.s);
+
+  let worst = Infinity;
+  for (const { m } of scored.slice(0, beamN)) {
+    const after = simBoard.map(r => [...r]);
+    for (const [x, y] of m.abs) after[y][x] = { player: hp, pieceKey: m.pk };
+    const s = quickScore(after, ap, hp, boardW, boardH);
+    if (s < worst) worst = s;
   }
+  return worst;
+}
+
 
   // ── Endgame solver: full enumeration when ≤3 pieces remain ─────────
   function endgameSolve(moves) {
@@ -529,172 +527,180 @@ export function createAiEngine({ game, aiPlayer, humanPlayer, aiDifficulty, PENT
   }
 
   // ── ELITE ──────────────────────────────────────────────────────────
-  function movesNormal(moves) {
-    if (!moves.length) return null;
-    const { board, boardW, boardH } = game;
-    const ap = aiPlayer.value, hp = humanPlayer.value;
-    let best = null, bestScore = -Infinity;
-    for (const m of moves) {
-      // Elite: still has noise, but understands space (Voronoi) and traps lightly.
-      let s = Math.random() * 0.25;
-      for (const [x, y] of m.abs) {
-        for (const [ox, oy] of DIRS) {
-          const nx = x+ox, ny = y+oy;
-          if (nx < 0 || ny < 0 || nx >= boardW || ny >= boardH) continue;
-          const cell = board[ny][nx];
-          if (cell?.player === ap) s += 2.0;
-          if (cell?.player === hp) s += 0.8;
-        }
-        if (x > 0 && x < boardW-1 && y > 0 && y < boardH-1) s += 0.15;
+
+// ── ELITE ──────────────────────────────────────────────────────────
+function movesNormal(moves) {
+  if (!moves.length) return null;
+  const { board, boardW, boardH, remaining, placedCount, allowFlip } = game;
+  const ap = aiPlayer.value, hp = humanPlayer.value;
+
+  // Mildly smarter than random: adjacency + small territory + small trap awareness.
+  let best = null, bestScore = -Infinity;
+  const oppMobBefore = countTotalMoves(board, boardW, boardH, hp, remaining, placedCount, allowFlip);
+
+  for (const m of moves) {
+    const sim = board.map(r => [...r]);
+    for (const [x, y] of m.abs) sim[y][x] = { player: ap, pieceKey: m.pk };
+
+    let s = 0;
+    // adjacency
+    for (const [x, y] of m.abs) {
+      for (const [ox, oy] of DIRS) {
+        const nx = x+ox, ny = y+oy;
+        if (nx < 0 || ny < 0 || nx >= boardW || ny >= boardH) continue;
+        const cell = board[ny][nx];
+        if (cell?.player === ap) s += 2.0;
+        if (cell?.player === hp) s += 1.0;
       }
-      // Light simulation: discourage obviously losing space.
-      const sim = board.map(r => [...r]);
-      for (const [x, y] of m.abs) sim[y][x] = { player: ap, pieceKey: m.pk };
-      const tAdv = territoryAdvantage(sim, boardW, boardH, ap, hp);
-      const regions = floodFillRegions(sim, boardW, boardH);
-      s += tAdv * 2.0;
-      s += regionFeasibilityBonus(regions, sim, boardW, boardH, hp) * 0.12;
-      if (s > bestScore) { bestScore = s; best = m; }
     }
-    return best;
+
+    // small territory + frontier
+    s += territoryAdvantage(sim, boardW, boardH, ap, hp) * 2.5;
+    s += frontierScore(sim, boardW, boardH, ap, hp) * 0.35;
+
+    // avoid blunders that create tiny dead pockets
+    const regs = floodFillRegions(sim, boardW, boardH);
+    s += regionFeasibilityBonus(regs, sim, boardW, boardH, hp) * 0.25;
+
+    // slight mobility pressure
+    const remAfter = {
+      [ap]: (remaining[ap]||[]).filter(pk => pk !== m.pk),
+      [hp]: [...(remaining[hp]||[])],
+    };
+    const oppMobAfter = countTotalMoves(sim, boardW, boardH, hp, remAfter, placedCount+1, allowFlip);
+    s += (oppMobBefore - oppMobAfter) * 0.35;
+
+    // light compactness
+    s += pieceEfficiencyScore(m.abs, sim, boardW, boardH, ap) * 0.12;
+
+    // keep a little variety (elite isn't perfect)
+    s += Math.random() * 0.25;
+
+    if (s > bestScore) { bestScore = s; best = m; }
   }
+  return best;
+}
 
   // ── TACTICIAN ─────────────────────────────────────────────────────
-  function movesTactician(moves) {
-    if (!moves.length) return null;
-    const { board, boardW, boardH, remaining } = game;
-    const DIAG = [[1,1],[1,-1],[-1,1],[-1,-1]];
-    const ap = aiPlayer.value, hp = humanPlayer.value;
 
-    if ((remaining[ap]?.length||0) <= 3 || (remaining[hp]?.length||0) <= 3)
-      return endgameSolve(moves);
+// ── TACTICIAN ─────────────────────────────────────────────────────
+function movesTactician(moves) {
+  if (!moves.length) return null;
+  const { board, boardW, boardH, remaining, placedCount, allowFlip } = game;
+  const ap = aiPlayer.value, hp = humanPlayer.value;
 
-    // Pass 1: fast adjacency pre-score + small territory hint
-    const scored = moves.map(m => {
-      let s = Math.random() * 0.04;
-      for (const [x, y] of m.abs) {
-        for (const [ox, oy] of DIRS) {
-          const nx = x+ox, ny = y+oy;
-          if (nx < 0 || ny < 0 || nx >= boardW || ny >= boardH) continue;
-          const cell = board[ny][nx];
-          if (cell?.player === ap) s += 3.0;
-          if (cell?.player === hp) s += 2.2;
-        }
-        for (const [ox, oy] of DIAG) {
-          const nx = x+ox, ny = y+oy;
-          if (nx < 0 || ny < 0 || nx >= boardW || ny >= boardH) continue;
-          if (board[ny][nx]?.player === ap) s += 0.30;
-        }
-        s += Math.min(x, boardW-1-x, y, boardH-1-y) * 0.25;
-      }
-      // small territory hint for better pruning
-      const sim = board.map(r => [...r]);
-      for (const [x2, y2] of m.abs) sim[y2][x2] = { player: ap, pieceKey: m.pk };
-      s += territoryAdvantage(sim, boardW, boardH, ap, hp) * 1.5;
-      return { m, s };
-    });
-    scored.sort((a, b) => b.s - a.s);
+  if ((remaining[ap]?.length||0) <= 3 || (remaining[hp]?.length||0) <= 3)
+    return endgameSolve(moves);
 
-    // Pass 2: deep region + territory analysis on top-16 (tactician is now meaningfully stronger)
-    let best = null, bestScore = -Infinity;
-    for (const { m } of scored.slice(0, 16)) {
-      const sim = board.map(r => [...r]);
-      for (const [x, y] of m.abs) sim[y][x] = { player: ap, pieceKey: m.pk };
-      const regions = floodFillRegions(sim, boardW, boardH);
+  // Pass 1: territory-based prescore (beam pruning)
+  const prescored = moves.map(m => {
+    const sim = board.map(r => [...r]);
+    for (const [x, y] of m.abs) sim[y][x] = { player: ap, pieceKey: m.pk };
+    return { m, s: quickScore(sim, ap, hp, boardW, boardH) };
+  }).sort((a,b)=>b.s-a.s);
 
-      let score = territoryAdvantage(sim, boardW, boardH, ap, hp) * 6.5;
-      score += regionFeasibilityBonus(regions, sim, boardW, boardH, hp);
-      score += zoneClaimBonus(m.abs, sim, boardW, boardH) * 0.7;
-      score += pieceEfficiencyScore(m.abs, sim, boardW, boardH, ap) * 0.6;
+  let best = null, bestScore = -Infinity;
+  for (const { m } of prescored.slice(0, 20)) {
+    const sim = board.map(r => [...r]);
+    for (const [x, y] of m.abs) sim[y][x] = { player: ap, pieceKey: m.pk };
 
-      for (const [x, y] of m.abs) {
-        for (const [ox, oy] of DIRS) {
-          const nx = x+ox, ny = y+oy;
-          if (nx < 0 || ny < 0 || nx >= boardW || ny >= boardH) continue;
-          const cell = board[ny][nx];
-          if (cell?.player === ap) score += 3.0;
-          if (cell?.player === hp) score += 2.2;
-        }
-        score += Math.min(x, boardW-1-x, y, boardH-1-y) * 0.25;
-      }
-      if (score > bestScore) { bestScore = score; best = m; }
-    }
-    return best;
+    const regs = floodFillRegions(sim, boardW, boardH);
+
+    let score = 0;
+    score += territoryAdvantage(sim, boardW, boardH, ap, hp) * 7.0;
+    score += regionFeasibilityBonus(regs, sim, boardW, boardH, hp);
+    score += zoneClaimBonus(m.abs, sim, boardW, boardH) * 0.8;
+    score += frontierScore(sim, boardW, boardH, ap, hp) * 0.6;
+    score += pieceEfficiencyScore(m.abs, sim, boardW, boardH, ap) * 0.75;
+
+    // mobility pressure (lighter than GM+)
+    const remAfter = {
+      [ap]: (remaining[ap]||[]).filter(pk => pk !== m.pk),
+      [hp]: [...(remaining[hp]||[])],
+    };
+    const oppMobBefore = countTotalMoves(board, boardW, boardH, hp, remaining, placedCount, allowFlip);
+    const oppMobAfter = countTotalMoves(sim, boardW, boardH, hp, remAfter, placedCount+1, allowFlip);
+    score += (oppMobBefore - oppMobAfter) * 1.2;
+
+    // small lookahead (1-ply)
+    score += simulateOpponentResponse(sim, ap, hp, boardW, boardH, remAfter, placedCount+1, allowFlip) * 0.35;
+
+    // tiny noise so tactician isn't robotic
+    score += Math.random() * 0.08;
+
+    if (score > bestScore) { bestScore = score; best = m; }
   }
+  return best;
+}
 
   // ── GRANDMASTER ───────────────────────────────────────────────────
-  function movesGrandmaster(moves) {
-    if (!moves.length) return null;
-    const { board, boardW, boardH, remaining, placedCount, allowFlip } = game;
-    const ap = aiPlayer.value, hp = humanPlayer.value;
-    const humanPieceCount = (remaining[hp] || []).length;
 
-    if ((remaining[ap]?.length||0) <= 3 || (remaining[hp]?.length||0) <= 3)
-      return endgameSolve(moves);
+// ── GRANDMASTER ───────────────────────────────────────────────────
+function movesGrandmaster(moves) {
+  if (!moves.length) return null;
+  const { board, boardW, boardH, remaining, placedCount, allowFlip } = game;
+  const ap = aiPlayer.value, hp = humanPlayer.value;
+  const humanPieceCount = (remaining[hp] || []).length;
 
-    const oppMobilityBefore = countTotalMoves(board, boardW, boardH, hp, remaining, placedCount, allowFlip);
+  if ((remaining[ap]?.length||0) <= 3 || (remaining[hp]?.length||0) <= 3)
+    return endgameSolve(moves);
 
-    // Pass 1: Voronoi-based pre-score (not reachableFrom!) for beam pruning
-    const scored = moves.map(m => {
-      const sim = board.map(r => [...r]);
-      for (const [x, y] of m.abs) sim[y][x] = { player: ap, pieceKey: m.pk };
-      return { m, s: territoryAdvantage(sim, boardW, boardH, ap, hp) };
-    });
-    scored.sort((a, b) => b.s - a.s);
+  const oppMobilityBefore = countTotalMoves(board, boardW, boardH, hp, remaining, placedCount, allowFlip);
 
-    // Wider beam = fewer good moves pruned.
-    let best = null, bestScore = -Infinity;
-    for (const { m } of scored.slice(0, 14)) {
-      const sim = board.map(r => [...r]);
-      for (const [x, y] of m.abs) sim[y][x] = { player: ap, pieceKey: m.pk };
+  // Beam prune by quickScore (trap-aware)
+  const prescored = moves.map(m => {
+    const sim = board.map(r => [...r]);
+    for (const [x, y] of m.abs) sim[y][x] = { player: ap, pieceKey: m.pk };
+    return { m, s: quickScore(sim, ap, hp, boardW, boardH) };
+  }).sort((a,b)=>b.s-a.s);
 
-      const remAfter = {
-        [ap]: (remaining[ap]||[]).filter(pk => pk !== m.pk),
-        [hp]: [...(remaining[hp]||[])],
-      };
+  let best = null, bestScore = -Infinity;
+  for (const { m } of prescored.slice(0, 18)) {
+    const sim = board.map(r => [...r]);
+    for (const [x, y] of m.abs) sim[y][x] = { player: ap, pieceKey: m.pk };
 
-      // Voronoi territory — the correct metric
-      const tAdv = territoryAdvantage(sim, boardW, boardH, ap, hp);
-      let score = tAdv * 10.0;
+    const remAfter = {
+      [ap]: (remaining[ap]||[]).filter(pk => pk !== m.pk),
+      [hp]: [...(remaining[hp]||[])],
+    };
 
-      // Mobility destruction (reduced weight — don't let it override territory)
-      const oppMobAfter = countTotalMoves(sim, boardW, boardH, hp, remAfter, placedCount+1, allowFlip);
-      score += (oppMobilityBefore - oppMobAfter) * 3.0;
+    const tAdv = territoryAdvantage(sim, boardW, boardH, ap, hp);
+    let score = tAdv * 11.0;
 
-      const regions = floodFillRegions(sim, boardW, boardH);
-      score += regionFeasibilityBonus(regions, sim, boardW, boardH, hp);
-      score += zoneSealBonus(regions, board, sim, boardW, boardH, hp);
-      score += zoneClaimBonus(m.abs, sim, boardW, boardH);
-      score += frontierScore(sim, boardW, boardH, ap, hp);
-      score += pieceEfficiencyScore(m.abs, sim, boardW, boardH, ap);
+    // Mobility destruction
+    const oppMobAfter = countTotalMoves(sim, boardW, boardH, hp, remAfter, placedCount+1, allowFlip);
+    score += (oppMobilityBefore - oppMobAfter) * 4.0;
 
-      let lockedPenalty = 0;
-      for (const reg of regions) {
-        if (reg.length <= 4)                    score += (5 - reg.length) * 8.0;
-        if (reg.length % 5 === 0)               score -= 1.5;
-        if (reg.length === 5 * humanPieceCount) lockedPenalty += 3.0;
-      }
-      score -= lockedPenalty;
+    const regions = floodFillRegions(sim, boardW, boardH);
+    score += regionFeasibilityBonus(regions, sim, boardW, boardH, hp);
+    score += zoneSealBonus(regions, board, sim, boardW, boardH, hp);
+    score += zoneClaimBonus(m.abs, sim, boardW, boardH);
+    score += frontierScore(sim, boardW, boardH, ap, hp);
+    score += pieceEfficiencyScore(m.abs, sim, boardW, boardH, ap);
 
-      // 1-ply lookahead
-      // 1-ply lookahead using improved quickScore
-      score += simulateOpponentResponse(sim, ap, hp, boardW, boardH, remAfter, placedCount+1, allowFlip) * 0.8;
-
-      // Adjacency (light — territory already captured above)
-      for (const [x, y] of m.abs) {
-        for (const [ox, oy] of DIRS) {
-          const nx = x+ox, ny = y+oy;
-          if (nx < 0 || ny < 0 || nx >= boardW || ny >= boardH) continue;
-          const cell = board[ny][nx];
-          if (cell?.player === hp) score += 3.0;
-          if (cell?.player === ap) score += 1.5;
-        }
-      }
-
-      if (score > bestScore) { bestScore = score; best = m; }
+    // locked / clean-region penalties (keep)
+    let lockedPenalty = 0;
+    for (const reg of regions) {
+      if (reg.length <= 4)                    score += (5 - reg.length) * 8.0;
+      if (reg.length % 5 === 0)               score -= 1.2;
+      if (reg.length === 5 * humanPieceCount) lockedPenalty += 2.5;
     }
-    return best;
+    score -= lockedPenalty;
+
+    // 1-ply lookahead (stronger than tactician)
+    score += simulateOpponentResponse(sim, ap, hp, boardW, boardH, remAfter, placedCount+1, allowFlip) * 0.8;
+
+    // early-game center pressure
+    if (placedCount < 4) {
+      let cd = 0;
+      for (const [x,y] of m.abs) cd += (Math.abs(x - (boardW-1)/2) + Math.abs(y - (boardH-1)/2));
+      score -= cd * 0.10;
+    }
+
+    if (score > bestScore) { bestScore = score; best = m; }
   }
+  return best;
+}
 
   // ── LEGENDARY ─────────────────────────────────────────────────────
   // Evaluation formula (prompt weights, adjusted for Voronoi):
@@ -702,107 +708,138 @@ export function createAiEngine({ game, aiPlayer, humanPlayer, aiDifficulty, PENT
   //   + frontierControl*4 + zoneSeal*9 + zoneBonus + efficiency*5
   //   + lookahead*6 - exposure*1.5 + ownFeasible*8 - oppFeasible*10
   // ─────────────────────────────────────────────────────────────────
-  function movesLegendary(moves) {
-    if (!moves.length) return null;
-    const { board, boardW, boardH, remaining, placedCount, allowFlip } = game;
-    const ap = aiPlayer.value, hp = humanPlayer.value;
 
-    if ((remaining[ap]?.length||0) <= 3 || (remaining[hp]?.length||0) <= 3)
-      return endgameSolve(moves);
+// ── LEGENDARY ─────────────────────────────────────────────────────
+// Goal: almost unbeatable. Deterministic, trap-aware, deeper beam + stronger minimax.
+function movesLegendary(moves) {
+  if (!moves.length) return null;
+  const { board, boardW, boardH, remaining, placedCount, allowFlip } = game;
+  const ap = aiPlayer.value, hp = humanPlayer.value;
 
-    const oppMobilityBefore = countTotalMoves(board, boardW, boardH, hp, remaining, placedCount, allowFlip);
+  if ((remaining[ap]?.length||0) <= 4 || (remaining[hp]?.length||0) <= 4)
+    return endgameSolve(moves);
 
-    // Pass 1: Voronoi territory pre-score — beam of 18 (legendary is meant to be brutal)
-    const scored = moves.map(m => {
-      const sim = board.map(r => [...r]);
-      for (const [x, y] of m.abs) sim[y][x] = { player: ap, pieceKey: m.pk };
-      return { m, s: territoryAdvantage(sim, boardW, boardH, ap, hp) };
-    });
-    scored.sort((a, b) => b.s - a.s);
+  const oppMobilityBefore = countTotalMoves(board, boardW, boardH, hp, remaining, placedCount, allowFlip);
+  const oppFeasibleBefore = countFeasiblePieces(board, boardW, boardH, hp, remaining, placedCount, allowFlip);
 
-    let best = null, bestScore = -Infinity;
-    for (const { m } of scored.slice(0, 18)) {
-      const sim = board.map(r => [...r]);
-      for (const [x, y] of m.abs) sim[y][x] = { player: ap, pieceKey: m.pk };
+  // Beam prune by quickScore (wider beam => fewer tactical misses)
+  const prescored = moves.map(m => {
+    const sim = board.map(r => [...r]);
+    for (const [x, y] of m.abs) sim[y][x] = { player: ap, pieceKey: m.pk };
+    return { m, s: quickScore(sim, ap, hp, boardW, boardH) };
+  }).sort((a,b)=>b.s-a.s);
 
-      const remAfter = {
-        [ap]: (remaining[ap]||[]).filter(pk => pk !== m.pk),
-        [hp]: [...(remaining[hp]||[])],
-      };
+  let best = null, bestScore = -Infinity;
+  for (const { m } of prescored.slice(0, 24)) {
+    const sim = board.map(r => [...r]);
+    for (const [x, y] of m.abs) sim[y][x] = { player: ap, pieceKey: m.pk };
 
-      // ── Voronoi territory — primary driver ────────────────────────
-      const tAdv = territoryAdvantage(sim, boardW, boardH, ap, hp);
+    const remAfter = {
+      [ap]: (remaining[ap]||[]).filter(pk => pk !== m.pk),
+      [hp]: [...(remaining[hp]||[])],
+    };
 
-      // ── Mobility destruction (reduced weight) ─────────────────────
-      const oppMobAfter = countTotalMoves(sim, boardW, boardH, hp, remAfter, placedCount+1, allowFlip);
-      const mobilityReduction = oppMobilityBefore - oppMobAfter;
+    const tAdv = territoryAdvantage(sim, boardW, boardH, ap, hp);
+    const regions = floodFillRegions(sim, boardW, boardH);
 
-      // ── Region analysis ───────────────────────────────────────────
-      const regions = floodFillRegions(sim, boardW, boardH);
-      const infeasibleBonus = regionFeasibilityBonus(regions, sim, boardW, boardH, hp);
-      const sealBonus       = zoneSealBonus(regions, board, sim, boardW, boardH, hp);
-      const zoneBonus       = zoneClaimBonus(m.abs, sim, boardW, boardH);
-      const frontierCtrl    = frontierScore(sim, boardW, boardH, ap, hp);
-      const efficiency      = pieceEfficiencyScore(m.abs, sim, boardW, boardH, ap);
+    const infeasibleBonus = regionFeasibilityBonus(regions, sim, boardW, boardH, hp);
+    const sealBonus       = zoneSealBonus(regions, board, sim, boardW, boardH, hp);
+    const zoneBonus       = zoneClaimBonus(m.abs, sim, boardW, boardH);
+    const frontierCtrl    = frontierScore(sim, boardW, boardH, ap, hp);
+    const efficiency      = pieceEfficiencyScore(m.abs, sim, boardW, boardH, ap);
 
-      // ── Exposure penalty (greatly reduced — don't flee the frontier) ──
-      let exposure = 0;
-      for (const [x, y] of m.abs)
-        for (const [ox, oy] of DIRS) {
-          const nx = x+ox, ny = y+oy;
-          if (nx < 0 || ny < 0 || nx >= boardW || ny >= boardH) continue;
-          if (sim[ny][nx]?.player === hp) exposure++;
+    // exposure (small penalty only)
+    let exposure = 0;
+    for (const [x, y] of m.abs) {
+      for (const [ox, oy] of DIRS) {
+        const nx = x+ox, ny = y+oy;
+        if (nx < 0 || ny < 0 || nx >= boardW || ny >= boardH) continue;
+        if (sim[ny][nx]?.player === hp) exposure++;
+      }
+    }
+
+    // mobility + feasibility pressure
+    const oppMobAfter = countTotalMoves(sim, boardW, boardH, hp, remAfter, placedCount+1, allowFlip);
+    const mobilityReduction = oppMobilityBefore - oppMobAfter;
+
+    const ownFeasible = countFeasiblePieces(sim, boardW, boardH, ap, remAfter, placedCount+1, allowFlip);
+    const oppFeasible = countFeasiblePieces(sim, boardW, boardH, hp, remAfter, placedCount+1, allowFlip);
+    const feasibleReduction = oppFeasibleBefore - oppFeasible;
+
+    // Depth-2 minimax, trap-aware (beam pruned)
+    const oppMoves = movesOnBoard(hp, sim, boardW, boardH, remAfter, placedCount+1, allowFlip);
+    let lookaheadValue = 0;
+    if (oppMoves.length) {
+      const oppBeam = Math.min(18, oppMoves.length);
+      const oppScored = oppMoves.map(om => {
+        const afterOpp = sim.map(r => [...r]);
+        for (const [x, y] of om.abs) afterOpp[y][x] = { player: hp, pieceKey: om.pk };
+        return { om, s: quickScore(afterOpp, ap, hp, boardW, boardH) };
+      }).sort((a,b)=>a.s-b.s); // opponent wants minimal AI score
+
+      // pick worst (for AI) opponent reply from top oppBeam
+      let worstBoard = null, worstRem = null, worstS = Infinity;
+      for (const { om } of oppScored.slice(0, oppBeam)) {
+        const afterOpp = sim.map(r => [...r]);
+        for (const [x, y] of om.abs) afterOpp[y][x] = { player: hp, pieceKey: om.pk };
+        const s = quickScore(afterOpp, ap, hp, boardW, boardH);
+        if (s < worstS) {
+          worstS = s;
+          worstBoard = afterOpp;
+          worstRem = { [ap]: [...(remAfter[ap]||[])], [hp]: (remAfter[hp]||[]).filter(pk=>pk!==om.pk) };
         }
+      }
 
-      // ── Feasibility count ─────────────────────────────────────────
-      const ownFeasible = countFeasiblePieces(sim, boardW, boardH, ap, remAfter, placedCount+1, allowFlip);
-      const oppFeasible = countFeasiblePieces(sim, boardW, boardH, hp, remAfter, placedCount+1, allowFlip);
+      if (worstBoard) {
+        const followMoves = movesOnBoard(ap, worstBoard, boardW, boardH, worstRem, placedCount+2, allowFlip);
+        if (followMoves.length) {
+          const followBeam = Math.min(18, followMoves.length);
+          const followScored = followMoves.map(fm => {
+            const afterF = worstBoard.map(r => [...r]);
+            for (const [x, y] of fm.abs) afterF[y][x] = { player: ap, pieceKey: fm.pk };
+            return { fm, s: quickScore(afterF, ap, hp, boardW, boardH) };
+          }).sort((a,b)=>b.s-a.s);
 
-      // ── Depth-2 lookahead: AI → opp best → AI best follow-up ─────
-      const oppMoves = getMovesCached(hp, sim, boardW, boardH, remAfter, placedCount+1, allowFlip);
-      let lookaheadValue = 0;
-      if (oppMoves.length) {
-        let worstScore2 = Infinity, worstBoard = null, worstRem = null;
-        for (const om of oppMoves) {
-          const afterOpp = sim.map(r => [...r]);
-          for (const [x, y] of om.abs) afterOpp[y][x] = { player: hp, pieceKey: om.pk };
-          const s = quickScore(afterOpp, ap, hp, boardW, boardH);
-          if (s < worstScore2) {
-            worstScore2 = s; worstBoard = afterOpp;
-            worstRem = { [ap]: [...(remAfter[ap]||[])], [hp]: (remAfter[hp]||[]).filter(pk=>pk!==om.pk) };
-          }
-        }
-        if (worstBoard) {
-          const followMoves = getMovesCached(ap, worstBoard, boardW, boardH, worstRem, placedCount+2, allowFlip);
           let bestFollow = -Infinity;
-          for (const fm of followMoves) {
+          for (const { fm } of followScored.slice(0, followBeam)) {
             const afterF = worstBoard.map(r => [...r]);
             for (const [x, y] of fm.abs) afterF[y][x] = { player: ap, pieceKey: fm.pk };
             const s = quickScore(afterF, ap, hp, boardW, boardH);
             if (s > bestFollow) bestFollow = s;
           }
-          lookaheadValue = (worstScore2 + (bestFollow > -Infinity ? bestFollow : 0)) * 0.5;
+          lookaheadValue = (bestFollow + worstS) * 0.5;
+        } else {
+          lookaheadValue = worstS;
         }
       }
-
-      // ── Final score ───────────────────────────────────────────────
-      const score =
-          tAdv             * 12.0  // Voronoi territory — primary driver
-        + mobilityReduction *  3.0  // reduced from 8 — mobility alone shouldn't override territory
-        + infeasibleBonus           // * 12 internally
-        + frontierCtrl              // * 4 internally
-        + sealBonus                 // * 9 internally
-        + zoneBonus
-        + efficiency                // * 5 internally
-        + lookaheadValue   *  8.0
-        - exposure         *  1.5   // reduced from 6 — stop fleeing the frontier
-        + ownFeasible      *  8.0
-        - oppFeasible      * 10.0;
-
-      if (score > bestScore) { bestScore = score; best = m; }
     }
-    return best;
+
+    // Final evaluation (stronger than your previous)
+    let score =
+        tAdv              * 16.0
+      + mobilityReduction  *  5.0
+      + feasibleReduction  * 14.0
+      + infeasibleBonus
+      + sealBonus
+      + zoneBonus
+      + frontierCtrl
+      + efficiency
+      + lookaheadValue     *  9.0
+      - exposure           *  1.0
+      + ownFeasible        * 10.0
+      - oppFeasible        * 16.0;
+
+    // Early-game: claim center / reduce symmetry (prevents easy human steering)
+    if (placedCount < 4) {
+      let cd = 0;
+      for (const [x,y] of m.abs) cd += (Math.abs(x - (boardW-1)/2) + Math.abs(y - (boardH-1)/2));
+      score -= cd * 0.12;
+    }
+
+    if (score > bestScore) { bestScore = score; best = m; }
   }
+  return best;
+}
 
   // ── Draft picker ───────────────────────────────────────────────────
 
@@ -875,30 +912,51 @@ export function createAiEngine({ game, aiPlayer, humanPlayer, aiDifficulty, PENT
       return pool.reduce((b,k) => grandmasterDraftScore(k,aiPicks) > grandmasterDraftScore(b,aiPicks) ? k : b);
     }
 
-    // Legendary
-    const smallPick = legendarySmallPoolPick(pool, aiPicks, humanPicks);
-    if (smallPick) return smallPick;
-    const targets = getSynergyTargets(humanPicks, pool);
-    if (targets.length) {
-      return targets.reduce((b,k) => {
-        const s  = (SHAPE_SCORE[k]||2)*2 + (UNPAIRABLE.has(k)  ? -5 : 0);
-        const bs = (SHAPE_SCORE[b]||2)*2 + (UNPAIRABLE.has(b)  ? -5 : 0);
-        return s > bs ? k : b;
-      }, targets[0]);
-    }
-    const humanHasLong    = humanPicks.some(k=>['I','L','Y','N'].includes(k));
-    const humanHasBranchy = humanPicks.some(k=>['T','F','Y','X'].includes(k));
-    return pool.reduce((b, k) => {
-      const score = (p) => {
-        let s = (SHAPE_SCORE[p]||2)*2.0;
-        if (UNPAIRABLE.has(p))                                  s -= 4.0;
-        if (humanHasLong    && ['T','F','X','W','U'].includes(p)) s += 1.0;
-        if (humanHasBranchy && ['I','L','P'].includes(p))         s += 2.5;
-        if (VERSATILE_PIECES.has(p))                              s += 2.5;
-        return s;
-      };
-      return score(k) > score(b) ? k : b;
-    });
+// Legendary (deterministic counter-draft)
+// 1) If small pool, brute the last picks.
+const smallPick = legendarySmallPoolPick(pool, aiPicks, humanPicks);
+if (smallPick) return smallPick;
+
+// 2) Score every option by: deny human synergy, improve AI role coverage, and avoid giving yourself too many blockers.
+const humanTargetsBefore = getSynergyTargets(humanPicks, pool).length;
+
+function legendaryDraftScore(pick) {
+  let s = (SHAPE_SCORE[pick] || 2) * 2.6;
+
+  // deny: direct partner deny is huge
+  for (const hpPick of humanPicks) {
+    if ((SYNERGY_PAIRS[hpPick] || []).includes(pick)) s += 8.0;
+  }
+
+  // deny: reduce the number of synergy targets still available to human
+  const poolAfter = pool.filter(k => k !== pick);
+  const targetsAfter = getSynergyTargets(humanPicks, poolAfter).length;
+  s += (humanTargetsBefore - targetsAfter) * 3.0;
+
+  // role coverage (AI wants a balanced kit)
+  if (!aiPicks.some(p=>PIECE_ROLES.FLEXIBLE.has(p)) && PIECE_ROLES.FLEXIBLE.has(pick)) s += 5.0;
+  if (!aiPicks.some(p=>PIECE_ROLES.LINEAR.has(p))   && PIECE_ROLES.LINEAR.has(pick))   s += 5.5;
+  if (!aiPicks.some(p=>PIECE_ROLES.FILLER.has(p))   && PIECE_ROLES.FILLER.has(pick))   s += 3.5;
+
+  // too many blockers = self-harm (but still deny if needed)
+  const blockers = aiPicks.filter(p=>PIECE_ROLES.BLOCKER.has(p)).length;
+  if (PIECE_ROLES.BLOCKER.has(pick) && blockers >= 1) s -= 6.0;
+  if (PIECE_ROLES.BLOCKER.has(pick) && aiPicks.length < 3) s -= 3.0;
+
+  // prefer versatile shapes early
+  if (VERSATILE_PIECES.has(pick)) s += 2.5;
+  if (UNPAIRABLE.has(pick)) s -= 4.5;
+
+  // if human is leaning long/branchy, grab counters
+  const humanHasLong    = humanPicks.some(k=>['I','L','Y','N'].includes(k));
+  const humanHasBranchy = humanPicks.some(k=>['T','F','Y','X'].includes(k));
+  if (humanHasLong    && ['T','F','X','W','U'].includes(pick)) s += 1.2;
+  if (humanHasBranchy && ['I','L','P'].includes(pick))         s += 2.0;
+
+  return s;
+}
+
+return pool.reduce((best, k) => legendaryDraftScore(k) > legendaryDraftScore(best) ? k : best, pool[0]);
   }
 
   function choosePlacement(moves) {
