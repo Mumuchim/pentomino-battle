@@ -794,7 +794,9 @@
 
 
     <!-- ✅ Modal -->
-    <div v-if="modal.open" class="modalOverlay" @click.self="!modal.locked && closeModal()">
+    <div v-if="modal.open" class="modalOverlay" :class="{ resultOverlay: isResultModal, victoryOverlay: modal.tone === 'victory', defeatOverlay: modal.tone === 'bad' && isResultModal }" @click.self="!modal.locked && closeModal()">
+
+      <!-- Confetti layer (victory only) -->
       <div v-if="showConfetti" class="confetti" aria-hidden="true">
         <span
           v-for="p in confettiPieces"
@@ -803,38 +805,79 @@
           :style="{ left: p.left + '%', '--d': p.delay + 's', '--t': p.dur + 's', '--r': p.rot + 'deg', '--x': p.drift + 'px', width: p.size + 'px', height: (p.size * 0.6) + 'px' }"
         />
       </div>
-      <div class="modalCard" :class="modalCardClass" role="dialog" aria-modal="true">
-        <div class="modalTop" :class="{ resultTop: isResultModal }">
-          <div v-if="!isResultModal" class="modalTitle">
-            <span class="modalDot" :class="modalDotClass"></span>
-            {{ modal.title }}
-          </div>
-          <div class="modalXSpacer" aria-hidden="true"></div>
+
+      <!-- ══ RESULT MODAL (Victory / Defeat / Player Wins) ══ -->
+      <div v-if="isResultModal" class="resultModal" :class="resultHeroClass" role="dialog" aria-modal="true">
+        <!-- Background aura rings -->
+        <div class="rmAura rmAura1" aria-hidden="true"></div>
+        <div class="rmAura rmAura2" aria-hidden="true"></div>
+        <!-- Scanline overlay -->
+        <div class="rmScanlines" aria-hidden="true"></div>
+
+        <!-- Big stamp -->
+        <div class="rmStampWrap">
+          <div class="rmStamp">{{ resultBigTitle }}</div>
+          <div class="rmStampShadow" aria-hidden="true">{{ resultBigTitle }}</div>
         </div>
 
-        <div v-if="isResultModal" class="resultHero" :class="resultHeroClass">
-          <div class="resultTitle">{{ resultBigTitle }}</div>
-          <div v-if="resultSubTitle" class="resultSub">{{ resultSubTitle }}</div>
-          <div class="resultGlow" aria-hidden="true"></div>
+        <!-- Sub label -->
+        <div v-if="resultSubTitle" class="rmSub">{{ resultSubTitle }}</div>
+
+        <!-- Divider -->
+        <div class="rmDivider" aria-hidden="true"></div>
+
+        <!-- Message lines -->
+        <div class="rmBody">
+          <p v-for="(line, i) in modalLines" :key="i" class="rmMsg">{{ line }}</p>
         </div>
 
-        <div class="modalBody">
-          <p class="modalMsg" v-for="(line, i) in modalLines" :key="i">
-            {{ line }}
-          </p>
-        </div>
-
-        <div class="modalActions">
+        <!-- Actions -->
+        <div class="rmActions">
           <button
             v-for="(a, i) in modal.actions"
             :key="i"
-            class="btn"
-            :class="{ primary: a.tone === 'primary', soft: a.tone === 'soft', ghost: a.tone === 'ghost' }"
-            @click="onModalAction(a)"
+            class="rmBtn"
+            :class="{ rmBtnPrimary: a.tone === 'primary', rmBtnSoft: a.tone === 'soft' }"
+            @mouseenter="uiHover"
+            @click="uiClick(); onModalAction(a)"
           >
             <img v-if="actionPngUrl(a)" :src="actionPngUrl(a)" class="btnPng floatingLogo" :alt="a.label || 'Action'" />
             <span v-else>{{ a.label }}</span>
           </button>
+        </div>
+      </div>
+
+      <!-- ══ STANDARD MODAL ══ -->
+      <div v-else class="modalCard" :class="modalCardClass" role="dialog" aria-modal="true">
+        <!-- Accent stripe -->
+        <div class="modalStripe" :class="modalDotClass" aria-hidden="true"></div>
+
+        <div class="modalInner">
+          <!-- Header -->
+          <div class="modalHead">
+            <div class="modalIconDot" :class="modalDotClass" aria-hidden="true"></div>
+            <div class="modalTitle2">{{ modal.title }}</div>
+          </div>
+
+          <!-- Body -->
+          <div class="modalBody">
+            <p class="modalMsg" v-for="(line, i) in modalLines" :key="i">{{ line }}</p>
+          </div>
+
+          <!-- Actions -->
+          <div class="modalActions">
+            <button
+              v-for="(a, i) in modal.actions"
+              :key="i"
+              class="btn"
+              :class="{ primary: a.tone === 'primary', soft: a.tone === 'soft', ghost: a.tone === 'ghost' }"
+              @mouseenter="uiHover"
+              @click="uiClick(); onModalAction(a)"
+            >
+              <img v-if="actionPngUrl(a)" :src="actionPngUrl(a)" class="btnPng floatingLogo" :alt="a.label || 'Action'" />
+              <span v-else>{{ a.label }}</span>
+            </button>
+          </div>
         </div>
       </div>
     </div>
@@ -842,33 +885,42 @@
     
     <!-- ✅ Quick Match Accept Modal -->
     <div v-if="qmAccept.open" class="modalOverlay" aria-live="polite" aria-busy="true">
-      <div class="modalCard" :class="{ dangerPulse: qmAccept.pulse }" role="dialog" aria-modal="true">
-        <div class="modalTop">
-          <div class="modalTitle">
-            <span class="modalDot" :class="{ bad: qmAccept.pulse }"></span>
-            MATCH FOUND
-          </div>
-          <div class="modalXSpacer" aria-hidden="true"></div>
-        </div>
-
-        <div class="modalBody">
-          <p class="modalMsg">Opponent found. Accept within <b>{{ Math.ceil(qmAccept.remainingMs / 1000) }}</b>s.</p>
-
-          <div class="qmBar" :class="{ danger: qmAccept.pulse }" role="progressbar" aria-valuemin="0" aria-valuemax="10" :aria-valuenow="Math.max(0, Math.round(qmAccept.remainingMs/1000))">
-            <div class="qmBarFill" :style="{ width: (qmAccept.progress * 100) + '%' }"></div>
+      <div class="modalCard qmCard" :class="{ dangerPulse: qmAccept.pulse }" role="dialog" aria-modal="true">
+        <div class="modalStripe" :class="qmAccept.pulse ? 'bad' : 'info'" aria-hidden="true"></div>
+        <div class="modalInner">
+          <div class="modalHead">
+            <div class="modalIconDot" :class="qmAccept.pulse ? 'bad' : 'info'"></div>
+            <div class="modalTitle2">MATCH FOUND</div>
           </div>
 
-          <p v-if="qmAccept.statusLine" class="modalMsg muted">{{ qmAccept.statusLine }}</p>
-        </div>
+          <div class="modalBody">
+            <p class="modalMsg">Opponent found. Accept within <b>{{ Math.ceil(qmAccept.remainingMs / 1000) }}</b>s.</p>
 
-        
-        <div class="modalActions">
-          <button class="btn soft imgBtn" @mouseenter="uiHover" @click="uiClick(); qmDecline()" aria-label="Decline">
-            <img :src="declineBtnUrl" class="btnPng floatingLogo" alt="Decline" />
-          </button>
-          <button class="btn primary imgBtn" @mouseenter="uiHover" @click="uiClick(); qmAcceptClick()" :disabled="qmAccept.myAccepted" aria-label="Accept">
-            <img :src="acceptBtnUrl" class="btnPng floatingLogo" alt="Accept" />
-          </button>
+            <!-- Countdown ring + bar combo -->
+            <div class="qmTimerArea">
+              <svg class="qmRing" viewBox="0 0 56 56" aria-hidden="true">
+                <circle class="qmRingTrack" cx="28" cy="28" r="22"/>
+                <circle class="qmRingFill" :class="{ danger: qmAccept.pulse }" cx="28" cy="28" r="22"
+                  :style="{ strokeDashoffset: 138.2 * (1 - qmAccept.progress) }"/>
+              </svg>
+              <div class="qmRingNum" :class="{ danger: qmAccept.pulse }">{{ Math.ceil(qmAccept.remainingMs / 1000) }}</div>
+            </div>
+
+            <div class="qmBar" :class="{ danger: qmAccept.pulse }" role="progressbar" aria-valuemin="0" aria-valuemax="10" :aria-valuenow="Math.max(0, Math.round(qmAccept.remainingMs/1000))">
+              <div class="qmBarFill" :style="{ width: (qmAccept.progress * 100) + '%' }"></div>
+            </div>
+
+            <p v-if="qmAccept.statusLine" class="modalMsg muted">{{ qmAccept.statusLine }}</p>
+          </div>
+
+          <div class="modalActions">
+            <button class="btn soft imgBtn" @mouseenter="uiHover" @click="uiClick(); qmDecline()" aria-label="Decline">
+              <img :src="declineBtnUrl" class="btnPng floatingLogo" alt="Decline" />
+            </button>
+            <button class="btn primary imgBtn" @mouseenter="uiHover" @click="uiClick(); qmAcceptClick()" :disabled="qmAccept.myAccepted" aria-label="Accept">
+              <img :src="acceptBtnUrl" class="btnPng floatingLogo" alt="Accept" />
+            </button>
+          </div>
         </div>
       </div>
     </div>
@@ -943,16 +995,15 @@
 <!-- ✅ In-game Settings Modal (Esc) -->
     <div v-if="inGameSettingsOpen" class="modalOverlay" @click.self="closeInGameSettings">
       <div class="modalCard" role="dialog" aria-modal="true">
-        <div class="modalTop">
-          <div class="modalTitle">
-            <span class="modalDot"></span>
-            SETTINGS
+        <div class="modalStripe info" aria-hidden="true"></div>
+        <div class="modalInner">
+          <div class="modalHead">
+            <div class="modalIconDot info"></div>
+            <div class="modalTitle2">SETTINGS</div>
           </div>
-          <div class="modalXSpacer" aria-hidden="true"></div>
-        </div>
 
-        <div class="modalBody">
-          <div class="form">
+          <div class="modalBody">
+            <div class="form">
             <label class="field">
               <span>BGM Volume</span>
               <input type="range" min="0" max="100" step="1" v-model.number="bgmVolumeUi" />
@@ -980,10 +1031,11 @@
               </button>
             </label>
           </div>
-        </div>
+          </div>
 
-        <div class="modalActions">
-          <button class="btn primary" @click="closeInGameSettings">Close</button>
+          <div class="modalActions">
+            <button class="btn primary" @mouseenter="uiHover" @click="uiClick(); closeInGameSettings()">Close</button>
+          </div>
         </div>
       </div>
     </div>
@@ -5657,120 +5709,395 @@ onBeforeUnmount(() => {
 .form{ display:grid; gap: 10px; }
 .input{ width: 100%; padding: 10px 12px; border-radius: 12px; border: 1px solid rgba(255,255,255,.12); background: rgba(0,0,0,.25); color:#eaeaea; }
 .row{ display:flex; gap: 10px; flex-wrap: wrap; margin-top: 10px; }
-.modalOverlay{ position: fixed; inset: 0; z-index: 50; background:
-  radial-gradient(1000px 600px at 50% 20%, rgba(0,229,255,0.10), transparent 60%),
-  radial-gradient(900px 520px at 20% 85%, rgba(255,43,214,0.10), transparent 60%),
-  rgba(0,0,0,.60);
-  display:grid; place-items:center; padding: 18px; backdrop-filter: blur(10px);
-}
-
-.resultHero{
-  position: relative;
-  margin-top: 8px;
-  padding: 18px 14px 14px;
-  border-radius: 18px;
-  border: 1px solid rgba(255,255,255,0.10);
+.modalOverlay{
+  position: fixed; inset: 0; z-index: 50;
   background:
-    radial-gradient(900px 280px at 50% 0%, rgba(0,229,255,0.14), transparent 70%),
-    radial-gradient(900px 280px at 50% 100%, rgba(255,43,214,0.12), transparent 70%),
-    rgba(255,255,255,0.03);
-  overflow: hidden;
-  text-align: center;
+    radial-gradient(1000px 600px at 50% 20%, rgba(0,229,255,0.07), transparent 60%),
+    radial-gradient(900px 520px at 20% 85%, rgba(255,43,214,0.07), transparent 60%),
+    rgba(0,0,0,.72);
+  display: grid; place-items: center; padding: 18px;
+  backdrop-filter: blur(12px);
 }
-.resultHero::after{
-  content:"";
-  position:absolute;
-  inset:-2px;
-  background: linear-gradient(90deg, rgba(0,229,255,0.0), rgba(0,229,255,0.20), rgba(255,43,214,0.18), rgba(255,43,214,0.0));
-  filter: blur(18px);
-  opacity: .8;
-  pointer-events:none;
-}
-.resultHero.victory{ border-color: rgba(0,229,255,0.22); }
-.resultHero.defeat{ border-color: rgba(255,64,96,0.22); }
-.resultHero.couchP1{ border-color: rgba(0,229,255,0.22); }
-.resultHero.couchP2{ border-color: rgba(255,43,214,0.22); }
 
-.resultTitle{
-  font-size: 44px;
+/* ══ RESULT OVERLAY (Victory / Defeat) ══ */
+.resultOverlay{
+  background:
+    radial-gradient(1200px 700px at 50% 30%, rgba(0,229,255,0.12), transparent 60%),
+    radial-gradient(800px 500px at 80% 80%, rgba(255,43,214,0.10), transparent 60%),
+    rgba(0,0,10,.84);
+}
+.defeatOverlay{
+  background:
+    radial-gradient(1200px 700px at 50% 30%, rgba(255,40,80,0.14), transparent 60%),
+    radial-gradient(800px 500px at 20% 80%, rgba(255,160,0,0.08), transparent 60%),
+    rgba(10,0,0,.86);
+}
+
+/* ══ RESULT MODAL CARD ══ */
+.resultModal{
+  position: relative;
+  width: min(580px, 100%);
+  border-radius: 28px;
+  overflow: hidden;
+  border: 1px solid rgba(255,255,255,0.12);
+  background: linear-gradient(180deg, rgba(14,14,26,0.97), rgba(8,8,18,0.97));
+  backdrop-filter: blur(20px);
+  box-shadow:
+    0 30px 120px rgba(0,0,0,0.80),
+    0 0 0 1px rgba(255,255,255,0.06) inset;
+  padding: 36px 32px 28px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+  gap: 0;
+  animation: resultModalIn .42s cubic-bezier(.22,1,.36,1);
+}
+@keyframes resultModalIn{
+  from{ transform: scale(0.88) translateY(20px); opacity: 0; }
+  to{ transform: scale(1) translateY(0); opacity: 1; }
+}
+
+/* Victory variant */
+.resultModal.victory{
+  border-color: rgba(0,229,255,0.25);
+  box-shadow:
+    0 30px 120px rgba(0,0,0,0.80),
+    0 0 0 1px rgba(0,229,255,0.10) inset,
+    0 0 60px rgba(0,229,255,0.12),
+    0 0 40px rgba(255,43,214,0.08);
+}
+/* Defeat variant */
+.resultModal.defeat{
+  border-color: rgba(255,40,80,0.25);
+  box-shadow:
+    0 30px 120px rgba(0,0,0,0.80),
+    0 0 0 1px rgba(255,40,80,0.10) inset,
+    0 0 60px rgba(255,40,80,0.12);
+}
+/* Couch P1 */
+.resultModal.couchP1{
+  border-color: rgba(0,229,255,0.22);
+  box-shadow: 0 30px 120px rgba(0,0,0,0.80), 0 0 0 1px rgba(0,229,255,0.08) inset, 0 0 50px rgba(0,229,255,0.10);
+}
+/* Couch P2 */
+.resultModal.couchP2{
+  border-color: rgba(255,64,96,0.22);
+  box-shadow: 0 30px 120px rgba(0,0,0,0.80), 0 0 0 1px rgba(255,64,96,0.08) inset, 0 0 50px rgba(255,64,96,0.10);
+}
+
+/* Aura rings */
+.rmAura{
+  position: absolute;
+  border-radius: 50%;
+  pointer-events: none;
+  animation: rmAuraPulse 3s ease-in-out infinite alternate;
+}
+.rmAura1{
+  width: 500px; height: 200px;
+  top: -80px; left: 50%; transform: translateX(-50%);
+  background: radial-gradient(ellipse at 50% 50%, rgba(0,229,255,0.22), transparent 70%);
+  filter: blur(28px);
+}
+.rmAura2{
+  width: 400px; height: 160px;
+  bottom: -60px; left: 50%; transform: translateX(-50%);
+  background: radial-gradient(ellipse at 50% 50%, rgba(255,43,214,0.16), transparent 70%);
+  filter: blur(24px);
+  animation-delay: -1.5s;
+}
+.resultModal.defeat .rmAura1{ background: radial-gradient(ellipse at 50% 50%, rgba(255,40,80,0.22), transparent 70%); }
+.resultModal.defeat .rmAura2{ background: radial-gradient(ellipse at 50% 50%, rgba(255,120,0,0.12), transparent 70%); }
+.resultModal.couchP1 .rmAura1{ background: radial-gradient(ellipse at 50% 50%, rgba(0,229,255,0.18), transparent 70%); }
+.resultModal.couchP2 .rmAura1{ background: radial-gradient(ellipse at 50% 50%, rgba(255,64,96,0.18), transparent 70%); }
+@keyframes rmAuraPulse{
+  from{ opacity: .6; transform: translateX(-50%) scale(0.95); }
+  to{ opacity: 1; transform: translateX(-50%) scale(1.06); }
+}
+
+/* Scanlines */
+.rmScanlines{
+  position: absolute; inset: 0;
+  background: repeating-linear-gradient(
+    0deg,
+    transparent,
+    transparent 3px,
+    rgba(0,0,0,0.06) 3px,
+    rgba(0,0,0,0.06) 4px
+  );
+  pointer-events: none;
+  border-radius: 28px;
+}
+
+/* Stamp */
+.rmStampWrap{
+  position: relative;
+  z-index: 2;
+  margin-top: 8px;
+}
+.rmStamp{
+  font-size: 72px;
+  font-weight: 900;
   line-height: 1;
-  margin: 2px 0 6px;
-  font-weight: 800;
+  letter-spacing: -1px;
+  font-family: 'Orbitron', 'Rajdhani', Inter, system-ui, sans-serif;
   text-transform: uppercase;
-  background: linear-gradient(90deg, rgba(0,229,255,1), rgba(255,43,214,1));
+  background: linear-gradient(135deg, rgba(0,229,255,1) 0%, rgba(180,80,255,1) 50%, rgba(255,43,214,1) 100%);
   -webkit-background-clip: text;
   background-clip: text;
   color: transparent;
-  text-shadow: 0 18px 60px rgba(0,0,0,0.65);
+  animation: rmStampIn .5s cubic-bezier(.22,1,.36,1) .1s both;
+  filter: drop-shadow(0 0 30px rgba(0,229,255,0.22));
 }
-.resultHero.defeat .resultTitle{
-  background: linear-gradient(90deg, rgba(255,64,96,1), rgba(255,215,0,0.9));
+.resultModal.defeat .rmStamp{
+  background: linear-gradient(135deg, rgba(255,40,80,1) 0%, rgba(255,120,40,1) 100%);
+  -webkit-background-clip: text;
+  background-clip: text;
+  filter: drop-shadow(0 0 30px rgba(255,40,80,0.22));
+}
+.resultModal.couchP1 .rmStamp{
+  background: linear-gradient(135deg, rgba(0,229,255,1), rgba(80,200,255,1));
   -webkit-background-clip: text;
   background-clip: text;
 }
+.resultModal.couchP2 .rmStamp{
+  background: linear-gradient(135deg, rgba(255,64,96,1), rgba(255,43,214,1));
+  -webkit-background-clip: text;
+  background-clip: text;
+}
+@keyframes rmStampIn{
+  from{ transform: scale(1.18) translateY(-10px); opacity: 0; filter: blur(4px) drop-shadow(0 0 60px rgba(0,229,255,0.4)); }
+  to{ transform: scale(1) translateY(0); opacity: 1; filter: drop-shadow(0 0 30px rgba(0,229,255,0.22)); }
+}
+.rmStampShadow{
+  position: absolute;
+  inset: 0;
+  font-size: 72px;
+  font-weight: 900;
+  line-height: 1;
+  letter-spacing: -1px;
+  font-family: 'Orbitron', 'Rajdhani', Inter, system-ui, sans-serif;
+  text-transform: uppercase;
+  color: transparent;
+  -webkit-text-stroke: 1px rgba(255,255,255,0.04);
+  transform: translateY(3px) scaleY(0.9);
+  filter: blur(6px);
+  pointer-events: none;
+  opacity: .5;
+}
 
-/* Couch results: solid winner colors (no gradient) */
-.resultHero.couchP1 .resultTitle{
-  background: none;
-  -webkit-background-clip: initial;
-  background-clip: initial;
-  color: rgba(0,229,255,1);
-  -webkit-text-fill-color: rgba(0,229,255,1);
+.rmSub{
+  font-size: 13px;
+  letter-spacing: 4px;
+  font-weight: 900;
+  text-transform: uppercase;
+  opacity: .55;
+  margin-top: 6px;
+  position: relative;
+  z-index: 2;
+  animation: rmFadeUp .4s ease-out .3s both;
 }
-.resultHero.couchP2 .resultTitle{
-  background: none;
-  -webkit-background-clip: initial;
-  background-clip: initial;
-  color: rgba(255,64,96,1);
-  -webkit-text-fill-color: rgba(255,64,96,1);
+@keyframes rmFadeUp{
+  from{ transform: translateY(8px); opacity: 0; }
+  to{ transform: translateY(0); opacity: 1; }
 }
-.resultSub{
-  font-size: 14px;
-  letter-spacing: 2px;
-  opacity: .85;
-  font-weight: 800;
+
+.rmDivider{
+  width: 60px; height: 2px;
+  background: linear-gradient(90deg, transparent, rgba(255,255,255,0.25), transparent);
+  margin: 18px auto 14px;
+  position: relative; z-index: 2;
+  animation: rmFadeUp .4s ease-out .4s both;
 }
-.resultGlow{
-  position:absolute;
-  left:50%;
-  top: 50%;
-  width: 520px;
-  height: 220px;
-  transform: translate(-50%,-50%);
-  background: radial-gradient(circle at 50% 50%, rgba(0,229,255,0.18), transparent 60%);
-  filter: blur(22px);
+
+.rmBody{
+  position: relative; z-index: 2;
+  animation: rmFadeUp .4s ease-out .45s both;
+  margin-bottom: 20px;
+  width: 100%;
+}
+.rmMsg{
+  margin: 0 0 6px 0;
   opacity: .75;
-  pointer-events:none;
+  line-height: 1.55;
+  font-size: 13px;
 }
-.resultHero.defeat .resultGlow{
-  background: radial-gradient(circle at 50% 50%, rgba(255,64,96,0.16), transparent 60%);
+.rmMsg:last-child{ margin-bottom: 0; }
+
+.rmActions{
+  display: flex;
+  gap: 10px;
+  justify-content: center;
+  flex-wrap: wrap;
+  width: 100%;
+  position: relative; z-index: 2;
+  animation: rmFadeUp .4s ease-out .52s both;
+}
+.rmBtn{
+  flex: 1;
+  min-width: 120px;
+  padding: 13px 20px;
+  border-radius: 16px;
+  border: 1px solid rgba(255,255,255,0.14);
+  background: rgba(255,255,255,0.06);
+  color: #eaeaea;
+  font-family: 'Orbitron', 'Rajdhani', Inter, system-ui, sans-serif;
+  font-weight: 900;
+  font-size: 13px;
+  letter-spacing: 1px;
+  cursor: pointer;
+  transition: transform .12s, background .15s, border-color .15s, box-shadow .15s;
+  box-shadow: 0 8px 24px rgba(0,0,0,0.40);
+}
+.rmBtn:hover{
+  transform: translateY(-2px);
+  background: rgba(255,255,255,0.10);
+  border-color: rgba(255,255,255,0.22);
+  box-shadow: 0 12px 32px rgba(0,0,0,0.50);
+}
+.rmBtn:active{ transform: scale(0.98); }
+.rmBtnPrimary{
+  border-color: rgba(0,229,255,0.35);
+  background: rgba(0,229,255,0.12);
+  color: rgba(0,229,255,0.95);
+  box-shadow: 0 8px 24px rgba(0,0,0,0.40), 0 0 20px rgba(0,229,255,0.08);
+}
+.rmBtnPrimary:hover{
+  border-color: rgba(0,229,255,0.55);
+  background: rgba(0,229,255,0.18);
+  box-shadow: 0 12px 32px rgba(0,0,0,0.50), 0 0 28px rgba(0,229,255,0.14);
+}
+.resultModal.defeat .rmBtnPrimary{
+  border-color: rgba(255,40,80,0.35);
+  background: rgba(255,40,80,0.12);
+  color: rgba(255,80,100,0.95);
+  box-shadow: 0 8px 24px rgba(0,0,0,0.40), 0 0 20px rgba(255,40,80,0.08);
+}
+.resultModal.defeat .rmBtnPrimary:hover{
+  border-color: rgba(255,40,80,0.55);
+  background: rgba(255,40,80,0.18);
 }
 
-.modalTop.resultTop{
-  justify-content: flex-end;
-  margin-bottom: 6px;
+/* ══ STANDARD MODAL CARD ══ */
+.modalCard{
+  position: relative;
+  width: min(520px, 100%);
+  border-radius: 20px;
+  border: 1px solid rgba(255,255,255,0.12);
+  background: linear-gradient(180deg, rgba(16,16,28,0.96), rgba(10,10,20,0.94));
+  backdrop-filter: blur(16px);
+  box-shadow:
+    0 20px 80px rgba(0,0,0,0.65),
+    0 0 0 1px rgba(255,255,255,0.05) inset;
+  overflow: hidden;
+  animation: popIn .2s cubic-bezier(.22,1,.36,1);
 }
+.modalCard.modalDanger{
+  border-color: rgba(255,64,96,0.18);
+  box-shadow: 0 20px 80px rgba(0,0,0,0.65), 0 0 0 1px rgba(255,64,96,0.10) inset, 0 0 32px rgba(255,64,96,0.08);
+}
+
+/* Accent stripe at top */
+.modalStripe{
+  height: 3px;
+  width: 100%;
+  background: linear-gradient(90deg, rgba(0,229,255,0.8), rgba(180,80,255,0.7), rgba(255,43,214,0.8));
+}
+.modalStripe.bad{ background: linear-gradient(90deg, rgba(255,64,96,0.9), rgba(255,120,40,0.8)); }
+.modalStripe.good{ background: linear-gradient(90deg, rgba(0,255,128,0.8), rgba(0,200,255,0.7)); }
+.modalStripe.info{ background: linear-gradient(90deg, rgba(0,229,255,0.8), rgba(180,80,255,0.7), rgba(255,43,214,0.8)); }
+
+.modalInner{ padding: 16px 18px 18px; }
+
+.modalHead{
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 14px;
+}
+.modalIconDot{
+  width: 8px; height: 8px;
+  border-radius: 50%;
+  flex-shrink: 0;
+  background: rgba(0,229,255,0.9);
+  box-shadow: 0 0 10px rgba(0,229,255,0.4);
+}
+.modalIconDot.bad{ background: rgba(255,64,96,0.9); box-shadow: 0 0 10px rgba(255,64,96,0.4); }
+.modalIconDot.good{ background: rgba(0,255,128,0.9); box-shadow: 0 0 10px rgba(0,255,128,0.4); }
+.modalIconDot.info{ background: rgba(0,229,255,0.9); box-shadow: 0 0 10px rgba(0,229,255,0.4); }
+.modalIconDot.victory{
+  background: linear-gradient(90deg, rgba(0,229,255,1), rgba(255,43,214,1));
+  box-shadow: 0 0 12px rgba(0,229,255,0.35), 0 0 12px rgba(255,43,214,0.25);
+  width: 10px; height: 10px;
+}
+.modalTitle2{
+  font-size: 15px;
+  font-weight: 900;
+  letter-spacing: 1.5px;
+  text-transform: uppercase;
+  font-family: 'Orbitron', 'Rajdhani', Inter, system-ui, sans-serif;
+  opacity: .92;
+}
+
+.modalBody{ margin-bottom: 16px; }
+.modalMsg{ margin: 0 0 8px 0; opacity: .85; line-height: 1.5; font-size: 14px; }
+.modalMsg:last-child{ margin-bottom: 0; }
+.modalMsg.muted{ opacity: .5; font-size: 12px; }
+.modalActions{ display:flex; gap: 10px; justify-content:flex-end; flex-wrap: wrap; }
 .modalXSpacer{ width: 18px; height: 18px; }
 
-.modalCard.modalResult{
-  width: min(720px, 100%);
-  padding: 18px 18px 16px;
+/* ══ QM ACCEPT EXTRAS ══ */
+.qmCard{ width: min(400px, 100%); }
+.qmTimerArea{
+  position: relative;
+  width: 56px; height: 56px;
+  margin: 14px auto 10px;
 }
-
-.confetti{
-  position: fixed;
+.qmRing{
+  width: 56px; height: 56px;
+  transform: rotate(-90deg);
+}
+.qmRingTrack{
+  fill: none;
+  stroke: rgba(255,255,255,0.08);
+  stroke-width: 4;
+}
+.qmRingFill{
+  fill: none;
+  stroke: rgba(0,229,255,0.85);
+  stroke-width: 4;
+  stroke-linecap: round;
+  stroke-dasharray: 138.2;
+  stroke-dashoffset: 0;
+  transition: stroke-dashoffset 250ms linear;
+  filter: drop-shadow(0 0 6px rgba(0,229,255,0.5));
+}
+.qmRingFill.danger{
+  stroke: rgba(255,64,96,0.9);
+  filter: drop-shadow(0 0 6px rgba(255,64,96,0.5));
+}
+.qmRingNum{
+  position: absolute;
   inset: 0;
-  pointer-events: none;
-  overflow: hidden;
-  z-index: 51;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 16px;
+  font-weight: 900;
+  font-variant-numeric: tabular-nums;
+  color: rgba(0,229,255,0.95);
+}
+.qmRingNum.danger{ color: rgba(255,64,96,0.95); }
+
+/* confetti */
+.confetti{
+  position: fixed; inset: 0;
+  pointer-events: none; overflow: hidden; z-index: 51;
 }
 .confettiPiece{
-  position: absolute;
-  top: -20px;
-  border-radius: 3px;
+  position: absolute; top: -20px; border-radius: 3px;
   background: linear-gradient(90deg, rgba(0,229,255,1), rgba(255,43,214,1));
   opacity: 0.95;
-  transform: translateX(0) rotate(var(--r));
   animation: confettiFall var(--t) ease-in forwards;
   animation-delay: var(--d);
   box-shadow: 0 10px 30px rgba(0,0,0,0.40);
@@ -5781,53 +6108,7 @@ onBeforeUnmount(() => {
   100%{ transform: translateX(var(--x)) translateY(105vh) rotate(calc(var(--r) + 420deg)); opacity: 0; }
 }
 
-.modalCard{
-  width: min(560px, 100%);
-  border-radius: 22px;
-  border: 1px solid rgba(255,255,255,0.14);
-  background: linear-gradient(180deg, rgba(18,18,28,0.90), rgba(10,10,16,0.86));
-  backdrop-filter: blur(14px);
-  padding: 14px;
-  box-shadow:
-    0 18px 80px rgba(0,0,0,0.62),
-    0 0 0 1px rgba(255,255,255,0.06) inset;
-  animation: popIn .18s ease-out;
-}
-.modalCard.modalDanger{
-  box-shadow:
-    0 18px 80px rgba(0,0,0,0.62),
-    0 0 0 1px rgba(255,64,96,0.12) inset,
-    0 0 28px rgba(255,64,96,0.10);
-}
-.modalCard.modalVictory{
-  width: min(620px, 100%);
-  border-color: rgba(0,229,255,0.24);
-  background:
-    radial-gradient(900px 260px at 50% 0%, rgba(0,229,255,0.16), transparent 70%),
-    radial-gradient(900px 260px at 50% 100%, rgba(255,43,214,0.14), transparent 70%),
-    linear-gradient(180deg, rgba(18,18,28,0.92), rgba(10,10,16,0.88));
-  box-shadow:
-    0 22px 110px rgba(0,0,0,0.70),
-    0 0 0 1px rgba(0,229,255,0.12) inset,
-    0 0 36px rgba(0,229,255,0.16),
-    0 0 32px rgba(255,43,214,0.12);
-  animation: victoryPop .24s ease-out;
-}
-.modalTop{ display:flex; justify-content:space-between; align-items:center; gap: 10px; }
-.modalTitle{ display:flex; align-items:center; gap: 10px; font-weight: 900; }
-.modalDot{ width: 10px; height: 10px; border-radius: 999px; background: rgba(0,229,255,.92); box-shadow: 0 0 14px rgba(0,229,255,0.18); }
-.modalDot.bad{ background: rgba(255,64,96,.95); }
-.modalDot.good{ background: rgba(0,255,128,.95); }
-.modalDot.victory{ background: linear-gradient(90deg, rgba(0,229,255,1), rgba(255,43,214,1)); box-shadow: 0 0 18px rgba(0,229,255,0.22), 0 0 18px rgba(255,43,214,0.18); }
-.modalX{ background: transparent; border: 0; color:#eaeaea; font-size: 18px; cursor:pointer; }
-.modalBody{ margin-top: 10px; }
-.modalMsg{ margin: 0 0 8px 0; opacity: .92; line-height: 1.45; }
-.modalActions{ display:flex; gap: 10px; justify-content:flex-end; margin-top: 12px; flex-wrap: wrap; }
 
-@keyframes victoryPop{
-  from{ transform: translateY(10px) scale(0.97); opacity: 0; filter: saturate(1.1); }
-  to{ transform: translateY(0) scale(1); opacity: 1; filter: saturate(1.0); }
-}
 
 /* ============================================================
    VS AI DIFFICULTY PICKER
@@ -7393,13 +7674,11 @@ onBeforeUnmount(() => {
 ========================= */
 .qmBar{
   width: 100%;
-  height: 12px;
+  height: 4px;
   border-radius: 999px;
   background: rgba(255,255,255,0.08);
-  border: 1px solid rgba(255,255,255,0.14);
   overflow: hidden;
-  box-shadow: inset 0 0 0 1px rgba(0,0,0,0.25);
-  margin-top: 10px;
+  margin-top: 8px;
 }
 .qmBarFill{
   height: 100%;
@@ -7409,20 +7688,19 @@ onBeforeUnmount(() => {
   transition: width 80ms linear;
 }
 .qmBar.danger{
-  border-color: rgba(255,60,60,0.45);
   background: rgba(255,60,60,0.08);
+}
+.qmBar.danger .qmBarFill{
+  background: linear-gradient(90deg, rgba(255,80,80,0.9), rgba(255,40,80,0.9));
 }
 .dangerPulse{
   animation: qmPulse 420ms ease-in-out infinite;
-  box-shadow: 0 0 0 1px rgba(255,80,80,0.25), 0 10px 40px rgba(255,0,80,0.12);
+  box-shadow: 0 0 0 1px rgba(255,80,80,0.25), 0 10px 40px rgba(255,0,80,0.12) !important;
+  border-color: rgba(255,64,96,0.25) !important;
 }
 @keyframes qmPulse{
   0%,100%{ transform: scale(1); }
-  50%{ transform: scale(1.02); }
-}
-.modalDot.bad{
-  background: rgba(255,60,60,0.85);
-  box-shadow: 0 0 10px rgba(255,60,60,0.55);
+  50%{ transform: scale(1.015); }
 }
 .loadTitlePng{
   height: 22px;
