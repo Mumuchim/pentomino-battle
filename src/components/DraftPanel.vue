@@ -2,6 +2,11 @@
   <section class="panel">
     <h2 class="panelTitle">Picks</h2>
 
+    <p class="muted">
+      Click a piece on the board to draft it — it flies into the tray.
+      Both players can see all drafted pieces.
+    </p>
+
     <div class="draftRow">
 
       <!-- PLAYER 1 -->
