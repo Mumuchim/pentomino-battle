@@ -17,12 +17,12 @@
     </div>
 
     <div class="row buttons">
-      <button class="btn" :disabled="!game.selectedPieceKey || !props.canAct" @click="game.rotateSelected()">
+      <button class="btn hideOnMobile" :disabled="!game.selectedPieceKey || !props.canAct" @click="game.rotateSelected()">
         Rotate (Q)
       </button>
 
       <button
-        class="btn"
+        class="btn hideOnMobile"
         :disabled="!game.selectedPieceKey || !game.allowFlip || !props.canAct"
         @click="game.flipSelected()"
       >
@@ -110,6 +110,11 @@ onBeforeUnmount(() => window.removeEventListener("keydown", onKeyDown));
 
 .muted { opacity: 0.75; }
 .small { font-size: 12px; }
+
+/* Hide desktop-only rotate/flip buttons on touch devices (the mobile action bar handles those) */
+@media (pointer: coarse), (max-width: 980px) {
+  .hideOnMobile { display: none !important; }
+}
 
 /* Fit-to-viewport: keep these buttons visible on 100% zoom / shorter screens */
 @media (max-height: 820px){
