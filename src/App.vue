@@ -407,12 +407,15 @@
            LOBBY
       ========================== -->
       <section v-else-if="screen === 'lobby'" class="menuShell pbShell pbShellCentered">
-        <div class="pbHeaderRow">
-          <div class="pbPageTitle">MULTIPLAYER</div>
-        </div>
+        <div class="vsStylePanel">
+          <div class="vsStyleHeader">
+            <div class="vsStyleHeaderGlow"></div>
+            <div class="vsStyleTitle">⚡ MULTIPLAYER</div>
+            <div class="vsStyleSubtitle">Create session · Browse rooms · Join by code</div>
+          </div>
 
-        <div class="pbPane">
-          <div class="pbCard">
+          <div class="vsStyleCards">
+            <div class="pbCard">
             <div class="pbTitleRow">
               <div class="pbTitle">CREATE SESSION</div>
               <div class="pbHint">PUBLIC OR PRIVATE</div>
@@ -524,6 +527,7 @@
               Private rooms are hidden — join by code. Quick Match rooms never show up here.
             </div>
           </div>
+          </div>
         </div>
       </section>
 
@@ -551,70 +555,79 @@
       <!-- =========================
            SETTINGS
       ========================== -->
-	  <section v-else-if="screen === 'settings'" class="menuShell">
-<h1 class="heroTitle small">Preferences</h1>
-          <p class="heroDesc small">Applies to local modes.</p>
-
-        <div class="menuCard">
-          <div class="form">
-            <label class="field">
-              <span>Allow Flip (Mirror)</span>
-              <input type="checkbox" v-model="allowFlip" />
-            </label>
-
-            <div class="divider"></div>
-
-            <label class="field">
-              <span>Enable Drag Placement</span>
-              <input type="checkbox" v-model="game.ui.enableDragPlace" />
-            </label>
-
-            <label class="field">
-              <span>Enable Click Placement</span>
-              <input type="checkbox" v-model="game.ui.enableClickPlace" />
-            </label>
-
-            <label class="field">
-              <span>Enable Hover Preview</span>
-              <input type="checkbox" v-model="game.ui.enableHoverPreview" />
-            </label>
-
-            <label class="field">
-              <span>Landscape Only (Mobile)</span>
-              <input type="checkbox" v-model="game.ui.lockLandscape" />
-            </label>
-
-            <div class="divider"></div>
-
-            <label class="field">
-              <span>BGM Volume</span>
-              <input type="range" min="0" max="100" step="1" v-model.number="bgmVolumeUi" />
-              <b class="mono">{{ bgmVolumeUi }}%</b>
-            </label>
-
-            <label class="field">
-              <span>SFX Volume</span>
-              <input type="range" min="0" max="100" step="1" v-model.number="sfxVolumeUi" />
-              <b class="mono">{{ sfxVolumeUi }}%</b>
-            </label>
+      <section v-else-if="screen === 'settings'" class="menuShell pbShell pbShellCentered">
+        <div class="vsStylePanel">
+          <div class="vsStyleHeader">
+            <div class="vsStyleHeaderGlow"></div>
+            <div class="vsStyleTitle">⚙ SETTINGS</div>
+            <div class="vsStyleSubtitle">Controls · Preferences</div>
           </div>
-<div class="finePrint">Board is fixed to <b>10×6</b>.</div>
+
+          <div class="vsStyleCards">
+            <div class="vsStyleCard">
+              <div class="vsStyleCardTitle">GAMEPLAY</div>
+              <label class="vsStyleRow">
+                <span class="vsStyleRowLabel">Allow Flip (Mirror)</span>
+                <input type="checkbox" class="vsStyleCheck" v-model="allowFlip" />
+              </label>
+              <label class="vsStyleRow">
+                <span class="vsStyleRowLabel">Enable Drag Placement</span>
+                <input type="checkbox" class="vsStyleCheck" v-model="game.ui.enableDragPlace" />
+              </label>
+              <label class="vsStyleRow">
+                <span class="vsStyleRowLabel">Enable Click Placement</span>
+                <input type="checkbox" class="vsStyleCheck" v-model="game.ui.enableClickPlace" />
+              </label>
+              <label class="vsStyleRow">
+                <span class="vsStyleRowLabel">Enable Hover Preview</span>
+                <input type="checkbox" class="vsStyleCheck" v-model="game.ui.enableHoverPreview" />
+              </label>
+              <label class="vsStyleRow">
+                <span class="vsStyleRowLabel">Landscape Only (Mobile)</span>
+                <input type="checkbox" class="vsStyleCheck" v-model="game.ui.lockLandscape" />
+              </label>
+            </div>
+
+            <div class="vsStyleCard">
+              <div class="vsStyleCardTitle">AUDIO</div>
+              <label class="vsStyleRow slider">
+                <span class="vsStyleRowLabel">BGM Volume</span>
+                <input type="range" min="0" max="100" step="1" v-model.number="bgmVolumeUi" class="vsStyleSlider" />
+                <span class="vsStyleSliderVal">{{ bgmVolumeUi }}%</span>
+              </label>
+              <label class="vsStyleRow slider">
+                <span class="vsStyleRowLabel">SFX Volume</span>
+                <input type="range" min="0" max="100" step="1" v-model.number="sfxVolumeUi" class="vsStyleSlider" />
+                <span class="vsStyleSliderVal">{{ sfxVolumeUi }}%</span>
+              </label>
+            </div>
+
+            <div class="vsStyleFinePrint">Board is fixed to <b>10×6</b>. Tip: Q rotate · E flip</div>
+          </div>
         </div>
       </section>
 
       <!-- =========================
            CREDITS
       ========================== -->
-	  <section v-else-if="screen === 'credits'" class="menuShell">
-<div class="menuCard">
-          <div class="credits">
-            <p><b>PentoBattle</b> — by <b>Mumuchxm</b></p>
-            <p class="muted">Built with Vite + Vue.</p>
-            <p class="muted">Music track: <b>Playing Games</b> — <b>Zambolino</b></p>
+      <section v-else-if="screen === 'credits'" class="menuShell pbShell pbShellCentered">
+        <div class="vsStylePanel">
+          <div class="vsStyleHeader">
+            <div class="vsStyleHeaderGlow"></div>
+            <div class="vsStyleTitle">✦ CREDITS</div>
+            <div class="vsStyleSubtitle">About the game</div>
           </div>
-
-          
-</div>
+          <div class="vsStyleCards">
+            <div class="vsStyleCard creditCard">
+              <div class="creditLine"><span class="creditLabel">GAME</span><span class="creditValue">PentoBattle</span></div>
+              <div class="creditLine"><span class="creditLabel">CREATOR</span><span class="creditValue">Mumuchxm</span></div>
+              <div class="creditLine"><span class="creditLabel">ENGINE</span><span class="creditValue">Vite + Vue</span></div>
+              <div class="creditDivider"></div>
+              <div class="creditLine"><span class="creditLabel">MUSIC</span><span class="creditValue">Playing Games</span></div>
+              <div class="creditLine"><span class="creditLabel">ARTIST</span><span class="creditValue">Zambolino</span></div>
+            </div>
+          </div>
+        </div>
       </section>
 
       <!-- =========================
@@ -640,9 +653,13 @@
                 <div class="tbMain">
                   <span v-if="game.phase === 'draft'">
                     <span class="tbPlayerNum">P{{ game.draftTurn }}</span> PICKING
+                    <span v-if="isOnline && myPlayer === game.draftTurn" class="tbYouTag">YOU</span>
+                    <span v-else-if="screen === 'ai' && game.draftTurn === humanPlayer" class="tbYouTag">YOU</span>
                   </span>
                   <span v-else-if="game.phase === 'place'">
                     <span class="tbPlayerNum">P{{ game.currentPlayer }}</span> TURN
+                    <span v-if="isOnline && myPlayer === game.currentPlayer" class="tbYouTag">YOU</span>
+                    <span v-else-if="screen === 'ai' && game.currentPlayer === humanPlayer" class="tbYouTag">YOU</span>
                   </span>
                   <span v-else>GAME OVER</span>
                 </div>
@@ -650,7 +667,7 @@
               </div>
               <div class="tbRight">
                 <!-- Draft timer pill -->
-                <div v-if="timerHud?.kind === 'draft'" class="tbDraftTimer" :class="{ tbDraftUrgent: timerHud.seconds <= 10 }">
+                <div v-if="timerHud?.kind === 'draft'" class="tbDraftTimer" :class="{ tbDraftUrgent: timerHud.seconds <= 10, tbDraftP2: game.draftTurn === 2 }">
                   {{ timerHud.value }}
                 </div>
                 <!-- Online "YOUR TURN" badge -->
@@ -673,7 +690,7 @@
                   activeClock: game.currentPlayer === 1,
                 }"
               >
-                <span class="statLabel">{{ isOnline && myPlayer === 1 ? 'YOU' : screen === 'ai' && !isOnline ? 'YOU' : 'P1' }}</span>
+                <span class="statLabel">{{ isOnline && myPlayer === 1 ? 'YOU (P1)' : screen === 'ai' && !isOnline ? (aiPlayer === 2 ? 'YOU (P1)' : 'AI (P1)') : 'P1' }}</span>
                 <span class="clockBadge p1">P1</span>
                 <span class="statValue clockValue">{{ fmtClock(game.battleClockSec?.[1] ?? 0) }}</span>
               </div>
@@ -684,7 +701,7 @@
                   activeClock: game.currentPlayer === 2,
                 }"
               >
-                <span class="statLabel">{{ isOnline && myPlayer === 2 ? 'YOU' : screen === 'ai' && !isOnline ? 'AI' : 'P2' }}</span>
+                <span class="statLabel">{{ isOnline && myPlayer === 2 ? 'YOU (P2)' : screen === 'ai' && !isOnline ? (aiPlayer === 2 ? 'AI (P2)' : 'YOU (P2)') : 'P2' }}</span>
                 <span class="clockBadge p2">P2</span>
                 <span class="statValue clockValue">{{ fmtClock(game.battleClockSec?.[2] ?? 0) }}</span>
               </div>
@@ -734,9 +751,7 @@
 
         <section class="rightPanel">
           <Board :isOnline="isOnline" :myPlayer="myPlayer" :canAct="canAct" />
-          <div class="hintSmall">
-            Drag a piece to the board and hover to preview. Click or drop to place.
-          </div>
+
         </section>
       </section>
     </main>
@@ -1553,13 +1568,13 @@ const phaseTitle = computed(() => {
 const phaseSub = computed(() => {
   if (game.phase === "draft") {
     if (screen.value === "ai") {
-      return game.draftTurn === 1 ? "Your Pick" : "AI Picking…";
+      return game.draftTurn === humanPlayer.value ? "Your Pick" : "AI Picking…";
     }
     return `Pick: P${game.draftTurn}`;
   }
   if (game.phase === "place") {
     if (screen.value === "ai") {
-      return game.currentPlayer === 1 ? "Your Turn" : "AI Thinking…";
+      return game.currentPlayer === humanPlayer.value ? "Your Turn" : "AI Thinking…";
     }
     return `Turn: P${game.currentPlayer}`;
   }
@@ -1718,11 +1733,11 @@ const primaryMatchActionLabel = computed(() => {
 });
 
 const canAct = computed(() => {
-  // AI mode: P2 is the AI — only let P1 (human) act on their own turns
+  // AI mode: human can only act on their own turns
   if (screen.value === 'ai') {
     if (game.phase === 'gameover') return false;
-    if (game.phase === 'draft') return game.draftTurn === 1;
-    if (game.phase === 'place') return game.currentPlayer === 1;
+    if (game.phase === 'draft') return game.draftTurn === humanPlayer.value;
+    if (game.phase === 'place') return game.currentPlayer === humanPlayer.value;
     return false;
   }
   if (!isOnline.value) return true;
@@ -3515,8 +3530,8 @@ watch(
     if (!isOnline.value) {
       // AI mode
       if (screen.value === 'ai') {
-        const humanWon = w === 1;
-        const aiWon = w === 2;
+        const humanWon = w === humanPlayer.value;
+        const aiWon = w === aiPlayer.value;
         if (humanWon) { aiScore.p1++; tryUnlockNextDifficulty(1, 1); }
         else if (aiWon) aiScore.p2++;
 
@@ -4336,6 +4351,10 @@ function startCouchPlay() {
 // 'dumbie' | 'elite' | 'tactician' | 'grandmaster' | 'legendary'
 const aiDifficulty = ref('dumbie');
 
+// aiPlayer: which player number the AI controls (1 for grandmaster+, 2 for others)
+const aiPlayer = ref(2);
+const humanPlayer = computed(() => aiPlayer.value === 2 ? 1 : 2);
+
 // Unlock tracking via localStorage
 const UNLOCK_KEY = 'pb_ai_unlocks_v2';
 const AI_RANK_ORDER = ['dumbie', 'elite', 'tactician', 'grandmaster', 'legendary'];
@@ -4369,7 +4388,7 @@ function getNextRank(current) {
 }
 
 function tryUnlockNextDifficulty(wonAsPlayer, winnerNum) {
-  if (winnerNum !== 1) return; // human is player 1
+  if (winnerNum !== humanPlayer.value) return; // human must win
   const current = aiDifficulty.value;
   const next = getNextRank(current);
   if (!next) return;
@@ -4401,6 +4420,8 @@ function selectAiDifficulty(diff) {
 
 function _launchAi(diff) {
   aiDifficulty.value = diff;
+  // Grandmaster and Legendary play as P1 (human gets P2)
+  aiPlayer.value = (diff === 'grandmaster' || diff === 'legendary') ? 1 : 2;
   aiRound.value = 1;
   aiScore.p1 = 0;
   aiScore.p2 = 0;
@@ -4416,6 +4437,8 @@ function _launchAi(diff) {
 
 function nextAiRound() {
   aiRound.value++;
+  // Keep aiPlayer consistent with current difficulty
+  aiPlayer.value = (aiDifficulty.value === 'grandmaster' || aiDifficulty.value === 'legendary') ? 1 : 2;
   myPlayer.value = null;
   game.boardW = 10;
   game.boardH = 6;
@@ -4435,10 +4458,11 @@ function _cancelAiTimer() {
   if (_aiTimer) { clearTimeout(_aiTimer); _aiTimer = null; }
 }
 
-// ── Shared helper: collect ALL valid placements for AI (player 2) ──
+// ── Shared helper: collect ALL valid placements for AI ──
 function _getAllValidMoves() {
   const { boardW, boardH, board, placedCount, allowFlip: af, remaining } = game;
-  const pieces = [...(remaining[2] || [])];
+  const ap = aiPlayer.value;
+  const pieces = [...(remaining[ap] || [])];
   const flipOptions = af ? [false, true] : [false];
   const dirs = [[1,0],[-1,0],[0,1],[0,-1]];
   const moves = [];
@@ -4533,36 +4557,43 @@ function _aiMovesNormal(moves) {
   return best;
 }
 
-// ── HARD: aggressive territory + strong blocking + compactness ────
-function _aiMovesHard(moves) {
+// ── TACTICIAN: pattern-based blocking + territory corridors ────────
+function _aiMovesTactician(moves) {
   if (!moves.length) return null;
   const { board, boardW, boardH } = game;
   const dirs = [[1,0],[-1,0],[0,1],[0,-1]];
   const diag = [[1,1],[1,-1],[-1,1],[-1,-1]];
+  const ap = aiPlayer.value;
+  const hp = humanPlayer.value;
   let best = null, bestScore = -Infinity;
+
   for (const m of moves) {
-    let score = Math.random() * 0.15;
+    let score = Math.random() * 0.10;
     const simBoard = board.map(r => [...r]);
-    for (const [x, y] of m.abs) simBoard[y][x] = { player: 2, pieceKey: m.pk };
+    for (const [x, y] of m.abs) simBoard[y][x] = { player: ap, pieceKey: m.pk };
+
+    // Reward adjacency to own pieces
     let ownAdj = 0, oppAdj = 0;
     for (const [x, y] of m.abs) {
       for (const [ox, oy] of dirs) {
         const nx = x+ox, ny = y+oy;
         if (nx < 0 || ny < 0 || nx >= boardW || ny >= boardH) continue;
         const cell = board[ny][nx];
-        if (cell?.player === 2) ownAdj++;
-        if (cell?.player === 1) oppAdj++;
+        if (cell?.player === ap) ownAdj++;
+        if (cell?.player === hp) oppAdj++;
       }
       for (const [ox, oy] of diag) {
         const nx = x+ox, ny = y+oy;
         if (nx < 0 || ny < 0 || nx >= boardW || ny >= boardH) continue;
-        if (board[ny][nx]?.player === 2) score += 0.25;
+        if (board[ny][nx]?.player === ap) score += 0.30;
       }
       const edgeDist = Math.min(x, boardW-1-x, y, boardH-1-y);
-      score += edgeDist * 0.2;
+      score += edgeDist * 0.25; // prefer interior
     }
-    score += ownAdj * 2.5;
-    score += oppAdj * 1.8;
+    score += ownAdj * 3.0; // strongly reward compactness
+    score += oppAdj * 2.2; // block opponent
+
+    // Penalize placing next to open spaces adjacent to opponent (don't leave doors open)
     let openAdj = 0;
     for (const [x, y] of m.abs) {
       for (const [ox, oy] of dirs) {
@@ -4570,124 +4601,218 @@ function _aiMovesHard(moves) {
         if (nx >= 0 && ny >= 0 && nx < boardW && ny < boardH && simBoard[ny][nx] === null) openAdj++;
       }
     }
-    score += openAdj * 0.4;
+    score += openAdj * 0.3;
+
     if (score > bestScore) { bestScore = score; best = m; }
   }
   return best;
 }
 
-// ── MASTER: flood-fill territory evaluation, near-optimal ─────────
-function _aiMovesMaster(moves) {
+// ── GRANDMASTER: territorial god — creates combo zones ─────────────
+// Plays as P1, uses flood fill + territory locking to create regions
+// that human's remaining pieces can't fit into
+function _aiMovesGrandmaster(moves) {
   if (!moves.length) return null;
-  const { board, boardW, boardH } = game;
+  const { board, boardW, boardH, remaining } = game;
   const dirs = [[1,0],[-1,0],[0,1],[0,-1]];
+  const ap = aiPlayer.value;
+  const hp = humanPlayer.value;
+
+  function floodFillRegions(simBoard) {
+    // Find all connected empty regions and their sizes
+    const visited = new Set();
+    const regions = [];
+    for (let y = 0; y < boardH; y++) {
+      for (let x = 0; x < boardW; x++) {
+        const k = y * boardW + x;
+        if (simBoard[y][x] !== null || visited.has(k)) continue;
+        const region = [];
+        const q = [[x, y]];
+        visited.add(k);
+        while (q.length) {
+          const [cx, cy] = q.shift();
+          region.push([cx, cy]);
+          for (const [ox, oy] of dirs) {
+            const nx = cx+ox, ny = cy+oy;
+            if (nx < 0 || ny < 0 || nx >= boardW || ny >= boardH) continue;
+            const nk = ny * boardW + nx;
+            if (simBoard[ny][nx] === null && !visited.has(nk)) {
+              visited.add(nk);
+              q.push([nx, ny]);
+            }
+          }
+        }
+        regions.push(region);
+      }
+    }
+    return regions;
+  }
+
+  function reachable(simBoard, player) {
+    const visited = new Set();
+    const q = [];
+    for (let y = 0; y < boardH; y++)
+      for (let x = 0; x < boardW; x++)
+        if (simBoard[y][x]?.player === player) { const k = y * boardW + x; if (!visited.has(k)) { visited.add(k); q.push([x, y]); } }
+    let count = 0;
+    while (q.length) {
+      const [cx, cy] = q.shift();
+      for (const [ox, oy] of dirs) {
+        const nx = cx+ox, ny = cy+oy;
+        if (nx < 0 || ny < 0 || nx >= boardW || ny >= boardH) continue;
+        const k = ny * boardW + nx;
+        if (visited.has(k)) continue;
+        visited.add(k);
+        if (simBoard[ny][nx] === null) { count++; q.push([nx, ny]); }
+        else if (simBoard[ny][nx]?.player === player) q.push([nx, ny]);
+      }
+    }
+    return count;
+  }
+
+  let best = null, bestScore = -Infinity;
+  for (const m of moves) {
+    const simBoard = board.map(r => [...r]);
+    for (const [x, y] of m.abs) simBoard[y][x] = { player: ap, pieceKey: m.pk };
+
+    const ownSpace = reachable(simBoard, ap);
+    const oppSpace = reachable(simBoard, hp);
+
+    // Core: maximize own reachable - minimize opponent reachable
+    let score = ownSpace * 5.0 - oppSpace * 4.5;
+
+    // Bonus: if we create small locked-off regions (size 1-4), opponent can't fill them easily
+    const regions = floodFillRegions(simBoard);
+    for (const reg of regions) {
+      if (reg.length <= 4 && reg.length >= 1) {
+        // Small trapped region — big bonus (opponent wastes turn)
+        score += (5 - reg.length) * 6.0;
+      }
+      if (reg.length === 5) score -= 2.0; // perfect pentomino fit — opponent benefits
+    }
+
+    let oppAdj = 0, ownAdj = 0;
+    for (const [x, y] of m.abs) {
+      for (const [ox, oy] of dirs) {
+        const nx = x+ox, ny = y+oy;
+        if (nx < 0 || ny < 0 || nx >= boardW || ny >= boardH) continue;
+        const cell = board[ny][nx];
+        if (cell?.player === hp) oppAdj++;
+        if (cell?.player === ap) ownAdj++;
+      }
+      // Strong preference for center control
+      const cx = Math.abs(x - boardW/2), cy = Math.abs(y - boardH/2);
+      score -= (cx + cy) * 0.1;
+    }
+    score += oppAdj * 3.0 + ownAdj * 1.5;
+
+    if (score > bestScore) { bestScore = score; best = m; }
+  }
+  return best;
+}
+
+// ── LEGENDARY: reads human picks, creates near-impossible territory ─
+// Plays as P1, analyzes human draft + board state to counter optimally
+function _aiMovesLegendary(moves) {
+  if (!moves.length) return null;
+  const { board, boardW, boardH, remaining, picks } = game;
+  const dirs = [[1,0],[-1,0],[0,1],[0,-1]];
+  const ap = aiPlayer.value;
+  const hp = humanPlayer.value;
 
   function reachableFrom(simBoard, player) {
     const visited = new Set();
-    const queue = [];
+    const q = [];
     for (let y = 0; y < boardH; y++)
       for (let x = 0; x < boardW; x++)
-        if (simBoard[y][x]?.player === player) {
-          const k = y * boardW + x;
-          if (!visited.has(k)) { visited.add(k); queue.push([x, y]); }
-        }
+        if (simBoard[y][x]?.player === player) { const k = y * boardW + x; if (!visited.has(k)) { visited.add(k); q.push([x, y]); } }
     let count = 0;
-    while (queue.length) {
-      const [cx, cy] = queue.shift();
+    while (q.length) {
+      const [cx, cy] = q.shift();
       for (const [ox, oy] of dirs) {
         const nx = cx+ox, ny = cy+oy;
         if (nx < 0 || ny < 0 || nx >= boardW || ny >= boardH) continue;
         const k = ny * boardW + nx;
         if (visited.has(k)) continue;
         visited.add(k);
-        if (simBoard[ny][nx] === null) { count++; queue.push([nx, ny]); }
-        else if (simBoard[ny][nx]?.player === player) { queue.push([nx, ny]); }
+        if (simBoard[ny][nx] === null) { count++; q.push([nx, ny]); }
+        else if (simBoard[ny][nx]?.player === player) q.push([nx, ny]);
       }
     }
     return count;
   }
 
-  const baseOwn = reachableFrom(board, 2);
-  const baseOpp = reachableFrom(board, 1);
-  const baseline = baseOwn - baseOpp;
-
-  let best = null, bestScore = -Infinity;
-  for (const m of moves) {
-    const simBoard = board.map(r => [...r]);
-    for (const [x, y] of m.abs) simBoard[y][x] = { player: 2, pieceKey: m.pk };
-    const ownSpace = reachableFrom(simBoard, 2);
-    const oppSpace = reachableFrom(simBoard, 1);
-    const delta = ownSpace - oppSpace;
-    let score = (delta - baseline) * 3.0;
-    let oppAdj = 0, ownAdj = 0;
-    for (const [x, y] of m.abs) {
-      for (const [ox, oy] of dirs) {
-        const nx = x+ox, ny = y+oy;
-        if (nx < 0 || ny < 0 || nx >= boardW || ny >= boardH) continue;
-        const cell = board[ny][nx];
-        if (cell?.player === 1) oppAdj++;
-        if (cell?.player === 2) ownAdj++;
-      }
-    }
-    score += oppAdj * 1.5;
-    score += ownAdj * 0.8;
-    score += Math.random() * 0.04;
-    if (score > bestScore) { bestScore = score; best = m; }
-  }
-  return best;
-}
-
-// ── LEGENDARY: max territory + opponent blocking, zero random noise ─
-function _aiMovesLegendary(moves) {
-  if (!moves.length) return null;
-  const { board, boardW, boardH } = game;
-  const dirs = [[1,0],[-1,0],[0,1],[0,-1]];
-
-  function reachableFromLeg(simBoard, player) {
+  function floodFillRegions(simBoard) {
     const visited = new Set();
-    const queue = [];
-    for (let y = 0; y < boardH; y++)
-      for (let x = 0; x < boardW; x++)
-        if (simBoard[y][x]?.player === player) {
-          const k = y * boardW + x;
-          if (!visited.has(k)) { visited.add(k); queue.push([x, y]); }
-        }
-    let count = 0;
-    while (queue.length) {
-      const [cx, cy] = queue.shift();
-      for (const [ox, oy] of dirs) {
-        const nx = cx+ox, ny = cy+oy;
-        if (nx < 0 || ny < 0 || nx >= boardW || ny >= boardH) continue;
-        const k = ny * boardW + nx;
-        if (visited.has(k)) continue;
+    const regions = [];
+    for (let y = 0; y < boardH; y++) {
+      for (let x = 0; x < boardW; x++) {
+        const k = y * boardW + x;
+        if (simBoard[y][x] !== null || visited.has(k)) continue;
+        const region = [];
+        const q = [[x, y]];
         visited.add(k);
-        if (simBoard[ny][nx] === null) { count++; queue.push([nx, ny]); }
-        else if (simBoard[ny][nx]?.player === player) { queue.push([nx, ny]); }
+        while (q.length) {
+          const [cx, cy] = q.shift();
+          region.push([cx, cy]);
+          for (const [ox, oy] of dirs) {
+            const nx = cx+ox, ny = cy+oy;
+            if (nx < 0 || ny < 0 || nx >= boardW || ny >= boardH) continue;
+            const nk = ny * boardW + nx;
+            if (simBoard[ny][nx] === null && !visited.has(nk)) {
+              visited.add(nk);
+              q.push([nx, ny]);
+            }
+          }
+        }
+        regions.push(region);
       }
     }
-    return count;
+    return regions;
   }
+
+  // Analyze human remaining pieces to estimate their spatial need
+  const humanRemaining = remaining[hp] || [];
+  const humanPieceCount = humanRemaining.length;
 
   let best = null, bestScore = -Infinity;
   for (const m of moves) {
     const simBoard = board.map(r => [...r]);
-    for (const [x, y] of m.abs) simBoard[y][x] = { player: 2, pieceKey: m.pk };
-    const ownSpace = reachableFromLeg(simBoard, 2);
-    const oppSpace = reachableFromLeg(simBoard, 1);
-    let score = ownSpace * 4.5 - oppSpace * 4.0;
+    for (const [x, y] of m.abs) simBoard[y][x] = { player: ap, pieceKey: m.pk };
+
+    const ownSpace = reachableFrom(simBoard, ap);
+    const oppSpace = reachableFrom(simBoard, hp);
+
+    // Aggressive territory domination
+    let score = ownSpace * 6.0 - oppSpace * 5.5;
+
+    // Locking regions analysis — bonus for making opponent's pieces unplaceable
+    const regions = floodFillRegions(simBoard);
+    let lockedPenalty = 0;
+    for (const reg of regions) {
+      // Perfect pentomino regions (size 5) that aren't filled are bonus for human
+      if (reg.length % 5 === 0) score -= 1.5; 
+      // Locked regions (1-4 cells) — huge bonus since opponent can't fill
+      if (reg.length <= 4) score += (5 - reg.length) * 8.0;
+      // Regions matching human pieces — penalize (leaves nice space for them)
+      if (reg.length === 5 * humanPieceCount) lockedPenalty += 3.0;
+    }
+    score -= lockedPenalty;
+
     let oppAdj = 0, ownAdj = 0;
     for (const [x, y] of m.abs) {
       for (const [ox, oy] of dirs) {
         const nx = x+ox, ny = y+oy;
         if (nx < 0 || ny < 0 || nx >= boardW || ny >= boardH) continue;
         const cell = board[ny][nx];
-        if (cell?.player === 1) oppAdj++;
-        if (cell?.player === 2) ownAdj++;
+        if (cell?.player === hp) oppAdj++;
+        if (cell?.player === ap) ownAdj++;
       }
-      const cx = Math.abs(x - boardW/2), cy = Math.abs(y - boardH/2);
-      score -= (cx + cy) * 0.08;
+      const cx2 = Math.abs(x - boardW/2), cy2 = Math.abs(y - boardH/2);
+      score -= (cx2 + cy2) * 0.12;
     }
-    score += oppAdj * 2.5 + ownAdj * 1.0;
+    score += oppAdj * 4.0 + ownAdj * 2.0;
+
     if (score > bestScore) { bestScore = score; best = m; }
   }
   return best;
@@ -4695,54 +4820,100 @@ function _aiMovesLegendary(moves) {
 
 // ── Draft pickers per difficulty ──────────────────────────────────
 const _VERSATILE_PIECES = new Set(['I','L','T','Y','N','S','Z','P']);
+// Pieces that are harder to place (irregular shapes) — good to pick to deny human
+const _TRICKY_PIECES = new Set(['F','W','X','U','V']);
+// Piece shape scores for territory control
+const SHAPE_SCORE = { I:5, L:5, Y:5, N:4, T:4, S:4, Z:4, P:3, W:3, F:2, U:2, X:1, V:2 };
 
 function _aiDraftPick() {
   const pool = [...game.pool];
   if (!pool.length) return null;
   const diff = aiDifficulty.value;
+  const hp = humanPlayer.value;
+  const humanPicks = game.picks[hp] || [];
+
   if (diff === 'dumbie') {
     return pool[Math.floor(Math.random() * pool.length)];
   }
   if (diff === 'elite') {
-    if (Math.random() < 0.6) return pool[Math.floor(Math.random() * pool.length)];
+    if (Math.random() < 0.5) return pool[Math.floor(Math.random() * pool.length)];
     const good = pool.filter(k => _VERSATILE_PIECES.has(k));
     return good.length ? good[Math.floor(Math.random() * good.length)] : pool[Math.floor(Math.random() * pool.length)];
   }
   if (diff === 'tactician') {
+    // Tactician: prioritize versatile pieces, but also try to deny human's best pieces
+    // If human already has versatile pieces, steal remaining versatile ones
+    const humanHasVersatile = humanPicks.some(k => _VERSATILE_PIECES.has(k));
     const good = pool.filter(k => _VERSATILE_PIECES.has(k));
-    return good.length ? good[Math.floor(Math.random() * good.length)] : pool[Math.floor(Math.random() * pool.length)];
+    // If good pieces remain, take them - deny human the best
+    if (good.length && Math.random() < 0.80) {
+      return good[Math.floor(Math.random() * good.length)];
+    }
+    // Otherwise pick tricky pieces to deny human easy placements
+    const tricky = pool.filter(k => _TRICKY_PIECES.has(k));
+    if (tricky.length && Math.random() < 0.55) {
+      return tricky[Math.floor(Math.random() * tricky.length)];
+    }
+    return pool[Math.floor(Math.random() * pool.length)];
   }
-  // grandmaster & legendary: pick highest-value piece by shape versatility score
-  const SHAPE_SCORE = { I:5, L:5, Y:5, N:4, T:4, S:4, Z:4, P:3, W:3, F:2, U:2, X:1, V:2 };
-  const noise = diff === 'legendary' ? 0.05 : 0.3;
-  let bestPick = pool[0], bestS = -1;
-  for (const k of pool) {
-    const s = (SHAPE_SCORE[k] || 2) + Math.random() * noise;
-    if (s > bestS) { bestS = s; bestPick = k; }
+  if (diff === 'grandmaster') {
+    // Grandmaster: always take highest-value piece by shape score
+    // Slightly reads human picks to avoid leaving them easy combos
+    const noise = 0.15;
+    let bestPick = pool[0], bestS = -1;
+    for (const k of pool) {
+      // Slight bonus for pieces that deny combos with what human picked
+      const humanWouldWant = humanPicks.some(hp2 => _VERSATILE_PIECES.has(hp2)) && _VERSATILE_PIECES.has(k);
+      const s = (SHAPE_SCORE[k] || 2) + (humanWouldWant ? 2.0 : 0) + Math.random() * noise;
+      if (s > bestS) { bestS = s; bestPick = k; }
+    }
+    return bestPick;
   }
-  return bestPick;
+  // legendary: reads human picks + takes highest-value, pure counter-pick
+  {
+    // Identify what human has to infer their strategy
+    const humanHasLong = humanPicks.some(k => ['I','L','Y','N'].includes(k));
+    const humanHasBranchy = humanPicks.some(k => ['T','F','Y','X'].includes(k));
+    const humanHasCompact = humanPicks.some(k => ['P','W','U','V'].includes(k));
+
+    let bestPick = pool[0], bestS = -1;
+    for (const k of pool) {
+      let s = (SHAPE_SCORE[k] || 2) * 2.0;
+      // Counter human strategy: if they have long pieces, take pieces that create narrow zones
+      if (humanHasLong && ['T','F','X','W','U'].includes(k)) s += 3.0;
+      // If they have branchy pieces, take compact ones to fill efficiently
+      if (humanHasBranchy && ['I','L','P'].includes(k)) s += 2.5;
+      // Always deny the best remaining pieces
+      if (_VERSATILE_PIECES.has(k)) s += 2.5;
+      // Deny tricky pieces from human too
+      if (_TRICKY_PIECES.has(k)) s += 1.5;
+      if (s > bestS) { bestS = s; bestPick = k; }
+    }
+    return bestPick;
+  }
 }
 
 // ── Main AI move dispatcher ───────────────────────────────────────
 function _doAiMove() {
   if (screen.value !== 'ai') return;
   if (game.phase === 'gameover') return;
+  const ap = aiPlayer.value;
 
-  if (game.phase === 'draft' && game.draftTurn === 2) {
+  if (game.phase === 'draft' && game.draftTurn === ap) {
     const pick = _aiDraftPick();
     if (pick) game.draftPick(pick);
     return;
   }
 
-  if (game.phase === 'place' && game.currentPlayer === 2) {
+  if (game.phase === 'place' && game.currentPlayer === ap) {
     const moves = _getAllValidMoves();
     if (!moves.length) return;
     const diff = aiDifficulty.value;
     let move;
     if      (diff === 'dumbie')      move = _aiMovesEasy(moves);
     else if (diff === 'elite')       move = _aiMovesNormal(moves);
-    else if (diff === 'tactician')   move = _aiMovesHard(moves);
-    else if (diff === 'grandmaster') move = _aiMovesMaster(moves);
+    else if (diff === 'tactician')   move = _aiMovesTactician(moves);
+    else if (diff === 'grandmaster') move = _aiMovesGrandmaster(moves);
     else                             move = _aiMovesLegendary(moves);
     if (!move) return;
     game.selectedPieceKey = move.pk;
@@ -4770,9 +4941,10 @@ watch(
   () => {
     if (screen.value !== 'ai') { _cancelAiTimer(); return; }
     if (game.phase === 'gameover') { _cancelAiTimer(); return; }
+    const ap = aiPlayer.value;
     const isAiTurn =
-      (game.phase === 'draft' && game.draftTurn === 2) ||
-      (game.phase === 'place' && game.currentPlayer === 2);
+      (game.phase === 'draft' && game.draftTurn === ap) ||
+      (game.phase === 'place' && game.currentPlayer === ap);
     if (isAiTurn) {
       _cancelAiTimer();
       _aiTimer = setTimeout(_doAiMove, _aiThinkDelay());
@@ -7646,8 +7818,229 @@ onBeforeUnmount(() => {
 
 
 
-/* Lag-free overrides (menu buttons) */
-.menuBtn, .menuBtn.primary, .menuBtn.alt { box-shadow: none !important; filter: none !important; }
+.tbYouTag {
+  display: inline-flex;
+  align-items: center;
+  font-size: 11px;
+  font-weight: 900;
+  letter-spacing: 2px;
+  padding: 2px 8px;
+  border-radius: 999px;
+  border: 1px solid currentColor;
+  opacity: 0.75;
+  margin-left: 8px;
+  vertical-align: middle;
+}
+
+/* ── Draft timer P2 (red) ───────────────────────────────────────── */
+.tbDraftTimer.tbDraftP2 {
+  border-color: rgba(255, 64, 96, 0.35);
+  background: rgba(255, 64, 96, 0.10);
+  color: rgba(255, 64, 96, 0.95);
+}
+.tbDraftTimer.tbDraftP2.tbDraftUrgent {
+  border-color: rgba(255, 40, 60, 0.65);
+  background: rgba(255, 40, 60, 0.18);
+  color: rgba(255, 80, 100, 0.98);
+}
+
+/* ============================================================
+   VS-STYLE PANEL (Settings / Credits / Lobby header)
+   Matches the VS AI overlay aesthetic
+   ============================================================ */
+.vsStylePanel {
+  width: min(560px, 100%);
+  margin: 0 auto;
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+  animation: vsAiPanelIn .28s cubic-bezier(.22,1,.36,1);
+}
+
+.vsStyleHeader {
+  position: relative;
+  text-align: center;
+  padding: 0 0 24px;
+  overflow: hidden;
+}
+
+.vsStyleHeaderGlow {
+  position: absolute;
+  inset: -40px;
+  background: radial-gradient(ellipse 60% 80% at 50% 0%, rgba(0,229,255,0.18), transparent 70%);
+  filter: blur(20px);
+  pointer-events: none;
+}
+
+.vsStyleTitle {
+  font-size: 28px;
+  font-weight: 900;
+  letter-spacing: 4px;
+  text-transform: uppercase;
+  background: linear-gradient(90deg, rgba(0,229,255,1), rgba(180,80,255,1), rgba(255,43,214,1));
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+  position: relative;
+}
+
+.vsStyleSubtitle {
+  font-size: 12px;
+  letter-spacing: 3px;
+  text-transform: uppercase;
+  opacity: .45;
+  margin-top: 4px;
+  position: relative;
+}
+
+.vsStyleCards {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.vsStyleCard {
+  position: relative;
+  border-radius: 16px;
+  border: 1px solid rgba(255,255,255,0.10);
+  background: rgba(255,255,255,0.04);
+  padding: 16px 18px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  overflow: hidden;
+  transition: border-color .2s;
+}
+
+.vsStyleCard::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: radial-gradient(ellipse 120% 200% at 0% 50%, rgba(0,229,255,0.06), transparent 60%);
+  pointer-events: none;
+}
+
+.vsStyleCardTitle {
+  font-size: 10px;
+  letter-spacing: 3px;
+  font-weight: 900;
+  text-transform: uppercase;
+  opacity: .4;
+  margin-bottom: 10px;
+}
+
+.vsStyleRow {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 10px 0;
+  border-bottom: 1px solid rgba(255,255,255,0.06);
+  cursor: pointer;
+}
+.vsStyleRow:last-of-type { border-bottom: none; }
+.vsStyleRow.slider { align-items: center; gap: 14px; }
+
+.vsStyleRowLabel {
+  font-size: 13px;
+  font-weight: 700;
+  letter-spacing: 1px;
+  opacity: .85;
+}
+
+.vsStyleCheck {
+  width: 20px;
+  height: 20px;
+  cursor: pointer;
+  accent-color: rgba(0,229,255,0.9);
+  flex-shrink: 0;
+}
+
+.vsStyleSlider {
+  flex: 1;
+  accent-color: rgba(0,229,255,0.9);
+  min-width: 80px;
+}
+
+.vsStyleSliderVal {
+  font-size: 13px;
+  font-weight: 900;
+  font-variant-numeric: tabular-nums;
+  opacity: .85;
+  min-width: 42px;
+  text-align: right;
+  letter-spacing: 1px;
+}
+
+.vsStyleFinePrint {
+  font-size: 11px;
+  opacity: .4;
+  text-align: center;
+  letter-spacing: 1px;
+  padding-top: 6px;
+}
+
+/* Credits card specific */
+.creditCard {
+  gap: 0;
+  padding: 20px 22px;
+}
+.creditLine {
+  display: flex;
+  align-items: baseline;
+  gap: 14px;
+  padding: 9px 0;
+  border-bottom: 1px solid rgba(255,255,255,0.06);
+}
+.creditLine:last-of-type { border-bottom: none; }
+.creditLabel {
+  font-size: 10px;
+  letter-spacing: 3px;
+  font-weight: 900;
+  opacity: .4;
+  text-transform: uppercase;
+  min-width: 70px;
+}
+.creditValue {
+  font-size: 15px;
+  font-weight: 900;
+  letter-spacing: 1px;
+  opacity: .92;
+}
+.creditDivider {
+  height: 1px;
+  background: rgba(255,255,255,0.10);
+  margin: 4px 0;
+}
+
+/* Close button for settings/credits (reuse vsAiClose) */
+.vsStyleClose {
+  margin-top: 16px;
+  background: transparent;
+  border: 1px solid rgba(255,255,255,0.1);
+  border-radius: 12px;
+  padding: 10px;
+  color: rgba(255,255,255,0.4);
+  font-size: 12px;
+  letter-spacing: 2px;
+  cursor: pointer;
+  transition: color .15s, border-color .15s;
+  align-self: center;
+  width: 100%;
+  font-family: inherit;
+}
+.vsStyleClose:hover {
+  color: rgba(255,255,255,0.8);
+  border-color: rgba(255,255,255,0.25);
+}
+
+/* Lobby wrapped in vsStylePanel */
+.vsStylePanel > .vsStyleCards > .pbCard {
+  width: 100%;
+  max-width: 100%;
+  margin: 0;
+}
+
 .menuBtn::before, .menuBtn::after { content: none !important; }
 
 
