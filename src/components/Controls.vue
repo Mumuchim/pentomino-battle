@@ -83,26 +83,37 @@ function toggleFlipAllowed() {
 }
 
 function onKeyDown(e) {
-  const tag = (e.target?.tagName || "").toLowerCase();
-  if (tag === "input" || tag === "textarea" || tag === "select") return;
+  const tag = (e.target?.tagName || '').toLowerCase();
+  if (tag === 'input' || tag === 'textarea' || tag === 'select') return;
 
-  if (game.phase !== "place") return;
+  if (game.phase !== 'place') return;
   if (!props.canAct) return;
   if (!game.selectedPieceKey) return;
 
   const k = e.key?.toLowerCase();
-  if (k === "q") {
+  if (k === 'q') {
     e.preventDefault();
     game.rotateSelected();
   }
-  if (k === "e") {
+  if (k === 'e') {
     e.preventDefault();
     game.flipSelected();
   }
-  // Space / Enter = confirm placement on PC when requireSubmit is on
-  if ((k === " " || e.key === "Enter") && game.ui?.requireSubmit) {
-    if (isPendingValid.value) {
-      e.preventDefault();
+
+  // Space / Enter = confirm placement on PC when requireSubmit is on.
+  // Priority: if cursor is hovering over a valid cell, stage+commit that cell directly
+  // (one-step confirm from wherever the cursor is). Otherwise fall back to the last
+  // clicked/staged position (pendingPlace) so you can click to stage, then Space to commit.
+  if ((k === ' ' || e.key === 'Enter') && game.ui?.requireSubmit) {
+    e.preventDefault();
+
+    const hovered = game.hoverCell;
+    if (hovered && game.canPlaceAt(hovered.x, hovered.y)) {
+      // Instantly stage the hovered cell and commit — cursor confirms placement.
+      game.pendingPlace = { x: hovered.x, y: hovered.y };
+      onPcSubmit();
+    } else if (isPendingValid.value) {
+      // No hover (cursor left board) — commit the last staged position.
       onPcSubmit();
     }
   }

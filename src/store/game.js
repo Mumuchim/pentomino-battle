@@ -200,6 +200,8 @@ export const useGameStore = defineStore("game", {
       enableHoverPreview: true,
       lockLandscape: false,
       requireSubmit: true, // When true: mobile drops stage the piece; Submit commits. When false: drop = instant place.
+      // Shared hover cell (synced by Board.vue) so Controls.vue Space key can confirm hover position
+      hoverCell: null, // { x, y } | null
     },
 
     // Custom drag (for touch + mouse). Board updates drag.target.
