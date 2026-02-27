@@ -94,8 +94,8 @@
       <!-- ROTATE -->
       <button
         class="mobileBtn mobileIconBtn"
-        @touchstart.prevent="game.rotateSelected()"
-        @click="game.rotateSelected()"
+        @touchstart.prevent="handleRotate()"
+        @click="handleRotate()"
         aria-label="Rotate piece"
       >
         <span class="mobileBtnIcon">↻</span>
@@ -106,8 +106,8 @@
       <button
         v-if="game.ui?.requireSubmit"
         class="mobileBtn mobileSubmitBtn"
-        :class="{ hasPending: !!game.pendingPlace }"
-        :disabled="!game.pendingPlace"
+        :class="{ hasPending: isPendingValid }"
+        :disabled="!isPendingValid"
         @touchstart.prevent="onMobileSubmit"
         @click="onMobileSubmit"
         aria-label="Confirm placement"
@@ -120,8 +120,8 @@
       <button
         class="mobileBtn mobileIconBtn"
         :disabled="!game.allowFlip"
-        @touchstart.prevent="game.flipSelected()"
-        @click="game.flipSelected()"
+        @touchstart.prevent="handleFlip()"
+        @click="handleFlip()"
         aria-label="Flip piece"
       >
         <span class="mobileBtnIcon">⇄</span>
@@ -233,6 +233,42 @@ watch(
   { immediate: false }
 );
 // ────────────────────────────────────────────────────────────────────────────
+
+// ── Is the currently staged placement actually valid? ─────────────────────
+// Prevents the submit button lighting up on red/illegal placements.
+const isPendingValid = computed(() => {
+  if (!game.pendingPlace) return false;
+  return game.canPlaceAt(game.pendingPlace.x, game.pendingPlace.y);
+});
+
+// ── Rotate/flip handlers that gracefully stop a mid-board-drag ────────────
+// When user taps rotate/flip while doing a board-initiated touch drag we
+// stage the current position first and stop the drag so the touchend that
+// follows doesn't accidentally commit the piece at the wrong spot.
+function handleRotate() {
+  if (boardDragging.value) {
+    const t = game.drag?.target;
+    if (t && t.inside) {
+      game.$patch({ pendingPlace: { x: t.x, y: t.y } });
+    }
+    boardDragging.value = false;
+    game.endDrag();
+  }
+  game.rotateSelected();
+}
+
+function handleFlip() {
+  if (!game.allowFlip) return;
+  if (boardDragging.value) {
+    const t = game.drag?.target;
+    if (t && t.inside) {
+      game.$patch({ pendingPlace: { x: t.x, y: t.y } });
+    }
+    boardDragging.value = false;
+    game.endDrag();
+  }
+  game.flipSelected();
+}
 
 const warningMessage = ref("");
 let warnTimer = null;
