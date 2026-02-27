@@ -623,101 +623,102 @@
       <section v-else class="gameLayout">
         <section class="leftPanel">
           <div class="panelHead hudPanel">
-            <div class="hudTop">
-              <div class="hudMode">
-                <div class="hudKicker">MODE</div>
-                <div class="hudLine">
-                  <span class="hudModeName">{{ modeLabel }}</span>
-                  <span v-if="isOnline && myPlayer" class="hudYou">YOU: P{{ myPlayer }}</span>
+
+            <!-- ── TURN BANNER: the most prominent element ── -->
+            <div
+              class="turnBanner"
+              :class="{
+                tbP1: game.phase !== 'gameover' && (game.phase === 'draft' ? game.draftTurn : game.currentPlayer) === 1,
+                tbP2: game.phase !== 'gameover' && (game.phase === 'draft' ? game.draftTurn : game.currentPlayer) === 2,
+                tbEnd: game.phase === 'gameover',
+                tbYours: isOnline && myPlayer && (game.phase === 'draft' ? game.draftTurn : game.currentPlayer) === myPlayer,
+              }"
+            >
+              <div class="tbGlow" aria-hidden="true"></div>
+              <div class="tbLeft">
+                <div class="tbPhaseTag">{{ game.phase === 'draft' ? 'DRAFT' : game.phase === 'place' ? 'BATTLE' : 'END' }}</div>
+                <div class="tbMain">
+                  <span v-if="game.phase === 'draft'">
+                    <span class="tbPlayerNum">P{{ game.draftTurn }}</span> PICKING
+                  </span>
+                  <span v-else-if="game.phase === 'place'">
+                    <span class="tbPlayerNum">P{{ game.currentPlayer }}</span> TURN
+                  </span>
+                  <span v-else>GAME OVER</span>
+                </div>
+                <div class="tbSub" v-if="phaseSub">{{ phaseSub }}</div>
+              </div>
+              <div class="tbRight">
+                <!-- Draft timer pill -->
+                <div v-if="timerHud?.kind === 'draft'" class="tbDraftTimer" :class="{ tbDraftUrgent: timerHud.seconds <= 10 }">
+                  {{ timerHud.value }}
+                </div>
+                <!-- Online "YOUR TURN" badge -->
+                <div v-else-if="isOnline && myPlayer && (game.phase === 'draft' ? game.draftTurn : game.currentPlayer) === myPlayer && game.phase !== 'gameover'" class="tbYourTurnBadge">
+                  YOU
+                </div>
+                <!-- Online "WAITING" badge -->
+                <div v-else-if="isOnline && game.phase !== 'gameover'" class="tbWaitBadge">
+                  WAITING
                 </div>
               </div>
+            </div>
 
+            <!-- ── DUAL CLOCKS: all modes in place phase ── -->
+            <div v-if="game.phase === 'place'" class="hudGrid hudClocks">
               <div
-                class="turnPill"
+                class="hudStat timer p1"
                 :class="{
-                  p1: game.phase !== 'gameover' && game.currentPlayer === 1,
-                  p2: game.phase !== 'gameover' && game.currentPlayer === 2,
-                  end: game.phase === 'gameover',
+                  urgent: (game.battleClockSec?.[1] ?? 0) <= 30 && game.currentPlayer === 1,
+                  activeClock: game.currentPlayer === 1,
                 }"
               >
-                <span v-if="game.phase === 'draft'">P{{ game.draftTurn }} PICK</span>
-                <span v-else-if="game.phase === 'place'">P{{ game.currentPlayer }} TURN</span>
-                <span v-else>GAME OVER</span>
+                <span class="statLabel">{{ isOnline && myPlayer === 1 ? 'YOU' : screen === 'ai' && !isOnline ? 'YOU' : 'P1' }}</span>
+                <span class="clockBadge p1">P1</span>
+                <span class="statValue clockValue">{{ fmtClock(game.battleClockSec?.[1] ?? 0) }}</span>
+              </div>
+              <div
+                class="hudStat timer p2"
+                :class="{
+                  urgent: (game.battleClockSec?.[2] ?? 0) <= 30 && game.currentPlayer === 2,
+                  activeClock: game.currentPlayer === 2,
+                }"
+              >
+                <span class="statLabel">{{ isOnline && myPlayer === 2 ? 'YOU' : screen === 'ai' && !isOnline ? 'AI' : 'P2' }}</span>
+                <span class="clockBadge p2">P2</span>
+                <span class="statValue clockValue">{{ fmtClock(game.battleClockSec?.[2] ?? 0) }}</span>
               </div>
             </div>
 
-            <div class="hudPhase">
-              <div class="hudKicker">PHASE</div>
-              <div class="hudPhaseMain">{{ phaseTitle }}</div>
-              <div class="hudPhaseSub" v-if="phaseSub">{{ phaseSub }}</div>
-            </div>
-
-            <!-- Online HUD: ping, code, status, timer -->
-            <div v-if="isOnline" class="hudGrid">
+            <!-- ── ONLINE META: ping + code only ── -->
+            <div v-if="isOnline" class="hudGrid hudMeta">
               <div class="hudStat ping" :class="pingLevelClass">
                 <span class="pingDot" aria-hidden="true"></span>
                 <span class="statLabel">PING</span>
                 <span class="statValue">{{ pingText }}</span>
               </div>
-
               <div v-if="online.code" class="hudStat code">
                 <span class="statLabel">CODE</span>
                 <span class="mono statValue">{{ online.code }}</span>
                 <button class="copyBtn" @click="copyLobbyCode" title="Copy code">COPY</button>
               </div>
-
-              <div v-if="onlineTurnText" class="hudStat turn">
-                <span class="statLabel">STATUS</span>
-                <span class="statValue">{{ onlineTurnText }}</span>
-              </div>
-
-              <div
-                v-if="timerHud"
-                class="hudStat timer"
-                :class="{
-                  p1: timerHud.kind === 'clock' && timerHud.player === 1,
-                  p2: timerHud.kind === 'clock' && timerHud.player === 2,
-                  urgent: timerHud.kind === 'draft' && timerHud.seconds <= 10,
-                }"
-              >
-                <template v-if="timerHud.kind === 'draft'">
-                  <span class="statLabel">TIME</span>
-                  <span class="statValue">{{ timerHud.value }}</span>
-                </template>
-                <template v-else>
-                  <span class="statLabel">CLOCK</span>
-                  <span class="clockBadge" :class="{ p1: timerHud.player === 1, p2: timerHud.player === 2 }">
-                    P{{ timerHud.player }}
-                  </span>
-                  <span class="statValue clockValue">{{ timerHud.value }}</span>
-                </template>
-              </div>
             </div>
 
-            <!-- Local modes HUD (AI / Couch): show both player clocks -->
-            <div v-else-if="(screen === 'ai' || screen === 'couch') && game.phase === 'place'" class="hudGrid">
-              <div class="hudStat timer p1" :class="{ urgent: (game.battleClockSec?.[1] ?? 0) <= 30 && game.currentPlayer === 1 }">
-                <span class="statLabel">{{ screen === 'ai' ? 'YOU' : 'P1' }}</span>
-                <span class="clockBadge p1">P1</span>
-                <span class="statValue clockValue">{{ fmtClock(game.battleClockSec?.[1] ?? 0) }}</span>
-              </div>
-              <div class="hudStat timer p2" :class="{ urgent: (game.battleClockSec?.[2] ?? 0) <= 30 && game.currentPlayer === 2 }">
-                <span class="statLabel">{{ screen === 'ai' ? 'AI' : 'P2' }}</span>
-                <span class="clockBadge p2">P2</span>
-                <span class="statValue clockValue">{{ fmtClock(game.battleClockSec?.[2] ?? 0) }}</span>
-              </div>
-              <!-- AI mode: show round + score -->
-              <div v-if="screen === 'ai' && aiRound > 1" class="hudStat code" style="grid-column: 1/-1;">
-                <span class="statLabel">SCORE</span>
-                <span class="statValue">You {{ aiScore.p1 }} – {{ aiScore.p2 }} AI</span>
-                <span class="statLabel" style="margin-left:auto;">RD {{ aiRound }}</span>
-              </div>
+            <!-- ── BOTTOM ROW: mode label + controls hint ── -->
+            <div class="hudFooter">
+              <span class="hudModeChip">
+                {{ modeLabel }}
+                <span v-if="isOnline && myPlayer" class="hudYouInline">· YOU P{{ myPlayer }}</span>
+              </span>
+              <span v-if="game.phase === 'place'" class="hudControlsHint">
+                <b>Q</b> Rotate &nbsp;·&nbsp; <b>E</b> Flip
+              </span>
+              <!-- AI score row -->
+              <span v-if="screen === 'ai' && aiRound > 1" class="hudAiScore">
+                {{ aiScore.p1 }}–{{ aiScore.p2 }} · R{{ aiRound }}
+              </span>
             </div>
 
-            <div class="hudKeys" v-if="game.phase === 'place'">
-              <span class="hudKicker">CONTROLS</span>
-              <span class="hudKeysLine"><b>Q</b> Rotate <span class="sepDot">•</span> <b>E</b> Flip</span>
-            </div>
           </div>
 
           <DraftPanel v-if="game.phase === 'draft'" />
@@ -6188,26 +6189,216 @@ onBeforeUnmount(() => {
 .leftPanel{ display:flex; flex-direction: column; gap: 12px; min-height: 0; }
 .rightPanel{ display:flex; flex-direction: column; gap: 10px; min-height: 0; }
 .panelHead{ padding: 14px; border-radius: 18px; border: 1px solid rgba(255,255,255,.10); background: rgba(10,10,16,.55); backdrop-filter: blur(10px); }
-.hudPanel{ padding: 16px; }
-.hudTop{ display:flex; justify-content:space-between; align-items:flex-start; gap: 12px; flex-wrap: wrap; }
-.hudMode{ min-width: 0; }
-.hudKicker{ font-size: 11px; opacity: .74; font-weight: 900; letter-spacing: 1.4px; }
-.hudLine{ display:flex; gap: 10px; align-items: baseline; flex-wrap: wrap; margin-top: 2px; }
-.hudModeName{ font-size: 18px; font-weight: 900; }
-.hudYou{ font-size: 12px; font-weight: 900; padding: 4px 9px; border-radius: 999px; border: 1px solid rgba(255,255,255,0.14); background: rgba(255,255,255,0.06); }
+.hudPanel{ padding: 14px; display: flex; flex-direction: column; gap: 10px; }
 
-.hudPhase{ margin-top: 10px; padding-top: 10px; border-top: 1px solid rgba(255,255,255,0.10); }
-.hudPhaseMain{ font-size: 22px; font-weight: 900; text-transform: uppercase; letter-spacing: 1.2px; }
-.hudPhaseSub{ margin-top: 3px; font-size: 13px; opacity: .82; font-weight: 700; }
+/* ── TURN BANNER ─────────────────────────────────────────────────── */
+.turnBanner{
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 14px 16px;
+  border-radius: 16px;
+  border: 1px solid rgba(255,255,255,0.10);
+  background: rgba(255,255,255,0.04);
+  overflow: hidden;
+  transition: border-color .2s, box-shadow .2s;
+}
+.tbGlow{
+  position: absolute;
+  inset: 0;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity .25s;
+  border-radius: 16px;
+}
+/* P1 = cyan */
+.turnBanner.tbP1{
+  border-color: rgba(0,229,255,0.30);
+  box-shadow: 0 0 0 1px rgba(0,229,255,0.08) inset, 0 8px 32px rgba(0,0,0,0.40);
+}
+.turnBanner.tbP1 .tbGlow{
+  background: radial-gradient(ellipse 140% 100% at 0% 50%, rgba(0,229,255,0.13), transparent 65%);
+  opacity: 1;
+}
+/* P2 = red */
+.turnBanner.tbP2{
+  border-color: rgba(255,64,96,0.30);
+  box-shadow: 0 0 0 1px rgba(255,64,96,0.08) inset, 0 8px 32px rgba(0,0,0,0.40);
+}
+.turnBanner.tbP2 .tbGlow{
+  background: radial-gradient(ellipse 140% 100% at 0% 50%, rgba(255,64,96,0.13), transparent 65%);
+  opacity: 1;
+}
+/* YOUR turn: extra punch */
+.turnBanner.tbYours{
+  animation: tbYoursPulse 2s ease-in-out infinite;
+}
+@keyframes tbYoursPulse{
+  0%,100%{ box-shadow: 0 0 0 1px rgba(0,229,255,0.08) inset, 0 8px 32px rgba(0,0,0,0.40), 0 0 14px rgba(0,229,255,0.08); }
+  50%{ box-shadow: 0 0 0 1px rgba(0,229,255,0.16) inset, 0 8px 32px rgba(0,0,0,0.40), 0 0 28px rgba(0,229,255,0.16); }
+}
+.turnBanner.tbP2.tbYours{
+  animation: tbYoursPulseP2 2s ease-in-out infinite;
+}
+@keyframes tbYoursPulseP2{
+  0%,100%{ box-shadow: 0 0 0 1px rgba(255,64,96,0.08) inset, 0 8px 32px rgba(0,0,0,0.40), 0 0 14px rgba(255,64,96,0.08); }
+  50%{ box-shadow: 0 0 0 1px rgba(255,64,96,0.16) inset, 0 8px 32px rgba(0,0,0,0.40), 0 0 28px rgba(255,64,96,0.16); }
+}
+.turnBanner.tbEnd{
+  border-color: rgba(255,255,255,0.14);
+  box-shadow: 0 8px 24px rgba(0,0,0,0.30);
+}
 
-.hudGrid{ margin-top: 12px; display:grid; grid-template-columns: repeat(2, minmax(0,1fr)); gap: 10px; }
+.tbLeft{ flex: 1; min-width: 0; position: relative; z-index: 1; }
+.tbPhaseTag{
+  font-size: 10px;
+  letter-spacing: 2.5px;
+  font-weight: 900;
+  opacity: .5;
+  margin-bottom: 3px;
+}
+.tbMain{
+  font-size: 22px;
+  font-weight: 900;
+  letter-spacing: 1px;
+  line-height: 1.1;
+  font-family: 'Orbitron', 'Rajdhani', Inter, system-ui, sans-serif;
+}
+.turnBanner.tbP1 .tbMain{ color: rgba(0,229,255,0.95); }
+.turnBanner.tbP2 .tbMain{ color: rgba(255,64,96,0.95); }
+.turnBanner.tbEnd .tbMain{ color: rgba(255,255,255,0.7); font-size: 18px; }
+.tbPlayerNum{
+  font-size: 26px;
+  font-weight: 900;
+}
+.tbSub{
+  font-size: 11px;
+  opacity: .6;
+  margin-top: 3px;
+  font-weight: 700;
+  letter-spacing: 0.5px;
+}
+
+.tbRight{ flex-shrink: 0; position: relative; z-index: 1; }
+.tbDraftTimer{
+  font-size: 22px;
+  font-weight: 900;
+  font-variant-numeric: tabular-nums;
+  font-family: 'Orbitron', 'Rajdhani', Inter, system-ui, sans-serif;
+  padding: 6px 14px;
+  border-radius: 12px;
+  border: 1px solid rgba(0,229,255,0.22);
+  background: rgba(0,229,255,0.08);
+  color: rgba(0,229,255,0.95);
+}
+.tbDraftTimer.tbDraftUrgent{
+  border-color: rgba(255,64,96,0.45);
+  background: rgba(255,64,96,0.12);
+  color: rgba(255,64,96,0.95);
+  animation: tbDraftUrgentBlink .7s ease-in-out infinite;
+}
+@keyframes tbDraftUrgentBlink{
+  0%,100%{ box-shadow: none; }
+  50%{ box-shadow: 0 0 20px rgba(255,64,96,0.22); }
+}
+.tbYourTurnBadge{
+  font-size: 11px;
+  font-weight: 900;
+  letter-spacing: 2px;
+  padding: 6px 12px;
+  border-radius: 999px;
+  border: 1px solid rgba(0,229,255,0.35);
+  background: rgba(0,229,255,0.12);
+  color: rgba(0,229,255,0.95);
+  animation: tbYourBadgePulse 1.4s ease-in-out infinite;
+}
+.turnBanner.tbP2 .tbYourTurnBadge{
+  border-color: rgba(255,64,96,0.35);
+  background: rgba(255,64,96,0.12);
+  color: rgba(255,64,96,0.95);
+}
+@keyframes tbYourBadgePulse{
+  0%,100%{ opacity: .8; }
+  50%{ opacity: 1; }
+}
+.tbWaitBadge{
+  font-size: 10px;
+  font-weight: 900;
+  letter-spacing: 2px;
+  padding: 5px 10px;
+  border-radius: 999px;
+  border: 1px solid rgba(255,255,255,0.12);
+  background: rgba(255,255,255,0.05);
+  opacity: .55;
+}
+
+/* ── DUAL CLOCKS ──────────────────────────────────────────────────── */
+.hudClocks{ margin-top: 0; }
+.hudStat.activeClock{
+  transform: scale(1.02);
+  z-index: 1;
+}
+.hudStat.timer.p1.activeClock{
+  border-color: rgba(0,229,255,.40);
+  box-shadow: 0 10px 26px rgba(0,0,0,0.32), 0 0 0 1px rgba(0,229,255,0.18) inset, 0 0 18px rgba(0,229,255,0.10);
+}
+.hudStat.timer.p2.activeClock{
+  border-color: rgba(255,64,96,.40);
+  box-shadow: 0 10px 26px rgba(0,0,0,0.32), 0 0 0 1px rgba(255,64,96,0.18) inset, 0 0 18px rgba(255,64,96,0.10);
+}
+
+/* ── ONLINE META (ping + code) ───────────────────────────────────── */
+.hudMeta{ margin-top: 0; }
+
+/* ── HUD FOOTER ──────────────────────────────────────────────────── */
+.hudFooter{
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  padding-top: 8px;
+  border-top: 1px solid rgba(255,255,255,0.07);
+}
+.hudModeChip{
+  font-size: 11px;
+  font-weight: 900;
+  letter-spacing: 1px;
+  opacity: .5;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.hudYouInline{
+  opacity: .7;
+}
+.hudControlsHint{
+  margin-left: auto;
+  font-size: 11px;
+  font-weight: 800;
+  opacity: .45;
+  white-space: nowrap;
+}
+.hudAiScore{
+  margin-left: auto;
+  font-size: 11px;
+  font-weight: 900;
+  letter-spacing: 1px;
+  opacity: .65;
+  white-space: nowrap;
+  color: rgba(255,220,60,0.9);
+}
+
+
+
+.hudGrid{ display:grid; grid-template-columns: repeat(2, minmax(0,1fr)); gap: 8px; }
 @media (max-width: 920px){ .hudGrid{ grid-template-columns: 1fr; } }
 
-.hudStat{ display:flex; align-items:center; gap: 10px; padding: 10px 12px; border-radius: 16px; border: 1px solid rgba(255,255,255,0.12); background: linear-gradient(180deg, rgba(255,255,255,0.06), rgba(0,0,0,0.18)); box-shadow: 0 10px 26px rgba(0,0,0,0.32), 0 0 0 1px rgba(0,0,0,0.25) inset; }
+
 .statLabel{ font-size: 11px; opacity: .72; font-weight: 900; letter-spacing: 1.2px; }
 .statValue{ font-size: 14px; font-weight: 900; }
-.hudStat.turn .statValue{ font-weight: 800; }
-.hudStat.turn .statValue{ white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
+.hudStat{ display:flex; align-items:center; gap: 10px; padding: 10px 12px; border-radius: 16px; border: 1px solid rgba(255,255,255,0.12); background: linear-gradient(180deg, rgba(255,255,255,0.06), rgba(0,0,0,0.18)); box-shadow: 0 10px 26px rgba(0,0,0,0.32), 0 0 0 1px rgba(0,0,0,0.25) inset; transition: transform .15s, box-shadow .15s, border-color .15s; }
 .hudStat.timer .statValue{ font-variant-numeric: tabular-nums; }
 
 .pingDot{ width: 10px; height: 10px; border-radius: 999px; background: rgba(150,150,150,0.9); box-shadow: 0 0 12px rgba(255,255,255,0.10); }
@@ -6270,10 +6461,6 @@ onBeforeUnmount(() => {
 }
 .hudStat.timer.urgent{ animation: timeUrgentBlink 0.85s ease-in-out infinite; }
 
-.hudKeys{ margin-top: 12px; padding-top: 10px; border-top: 1px solid rgba(255,255,255,0.10); display:flex; justify-content:space-between; align-items:center; gap: 10px; flex-wrap: wrap; }
-.hudKeysLine{ font-size: 13px; font-weight: 800; opacity: .9; }
-.sepDot{ opacity: .6; padding: 0 6px; }
-
 .panel{ margin-top: 12px; padding: 14px; border-radius: 18px; border: 1px solid rgba(255,255,255,.10); background: rgba(10,10,16,.55); backdrop-filter: blur(10px); }
 .panelTitle{ margin: 0 0 10px 0; }
 .hintSmall{ margin-top: 10px; opacity:.75; font-size: 12px; }
@@ -6290,8 +6477,9 @@ onBeforeUnmount(() => {
   .leftPanel{ gap: 10px; }
   .panel{ margin-top: 10px; padding: 12px; }
   .panelHead{ padding: 13px; }
-  .hudPanel{ padding: 14px; }
-  .hudPhaseMain{ font-size: 20px; }
+  .hudPanel{ padding: 12px; gap: 8px; }
+  .tbMain{ font-size: 19px; }
+  .tbPlayerNum{ font-size: 22px; }
 }
 
 
