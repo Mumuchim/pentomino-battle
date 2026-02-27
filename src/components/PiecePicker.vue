@@ -221,6 +221,20 @@ function onPiecePointerUp(e) {
     return;
   }
 
+  // ── pointercancel: secondary touch interrupted drag (e.g. rotate/flip button tapped mid-drag)
+  // Do NOT commit or abort the placement. Keep piece selected.
+  // If the finger was over the board, stage the last known position (ghost stays visible, may be red).
+  if (e.type === 'pointercancel') {
+    const t = game.drag?.target;
+    if (t && t.inside) {
+      // Stage unconditionally so the ghost stays visible (even if invalid/red).
+      // The user can then rotate/flip to a valid state and hit Submit.
+      game.$patch({ pendingPlace: { x: t.x, y: t.y } });
+    }
+    game.endDrag();
+    return;
+  }
+
   game.updateDrag(e.clientX, e.clientY);
 
   if (props.isOnline && !props.canAct) {
@@ -235,7 +249,8 @@ function onPiecePointerUp(e) {
       // Mobile + requireSubmit ON: stage the piece so user can reposition & confirm
       const staged = game.stagePlacement(t.x, t.y);
       if (!staged) {
-        // Invalid spot — keep piece selected so user can tap/drag to another cell
+        // Invalid spot — stage unconditionally so ghost stays and user can rotate/flip
+        game.$patch({ pendingPlace: { x: t.x, y: t.y } });
         playBuzz();
         game.endDrag(); // stop the floating ghost, selection stays
       } else {

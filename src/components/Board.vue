@@ -561,6 +561,8 @@ function onTouchEnd(e) {
       if (requireSubmit) {
         const staged = game.stagePlacement(t.x, t.y);
         if (!staged) {
+          // Invalid spot — stage unconditionally so ghost stays; user can rotate/flip to fix
+          game.$patch({ pendingPlace: { x: t.x, y: t.y } });
           playBuzz();
           showWarning("Illegal placement — try another spot / rotate / flip.");
         }
@@ -1136,7 +1138,6 @@ function ghostBlockStyle(b) {
   }
 }
 
-<style>
 .flyClone { will-change: transform, opacity, filter; }
 .flyClone.p1 { outline: 2px solid rgba(78, 201, 255, 0.25); }
 .flyClone.p2 { outline: 2px solid rgba(255, 107, 107, 0.25); }
