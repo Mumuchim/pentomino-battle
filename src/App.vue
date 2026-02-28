@@ -998,7 +998,7 @@
 
     <!-- ✅ Unlock Animation Overlay -->
     <Transition name="unlockFade">
-      <div v-if="unlockAnim.active" class="unlockOverlay" @click="closeUnlockAnim">
+      <div v-if="unlockAnim.active" class="unlockOverlay">
         <div class="unlockBurst"></div>
         <div class="unlockCard" :class="`unlockTier${['dumbie','elite','tactician','grandmaster','legendary'].indexOf(unlockAnim.rank)}`">
           <div class="unlockGlowRing"></div>
@@ -1012,7 +1012,11 @@
           <div class="unlockRankDesc">
             {{ unlockAnim.rank === 'elite' ? 'Sharpened Strategist' : unlockAnim.rank === 'tactician' ? 'Master of Patterns' : unlockAnim.rank === 'grandmaster' ? 'The Territorial God' : 'Beyond Human Reach' }}
           </div>
-          <div class="unlockTap">Tap to continue</div>
+          <div class="unlockActions">
+            <button class="unlockBtn unlockBtnSoft"  @click="onUnlockMainMenu">Main Menu</button>
+            <button class="unlockBtn unlockBtnSecondary" @click="onUnlockPlayAgain">Play Again</button>
+            <button class="unlockBtn unlockBtnPrimary" @click="onUnlockNextBattle">Next Battle</button>
+          </div>
         </div>
       </div>
     </Transition>
@@ -1027,7 +1031,7 @@
           <div class="challengeLabel">YOU'RE UP AGAINST</div>
           <div class="unlockRankName">{{ RANK_LABELS[challengeAnim.rank] || challengeAnim.rank?.toUpperCase() }}</div>
           <div class="unlockRankDesc">{{ RANK_DESC[challengeAnim.rank] || '' }}</div>
-          <div class="unlockTap">Tap to begin</div>
+          <div class="unlockTapBegin">Tap to begin</div>
         </div>
       </div>
     </Transition>
@@ -4469,6 +4473,23 @@ function closeUnlockAnim() {
   unlockAnim.rank = '';
 }
 
+function onUnlockMainMenu() {
+  closeUnlockAnim();
+  screen.value = 'mode';
+}
+
+function onUnlockPlayAgain() {
+  const rank = unlockAnim.rank;
+  closeUnlockAnim();
+  nextAiRound();
+}
+
+function onUnlockNextBattle() {
+  const nextRank = unlockAnim.rank; // the just-unlocked rank IS the next battle
+  closeUnlockAnim();
+  _launchAi(nextRank);
+}
+
 function startPracticeAi() {
   showVsAiPicker.value = true;
 }
@@ -6341,7 +6362,45 @@ onBeforeUnmount(() => {
   opacity: .5;
   animation: unlockFadeUp .4s ease-out .2s both;
 }
-.unlockTap{
+.unlockActions{
+  display: flex;
+  gap: 8px;
+  margin-top: 20px;
+  width: 100%;
+  animation: unlockFadeUp .4s ease-out .55s both;
+  flex-wrap: wrap;
+  justify-content: center;
+}
+.unlockBtn{
+  flex: 1;
+  min-width: 90px;
+  padding: 10px 14px;
+  border-radius: 12px;
+  font-size: 12px;
+  font-weight: 900;
+  letter-spacing: 1px;
+  cursor: pointer;
+  border: 1px solid rgba(255,255,255,0.14);
+  background: rgba(255,255,255,0.07);
+  color: rgba(255,255,255,0.82);
+  transition: background 140ms, border-color 140ms, transform 100ms;
+  white-space: nowrap;
+}
+.unlockBtn:hover{ background: rgba(255,255,255,0.13); transform: translateY(-1px); }
+.unlockBtn:active{ transform: translateY(0); }
+.unlockBtnSoft{ color: rgba(255,255,255,0.55); }
+.unlockBtnSecondary{
+  border-color: rgba(var(--u, 255,220,60),0.35);
+  color: rgba(var(--u, 255,220,60),0.9);
+}
+.unlockBtnPrimary{
+  background: linear-gradient(135deg, rgba(var(--u, 255,220,60),0.28), rgba(var(--u, 255,220,60),0.14));
+  border-color: rgba(var(--u, 255,220,60),0.55);
+  color: rgba(var(--u, 255,220,60),1);
+  box-shadow: 0 0 16px rgba(var(--u, 255,220,60),0.18);
+}
+.unlockBtnPrimary:hover{ background: linear-gradient(135deg, rgba(var(--u, 255,220,60),0.38), rgba(var(--u, 255,220,60),0.22)); }
+.unlockTapBegin{
   font-size: 11px;
   letter-spacing: 2px;
   opacity: .3;
@@ -6349,13 +6408,13 @@ onBeforeUnmount(() => {
   text-transform: uppercase;
   animation: unlockFadeUp .4s ease-out .55s both, unlockTapPulse 2s ease-in-out 1s infinite alternate;
 }
-@keyframes unlockFadeUp{
-  from{ transform: translateY(12px); opacity: 0; }
-  to{ transform: translateY(0); opacity: 1; }
-}
 @keyframes unlockTapPulse{
   from{ opacity: .2; }
   to{ opacity: .5; }
+}
+@keyframes unlockFadeUp{
+  from{ transform: translateY(12px); opacity: 0; }
+  to{ transform: translateY(0); opacity: 1; }
 }
 
 /* Fit-to-viewport in-game (no scroll): keep the whole layout within the main area */
