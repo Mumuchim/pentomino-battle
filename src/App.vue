@@ -5754,7 +5754,7 @@ onBeforeUnmount(() => {
   text-transform: uppercase;
 }
 /* Tier 0 – Dumbie: silver mist */
-.rmDiffTier0{ border-color: rgba(180,190,220,0.35); color: rgba(200,210,240,0.9); box-shadow: 0 0 12px rgba(180,190,220,0.08); }
+.rmDiffTier0{ border-color: rgba(80,255,120,0.5); background: linear-gradient(90deg, rgba(80,255,120,1), rgba(140,255,180,1)); -webkit-background-clip: text; background-clip: text; color: transparent; box-shadow: 0 0 16px rgba(80,255,120,0.22), inset 0 0 0 1.5px rgba(80,255,120,0.3); }
 /* Tier 1 – Elite: cyan */
 .rmDiffTier1{
   border-color: rgba(80,170,255,0.5);
@@ -6316,7 +6316,8 @@ onBeforeUnmount(() => {
   max-width: 340px;
   width: 100%;
 }
-.challengeCard.unlockTier0{ border-color: rgba(120,140,255,0.35); background: radial-gradient(ellipse 80% 60% at 50% 0%, rgba(120,140,255,0.12), transparent 70%), linear-gradient(180deg, rgba(6,8,22,0.97), rgba(4,4,12,0.97)); box-shadow: 0 0 80px rgba(100,120,255,0.22), 0 30px 80px rgba(0,0,0,0.7); }
+.challengeCard.unlockTier0{ border-color: rgba(80,255,120,0.35); background: radial-gradient(ellipse 80% 60% at 50% 0%, rgba(80,255,120,0.12), transparent 70%), linear-gradient(180deg, rgba(4,18,8,0.97), rgba(2,10,4,0.97)); box-shadow: 0 0 80px rgba(80,255,120,0.22), 0 30px 80px rgba(0,0,0,0.7); }
+.challengeCard.unlockTier0 .unlockRankName{ background: linear-gradient(90deg, rgba(80,255,120,1), rgba(140,255,180,1)); -webkit-background-clip: text; background-clip: text; }
 .challengeCard.unlockTier1{ border-color: rgba(80,170,255,0.4); background: radial-gradient(ellipse 80% 60% at 50% 0%, rgba(80,170,255,0.14), transparent 70%), linear-gradient(180deg, rgba(8,14,28,0.97), rgba(4,8,16,0.97)); box-shadow: 0 0 80px rgba(80,170,255,0.24), 0 30px 80px rgba(0,0,0,0.7); }
 .challengeCard.unlockTier2{ border-color: rgba(160,80,255,0.4); background: radial-gradient(ellipse 80% 60% at 50% 0%, rgba(160,80,255,0.14), transparent 70%), linear-gradient(180deg, rgba(14,8,28,0.97), rgba(8,4,16,0.97)); box-shadow: 0 0 80px rgba(160,80,255,0.24), 0 30px 80px rgba(0,0,0,0.7); }
 .challengeCard.unlockTier3{ border-color: rgba(255,140,40,0.4); background: radial-gradient(ellipse 80% 60% at 50% 0%, rgba(255,140,40,0.14), transparent 70%), linear-gradient(180deg, rgba(28,16,4,0.97), rgba(16,8,4,0.97)); box-shadow: 0 0 80px rgba(255,140,40,0.24), 0 30px 80px rgba(0,0,0,0.7); }
