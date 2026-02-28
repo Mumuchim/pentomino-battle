@@ -226,7 +226,7 @@
       <!-- ══════════════════════════════════════════════════════════
            MAIN MENU  (TETR.IO inspired full-width rows)
       ═══════════════════════════════════════════════════════════ -->
-      <section v-else-if="screen === 'mode'" class="tetShell">
+      <section v-else-if="screen === 'mode'" class="tetShell tetShellRight">
         <div class="tetRows">
 
           <!-- MULTIPLAYER -->
@@ -323,7 +323,7 @@
       <!-- ══════════════════════════════════════════════════════════
            MULTIPLAYER MENU
       ═══════════════════════════════════════════════════════════ -->
-      <section v-else-if="screen === 'multiplayer'" class="tetShell">
+      <section v-else-if="screen === 'multiplayer'" class="tetShell tetShellRight">
         <div class="tetRows">
 
           <!-- QUICK PLAY -->
@@ -390,7 +390,7 @@
       <!-- ══════════════════════════════════════════════════════════
            SOLO MENU
       ═══════════════════════════════════════════════════════════ -->
-      <section v-else-if="screen === 'solo'" class="tetShell">
+      <section v-else-if="screen === 'solo'" class="tetShell tetShellRight">
         <div class="tetRows">
 
           <!-- VS AI -->
@@ -444,7 +444,7 @@
       <!-- ══════════════════════════════════════════════════════════
            CHANNEL  (members only)
       ═══════════════════════════════════════════════════════════ -->
-      <section v-else-if="screen === 'channel'" class="tetShell">
+      <section v-else-if="screen === 'channel'" class="tetShell tetShellRight">
         <div class="tetRows">
 
           <!-- MY PROFILE -->
@@ -9130,6 +9130,18 @@ onBeforeUnmount(() => {
   gap: 0;
 }
 
+/* Right-anchored shell: tiles extend from center to right viewport edge (TETR.IO style) */
+.tetShellRight{
+  width: min(900px, calc(100vw - 0px));
+  margin-left: auto;
+  margin-right: 0;
+  padding-right: 0;
+}
+/* Rows in right-anchored shell: flush to right edge, no right border-radius */
+.tetShellRight .tetRows > .tetRow:first-child{ border-radius: 10px 0 0 0; }
+.tetShellRight .tetRows > .tetRow:last-child{ border-radius: 0 0 0 10px; }
+.tetShellRight .tetRows > .tetRow:only-child{ border-radius: 10px 0 0 10px; }
+
 
 /* ── Welcome brand block ──────────────────────────────────────────────────── */
 .tetWelcome{
@@ -9178,6 +9190,10 @@ onBeforeUnmount(() => {
   gap: 3px;
   padding-top: 8px;
 }
+/* In right-anchored shell, rows get a left indent that slides away on hover */
+.tetShellRight .tetRows{
+  margin-left: clamp(60px, 10vw, 160px);
+}
 
 
 /* ── Single row (the core component) ────────────────────────────────────────
@@ -9205,7 +9221,7 @@ onBeforeUnmount(() => {
   text-align: left;
   padding: 0;
   overflow: hidden;
-  transition: filter .15s ease, transform .12s ease;
+  transition: filter .18s ease, transform .18s cubic-bezier(0.22, 0.61, 0.36, 1), box-shadow .18s ease;
 
   /* Subtle separator */
   border-bottom: 1px solid rgba(0,0,0,0.35);
@@ -9219,12 +9235,14 @@ onBeforeUnmount(() => {
 .tetRows > .tetRow:only-child{ border-radius: 10px; }
 
 .tetRow:hover{
-  filter: brightness(1.10) saturate(1.12);
-  transform: translateX(-3px);
+  filter: brightness(1.18) saturate(1.2);
+  transform: translateX(-20px);
   z-index: 1;
+  box-shadow: -6px 0 28px rgba(var(--rc), 0.18);
 }
 .tetRow:active{
-  transform: translateX(-1px) scale(0.995);
+  transform: translateX(-10px) scale(0.997);
+  filter: brightness(1.08) saturate(1.1);
 }
 .tetRow.tetRowLocked{
   filter: grayscale(0.4);
@@ -9232,7 +9250,8 @@ onBeforeUnmount(() => {
 }
 .tetRow.tetRowLocked:hover{
   filter: grayscale(0.2) brightness(1.05);
-  transform: none;
+  transform: translateX(-8px);
+  box-shadow: none;
 }
 
 
