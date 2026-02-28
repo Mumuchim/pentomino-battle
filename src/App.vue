@@ -732,7 +732,7 @@
               </span>
               <!-- AI score row -->
               <span v-if="screen === 'ai' && aiRound > 1" class="hudAiScore">
-                {{ aiScore.p1 }}–{{ aiScore.p2 }} · R{{ aiRound }}
+                {{ aiScore.p1 }}–{{ aiScore.p2 }}
               </span>
             </div>
 
@@ -3537,24 +3537,37 @@ watch(
         else if (aiWon) aiScore.p2++;
 
         const diffLabel = { dumbie:'Dumbie', elite:'Elite', tactician:'Tactician', grandmaster:'Grandmaster', legendary:'Legendary' }[aiDifficulty.value] || aiDifficulty.value;
-        title = humanWon ? "VICTORY" : w === 2 ? "DEFEAT" : "DRAW";
-        tone = humanWon ? "victory" : w === 2 ? "bad" : "good";
-        const scoreMsg = `Round ${aiRound.value}  ·  You ${aiScore.p1} – ${aiScore.p2} AI\nDifficulty: ${diffLabel}`;
-        // Grandmaster / Legendary play as P1 — no running series, just Play Again or Main Menu
-        const isSeriesDiff = aiDifficulty.value === 'grandmaster' || aiDifficulty.value === 'legendary';
+        title = humanWon ? "VICTORY" : w === aiPlayer.value ? "DEFEAT" : "DRAW";
+        tone = humanWon ? "victory" : w === aiPlayer.value ? "bad" : "good";
+        const nextDiff = getNextRank(aiDifficulty.value);
+        const allCleared = !nextDiff;
+
+        let actions;
+        if (humanWon) {
+          if (allCleared) {
+            actions = [
+              { label: "Main Menu",   tone: "soft",      onClick: () => { screen.value = 'mode'; } },
+              { label: "Play Again",  tone: "secondary",  onClick: () => { closeModal(); nextAiRound(); } },
+              { label: "Next Battle", tone: "primary",    onClick: () => { closeModal(); _launchAi('dumbie'); } },
+            ];
+          } else {
+            actions = [
+              { label: "Next Battle", tone: "primary", onClick: () => { closeModal(); _launchAi(nextDiff); } },
+              { label: "Main Menu",   tone: "soft",    onClick: () => { screen.value = 'mode'; } },
+            ];
+          }
+        } else {
+          actions = [
+            { label: "Play Again", tone: "primary", onClick: () => { closeModal(); nextAiRound(); } },
+            { label: "Main Menu",  tone: "soft",    onClick: () => { screen.value = 'mode'; } },
+          ];
+        }
+
         showModal({
           title,
-          message: `${winnerMessage(w ?? "?")} \n${scoreMsg}`,
+          message: `${winnerMessage(w ?? "?")} \nDifficulty: ${diffLabel}`,
           tone,
-          actions: isSeriesDiff
-            ? [
-                { label: "Play Again", tone: "primary", onClick: () => { closeModal(); nextAiRound(); } },
-                { label: "Main Menu", tone: "soft", onClick: () => { screen.value = 'mode'; } },
-              ]
-            : [
-                { label: "Next Round", tone: "primary", onClick: () => { closeModal(); nextAiRound(); } },
-                { label: "Main Menu", tone: "soft", onClick: () => { screen.value = 'mode'; } },
-              ],
+          actions,
         });
         return;
       }
