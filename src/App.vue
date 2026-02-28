@@ -4735,9 +4735,20 @@ onMounted(() => {
         }
       }
     }
-    // Couch mode: tick the battle clock for the current player
-    if (screen.value === 'couch' && game.phase === 'place') {
-      game.tickBattleClock(Date.now());
+    // Couch mode: tick battle clock + enforce draft timeout
+    if (screen.value === 'couch') {
+      if (game.phase === 'place') {
+        game.tickBattleClock(Date.now());
+      } else if (game.phase === 'draft' && game.turnStartedAt) {
+        const limitSec = game.turnLimitDraftSec || 30;
+        const elapsed = (Date.now() - game.turnStartedAt) / 1000;
+        if (elapsed >= limitSec) {
+          // Current draft player loses; opponent wins
+          const loser = game.draftTurn;
+          const winner = loser === 1 ? 2 : 1;
+          game.aiDraftTimeout(loser, winner);
+        }
+      }
     }
 
     if (!isOnline.value) return;
