@@ -170,15 +170,14 @@
     </header>
 
     <main class="main">
-      <!-- =========================
-           AUTH MENU
-      ========================== -->
+
+      <!-- ══════════════════════════════════════════════════════════
+           WELCOME / AUTH SCREEN
+      ═══════════════════════════════════════════════════════════ -->
       <section v-if="screen === 'auth'" class="menuShell pbShell">
         <div class="pbPane">
           <div class="pbHero">
             <div class="pbHeroTop"></div>
-
-            <!-- WELCOME hero title (AAA-style) -->
             <div class="pbHeroTitle pbWelcomeTitle" aria-label="PentoBattle">
               <template v-if="useSplitBrandPng">
                 <div class="pbBrandRow">
@@ -195,8 +194,21 @@
           </div>
 
           <div class="pbTiles">
-            <!-- ── LOGIN tile: opens auth modal ─────────────────────── -->
-            <template v-if="!loggedIn">
+            <!-- Logged-in: jump straight to main menu -->
+            <template v-if="loggedIn">
+              <button class="pbTile accentGreen" @mouseenter="uiHover" @click="uiClick(); screen = 'mode'">
+                <div class="pbTileInner">
+                  <div class="pbTileGlyph pbMemberGlyph"><span class="pbMemberDot"></span></div>
+                  <div class="pbTileText">
+                    <div class="pbTileTitle">CONTINUE</div>
+                    <div class="pbTileDesc pbMemberDesc">logged in as <span class="pbMemberName">{{ displayName }}</span></div>
+                  </div>
+                </div>
+              </button>
+            </template>
+
+            <!-- Guest: login button (has sign-up tab inside) -->
+            <template v-else>
               <button class="pbTile accentBlue" @mouseenter="uiHover" @click="uiHover(); openAuthModal('login')">
                 <div class="pbTileInner">
                   <div class="pbTileGlyph">
@@ -212,37 +224,13 @@
                       </template>
                       <template v-else>LOGIN</template>
                     </div>
-                    <div class="pbTileDesc">sign in · track stats · ranked mode</div>
-                  </div>
-                </div>
-              </button>
-
-              <button class="pbTile accentCyan pbTileSignup" @mouseenter="uiHover" @click="uiHover(); openAuthModal('signup')">
-                <div class="pbTileInner">
-                  <div class="pbTileGlyph">✦</div>
-                  <div class="pbTileText">
-                    <div class="pbTileTitle">CREATE ACCOUNT</div>
-                    <div class="pbTileDesc">new player · free · takes 30 seconds</div>
+                    <div class="pbTileDesc">sign in · create account · ranked mode</div>
                   </div>
                 </div>
               </button>
             </template>
 
-            <!-- ── Already logged in on welcome screen ────────────────── -->
-            <template v-else>
-              <button class="pbTile accentGreen" @mouseenter="uiHover" @click="uiClick(); screen = 'mode'">
-                <div class="pbTileInner">
-                  <div class="pbTileGlyph pbMemberGlyph">
-                    <span class="pbMemberDot"></span>
-                  </div>
-                  <div class="pbTileText">
-                    <div class="pbTileTitle">CONTINUE</div>
-                    <div class="pbTileDesc pbMemberDesc">logged in as <span class="pbMemberName">{{ displayName }}</span></div>
-                  </div>
-                </div>
-              </button>
-            </template>
-
+            <!-- Always visible: play as guest -->
             <button class="pbTile accentWhite" @mouseenter="uiHover" @click="uiClick(); playAsGuest()">
               <div class="pbTileInner">
                 <div class="pbTileGlyph">
@@ -253,12 +241,12 @@
                 </div>
                 <div class="pbTileText">
                   <div class="pbTileTitle">
-                  <template v-if="useMenuPngs">
-                    <img :src="playGuestTitleUrl" class="pbTextPng" alt="PLAY AS GUEST" />
-                  </template>
-                  <template v-else>PLAY AS GUEST</template>
-                </div>
-                  <div class="pbTileDesc">Play Anonymous</div>
+                    <template v-if="useMenuPngs">
+                      <img :src="playGuestTitleUrl" class="pbTextPng" alt="PLAY AS GUEST" />
+                    </template>
+                    <template v-else>PLAY AS GUEST</template>
+                  </div>
+                  <div class="pbTileDesc">play anonymous · no account needed</div>
                 </div>
               </div>
             </button>
@@ -269,23 +257,13 @@
       </section>
 
 
-      <!-- =========================
-           MODE MENU (STACKED)
-      ========================== -->
+      <!-- ══════════════════════════════════════════════════════════
+           MAIN MENU
+      ═══════════════════════════════════════════════════════════ -->
       <section v-else-if="screen === 'mode'" class="menuShell pbShell">
-        <div class="pbHeaderRow">
-          <div class="pbPageTitle">
-          <template v-if="useMenuPngs">
-            <img :src="menuTitleUrl" class="pbHeaderPng" alt="MENU" />
-          </template>
-          <template v-else>MENU</template>
-        </div>
-        </div>
-
         <div class="pbPane">
           <div class="pbHero compact">
             <div class="pbHeroTitle">FLIP | ROTATE | DOMINATE</div>
-            <!-- Member status strip -->
             <div v-if="loggedIn" class="pbMemberStrip">
               <span class="pbMemberStripDot"></span>
               <span class="pbMemberStripText">MEMBER · {{ displayName }}</span>
@@ -295,15 +273,149 @@
               <span>🔒 GUEST MODE</span>
               <button class="pbGuestLoginBtn" @click="openAuthModal('login')">SIGN IN FOR RANKED &amp; STATS →</button>
             </div>
-          </div><div class="pbTiles">
+          </div>
+
+          <div class="pbTiles">
+            <!-- PLAY -->
+            <button class="pbTile accentGreen" @mouseenter="uiHover" @click="uiClick(); screen = 'play'">
+              <div class="pbTileInner">
+                <div class="pbTileGlyph">▶</div>
+                <div class="pbTileText">
+                  <div class="pbTileTitle">PLAY</div>
+                  <div class="pbTileDesc">quick match · ranked · lobby · local · vs ai</div>
+                </div>
+              </div>
+            </button>
+
+            <!-- LEADERBOARDS (locked for guests) -->
             <button
               class="pbTile accentYellow"
-              :disabled="!loggedIn"
               :class="{ disabled: !loggedIn }"
-              :title="!loggedIn ? 'Ranked requires login' : ''"
               @mouseenter="uiHover"
-              @click="uiClick(); goRanked()"
-            >
+              @click="uiClick(); loggedIn ? screen = 'leaderboards' : showLoginRequired('Leaderboards')">
+              <div class="pbTileInner">
+                <div class="pbTileGlyph">🏆</div>
+                <div class="pbTileText">
+                  <div class="pbTileTitle">LEADERBOARDS</div>
+                  <div class="pbTileDesc">{{ loggedIn ? 'ranked standings · hall of fame' : '🔒 login required' }}</div>
+                </div>
+              </div>
+            </button>
+
+            <!-- SHOP (locked for guests) -->
+            <button
+              class="pbTile accentCyan"
+              :class="{ disabled: !loggedIn }"
+              @mouseenter="uiHover"
+              @click="uiClick(); loggedIn ? screen = 'shop' : showLoginRequired('Shop')">
+              <div class="pbTileInner">
+                <div class="pbTileGlyph">🛒</div>
+                <div class="pbTileText">
+                  <div class="pbTileTitle">SHOP</div>
+                  <div class="pbTileDesc">{{ loggedIn ? 'coming soon' : '🔒 login required' }}</div>
+                </div>
+              </div>
+            </button>
+
+            <!-- PROFILE / LOGIN -->
+            <button class="pbTile accentBlue" @mouseenter="uiHover" @click="uiClick(); screen = 'profile'">
+              <div class="pbTileInner">
+                <div class="pbTileGlyph">
+                  <template v-if="loggedIn"><span class="pbMemberDotSm"></span></template>
+                  <template v-else>
+                    <img v-if="useMenuPngs" :src="loginIconUrl" class="pbGlyphPng floatingLogo" alt="LG" />
+                    <template v-else>👤</template>
+                  </template>
+                </div>
+                <div class="pbTileText">
+                  <div class="pbTileTitle">{{ loggedIn ? 'PROFILE' : 'LOGIN' }}</div>
+                  <div class="pbTileDesc">{{ loggedIn ? displayName + ' · stats · logout' : 'sign in · create account' }}</div>
+                </div>
+              </div>
+            </button>
+
+            <!-- SETTINGS -->
+            <button class="pbTile accentWhite" @mouseenter="uiHover" @click="uiClick(); screen = 'settings'">
+              <div class="pbTileInner">
+                <div class="pbTileGlyph">
+                  <template v-if="useMenuPngs">
+                    <img :src="stIconUrl" class="pbGlyphPng floatingLogo" alt="ST" />
+                  </template>
+                  <template v-else>⚙</template>
+                </div>
+                <div class="pbTileText">
+                  <div class="pbTileTitle">
+                    <template v-if="useMenuPngs">
+                      <img :src="settingsTitleUrl" class="pbTextPng" alt="SETTINGS" />
+                    </template>
+                    <template v-else>SETTINGS</template>
+                  </div>
+                  <div class="pbTileDesc">controls · preferences · audio</div>
+                </div>
+              </div>
+            </button>
+
+            <!-- CREDITS -->
+            <button class="pbTile accentWhite" @mouseenter="uiHover" @click="uiClick(); screen = 'credits'">
+              <div class="pbTileInner">
+                <div class="pbTileGlyph">
+                  <template v-if="useMenuPngs">
+                    <img :src="crIconUrl" class="pbGlyphPng floatingLogo" alt="CR" />
+                  </template>
+                  <template v-else>✦</template>
+                </div>
+                <div class="pbTileText">
+                  <div class="pbTileTitle">
+                    <template v-if="useMenuPngs">
+                      <img :src="creditsTitleUrl" class="pbTextPng" alt="CREDITS" />
+                    </template>
+                    <template v-else>CREDITS</template>
+                  </div>
+                  <div class="pbTileDesc">about the game</div>
+                </div>
+              </div>
+            </button>
+          </div>
+        </div>
+      </section>
+
+
+      <!-- ══════════════════════════════════════════════════════════
+           PLAY MENU
+      ═══════════════════════════════════════════════════════════ -->
+      <section v-else-if="screen === 'play'" class="menuShell pbShell">
+        <div class="pbPane">
+          <div class="pbHero compact">
+            <div class="pbHeroTitle">CHOOSE YOUR BATTLE</div>
+          </div>
+          <div class="pbTiles">
+            <!-- QUICK PLAY — instant matchmaking -->
+            <button class="pbTile accentGreen" @mouseenter="uiHover" @click="uiClick(); startQuickMatchAuto()">
+              <div class="pbTileInner">
+                <div class="pbTileGlyph">
+                  <template v-if="useMenuPngs">
+                    <img :src="qmIconUrl" class="pbGlyphPng floatingLogo" alt="QM" />
+                  </template>
+                  <template v-else>QM</template>
+                </div>
+                <div class="pbTileText">
+                  <div class="pbTileTitle">
+                    <template v-if="useMenuPngs">
+                      <img :src="quickMatchTitleUrl" class="pbTextPng" alt="QUICK MATCH" />
+                    </template>
+                    <template v-else>QUICK PLAY</template>
+                  </div>
+                  <div class="pbTileDesc">instant online match · auto find opponent</div>
+                </div>
+              </div>
+            </button>
+
+            <!-- RANKED (login required) -->
+            <button
+              class="pbTile accentYellow"
+              :class="{ disabled: !loggedIn }"
+              @mouseenter="uiHover"
+              @click="uiClick(); loggedIn ? goRanked() : showLoginRequired('Ranked')">
               <div class="pbTileInner">
                 <div class="pbTileGlyph">
                   <template v-if="useMenuPngs">
@@ -318,31 +430,80 @@
                     </template>
                     <template v-else>RANKED</template>
                   </div>
-                  <div class="pbTileDesc">auto finds lobby with same tier</div>
+                  <div class="pbTileDesc">{{ loggedIn ? 'auto finds lobby with same tier' : '🔒 login required' }}</div>
                 </div>
               </div>
             </button>
 
-            <button class="pbTile accentGreen" @mouseenter="uiHover" @click="uiClick(); startQuickMatchAuto()">
+            <!-- CASUAL ONLINE — lobby sub-menu -->
+            <button class="pbTile accentPurple" @mouseenter="uiHover" @click="uiClick(); screen = 'casual'">
               <div class="pbTileInner">
                 <div class="pbTileGlyph">
                   <template v-if="useMenuPngs">
-                    <img :src="qmIconUrl" class="pbGlyphPng floatingLogo" alt="QM" />
+                    <img :src="lbIconUrl" class="pbGlyphPng floatingLogo" alt="LB" />
                   </template>
-                  <template v-else>QM</template>
+                  <template v-else>LB</template>
+                </div>
+                <div class="pbTileText">
+                  <div class="pbTileTitle">CASUAL</div>
+                  <div class="pbTileDesc">online lobby · couch play · custom modes</div>
+                </div>
+              </div>
+            </button>
+
+            <!-- VS AI -->
+            <button class="pbTile accentBlue" @mouseenter="uiHover" @click="uiClick(); screen = 'vs_ai'">
+              <div class="pbTileInner">
+                <div class="pbTileGlyph">
+                  <template v-if="useMenuPngs">
+                    <img :src="aiIconUrl" class="pbGlyphPng floatingLogo" alt="AI" />
+                  </template>
+                  <template v-else>AI</template>
                 </div>
                 <div class="pbTileText">
                   <div class="pbTileTitle">
                     <template v-if="useMenuPngs">
-                      <img :src="quickMatchTitleUrl" class="pbTextPng" alt="QUICK MATCH" />
+                      <img :src="practiceAiTitleUrl" class="pbTextPng" alt="VS AI" />
                     </template>
-                    <template v-else>QUICK MATCH</template>
+                    <template v-else>VS AI</template>
                   </div>
-                  <div class="pbTileDesc">finding opponent · please wait</div>
+                  <div class="pbTileDesc">standard · mirror match · blind pick</div>
                 </div>
               </div>
             </button>
 
+            <!-- PUZZLE MODE (login required) -->
+            <button
+              class="pbTile accentPeach"
+              :class="{ disabled: !loggedIn }"
+              @mouseenter="uiHover"
+              @click="uiClick(); loggedIn ? screen = 'puzzle' : showLoginRequired('Puzzle Mode')">
+              <div class="pbTileInner">
+                <div class="pbTileGlyph">🧩</div>
+                <div class="pbTileText">
+                  <div class="pbTileTitle">PUZZLE MODE</div>
+                  <div class="pbTileDesc">{{ loggedIn ? 'coming soon · timed challenges' : '🔒 login required' }}</div>
+                </div>
+              </div>
+            </button>
+          </div>
+        </div>
+      </section>
+
+
+      <!-- ══════════════════════════════════════════════════════════
+           CASUAL MENU
+      ═══════════════════════════════════════════════════════════ -->
+      <section v-else-if="screen === 'casual'" class="menuShell pbShell">
+        <div class="pbPane">
+          <div class="pbHero compact">
+            <div class="pbHeroTitle">CASUAL PLAY</div>
+          </div>
+          <div class="pbTiles">
+            <!-- Online sub-section label -->
+            <div class="pbSectionLabel">ONLINE</div>
+
+            <!-- Lobby / Custom Match -->
             <button class="pbTile accentPurple" @mouseenter="uiHover" @click="uiClick(); goLobby()">
               <div class="pbTileInner">
                 <div class="pbTileGlyph">
@@ -354,15 +515,41 @@
                 <div class="pbTileText">
                   <div class="pbTileTitle">
                     <template v-if="useMenuPngs">
-                      <img :src="goLobbyTitleUrl" class="pbTextPng" alt="GO TO LOBBY" />
+                      <img :src="goLobbyTitleUrl" class="pbTextPng" alt="LOBBY" />
                     </template>
-                    <template v-else>GO TO LOBBY</template>
+                    <template v-else>LOBBY</template>
                   </div>
                   <div class="pbTileDesc">create session · browse rooms · join by code</div>
                 </div>
               </div>
             </button>
 
+            <!-- Mirror Match (coming soon placeholder) -->
+            <button class="pbTile accentPurple disabled" disabled @mouseenter="uiHover">
+              <div class="pbTileInner">
+                <div class="pbTileGlyph">🪞</div>
+                <div class="pbTileText">
+                  <div class="pbTileTitle">MIRROR MATCH</div>
+                  <div class="pbTileDesc">both players see the same board · coming soon</div>
+                </div>
+              </div>
+            </button>
+
+            <!-- Blind Pick (coming soon placeholder) -->
+            <button class="pbTile accentPurple disabled" disabled @mouseenter="uiHover">
+              <div class="pbTileInner">
+                <div class="pbTileGlyph">🙈</div>
+                <div class="pbTileText">
+                  <div class="pbTileTitle">BLIND PICK</div>
+                  <div class="pbTileDesc">pieces hidden until placed · coming soon</div>
+                </div>
+              </div>
+            </button>
+
+            <!-- Local sub-section label -->
+            <div class="pbSectionLabel">LOCAL</div>
+
+            <!-- Couch Play -->
             <button class="pbTile accentPeach" @mouseenter="uiHover" @click="uiClick(); startCouchPlay()">
               <div class="pbTileInner">
                 <div class="pbTileGlyph">
@@ -382,7 +569,21 @@
                 </div>
               </div>
             </button>
+          </div>
+        </div>
+      </section>
 
+
+      <!-- ══════════════════════════════════════════════════════════
+           VS AI MENU
+      ═══════════════════════════════════════════════════════════ -->
+      <section v-else-if="screen === 'vs_ai'" class="menuShell pbShell">
+        <div class="pbPane">
+          <div class="pbHero compact">
+            <div class="pbHeroTitle">VS AI</div>
+          </div>
+          <div class="pbTiles">
+            <!-- Standard Match -->
             <button class="pbTile accentBlue" @mouseenter="uiHover" @click="uiClick(); startPracticeAi()">
               <div class="pbTileInner">
                 <div class="pbTileGlyph">
@@ -394,51 +595,33 @@
                 <div class="pbTileText">
                   <div class="pbTileTitle">
                     <template v-if="useMenuPngs">
-                      <img :src="practiceAiTitleUrl" class="pbTextPng" alt="PRACTICE VS AI" />
+                      <img :src="practiceAiTitleUrl" class="pbTextPng" alt="STANDARD MATCH" />
                     </template>
-                    <template v-else>PRACTICE VS AI</template>
+                    <template v-else>STANDARD MATCH</template>
                   </div>
-                  <div class="pbTileDesc">local 1-player vs computer</div>
+                  <div class="pbTileDesc">classic game vs computer · choose difficulty</div>
                 </div>
               </div>
             </button>
 
-            <button class="pbTile accentWhite" @mouseenter="uiHover" @click="uiClick(); screen = 'settings'">
+            <!-- Mirror Match AI (coming soon) -->
+            <button class="pbTile accentBlue disabled" disabled @mouseenter="uiHover">
               <div class="pbTileInner">
-                <div class="pbTileGlyph">
-                  <template v-if="useMenuPngs">
-                    <img :src="stIconUrl" class="pbGlyphPng floatingLogo" alt="ST" />
-                  </template>
-                  <template v-else>ST</template>
-                </div>
+                <div class="pbTileGlyph">🪞</div>
                 <div class="pbTileText">
-                  <div class="pbTileTitle">
-                    <template v-if="useMenuPngs">
-                      <img :src="settingsTitleUrl" class="pbTextPng" alt="SETTINGS" />
-                    </template>
-                    <template v-else>SETTINGS</template>
-                  </div>
-                  <div class="pbTileDesc">controls · preferences</div>
+                  <div class="pbTileTitle">MIRROR MATCH</div>
+                  <div class="pbTileDesc">same board layout for both sides · coming soon</div>
                 </div>
               </div>
             </button>
 
-            <button class="pbTile accentWhite" @mouseenter="uiHover" @click="uiClick(); screen = 'credits'">
+            <!-- Blind Pick AI (coming soon) -->
+            <button class="pbTile accentBlue disabled" disabled @mouseenter="uiHover">
               <div class="pbTileInner">
-                <div class="pbTileGlyph">
-                  <template v-if="useMenuPngs">
-                    <img :src="crIconUrl" class="pbGlyphPng floatingLogo" alt="CR" />
-                  </template>
-                  <template v-else>CR</template>
-                </div>
+                <div class="pbTileGlyph">🙈</div>
                 <div class="pbTileText">
-                  <div class="pbTileTitle">
-                    <template v-if="useMenuPngs">
-                      <img :src="creditsTitleUrl" class="pbTextPng" alt="CREDITS" />
-                    </template>
-                    <template v-else>CREDITS</template>
-                  </div>
-                  <div class="pbTileDesc">about the game</div>
+                  <div class="pbTileTitle">BLIND PICK</div>
+                  <div class="pbTileDesc">pieces hidden until placed · coming soon</div>
                 </div>
               </div>
             </button>
@@ -447,7 +630,127 @@
       </section>
 
 
-            <!-- =========================
+      <!-- ══════════════════════════════════════════════════════════
+           LEADERBOARDS (login required)
+      ═══════════════════════════════════════════════════════════ -->
+      <section v-else-if="screen === 'leaderboards'" class="menuShell pbShell pbShellCentered">
+        <div class="vsStylePanel">
+          <div class="vsStyleHeader">
+            <div class="vsStyleHeaderGlow"></div>
+            <div class="vsStyleTitle">🏆 LEADERBOARDS</div>
+            <div class="vsStyleSubtitle">Rankings · Records · Hall of Fame</div>
+          </div>
+          <div class="vsStyleCards">
+            <div class="vsStyleCard">
+              <div class="vsStyleCardTitle">RANKED STANDINGS</div>
+              <div class="pbFineLine">Ranked leaderboard coming soon.</div>
+            </div>
+            <div class="vsStyleCard">
+              <div class="vsStyleCardTitle">PUZZLE FASTEST SOLVE</div>
+              <div class="pbFineLine">Puzzle leaderboard coming soon.</div>
+            </div>
+            <div class="vsStyleCard">
+              <div class="vsStyleCardTitle">HALL OF FAME</div>
+              <div class="pbFineLine">Top all-time players coming soon.</div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+
+      <!-- ══════════════════════════════════════════════════════════
+           SHOP (login required)
+      ═══════════════════════════════════════════════════════════ -->
+      <section v-else-if="screen === 'shop'" class="menuShell pbShell pbShellCentered">
+        <div class="vsStylePanel">
+          <div class="vsStyleHeader">
+            <div class="vsStyleHeaderGlow"></div>
+            <div class="vsStyleTitle">🛒 SHOP</div>
+            <div class="vsStyleSubtitle">Cosmetics · Themes · Coming Soon</div>
+          </div>
+          <div class="vsStyleCards">
+            <div class="vsStyleCard">
+              <div class="vsStyleCardTitle">COMING SOON</div>
+              <div class="pbFineLine">The shop is under construction. Check back later!</div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+
+      <!-- ══════════════════════════════════════════════════════════
+           PROFILE / LOGIN
+      ═══════════════════════════════════════════════════════════ -->
+      <section v-else-if="screen === 'profile'" class="menuShell pbShell pbShellCentered">
+        <div class="vsStylePanel">
+          <div class="vsStyleHeader">
+            <div class="vsStyleHeaderGlow"></div>
+            <div class="vsStyleTitle">{{ loggedIn ? '👤 PROFILE' : '🔑 LOGIN' }}</div>
+            <div class="vsStyleSubtitle">{{ loggedIn ? displayName + ' · Member' : 'Sign in or create an account' }}</div>
+          </div>
+          <div class="vsStyleCards">
+            <!-- LOGGED IN VIEW -->
+            <template v-if="loggedIn">
+              <div class="vsStyleCard">
+                <div class="vsStyleCardTitle">STATS</div>
+                <div class="vsStyleRow"><span class="vsStyleRowLabel">Username</span><b>{{ displayName }}</b></div>
+                <div class="vsStyleRow"><span class="vsStyleRowLabel">Wins</span><b>{{ memberStats.wins }}</b></div>
+                <div class="vsStyleRow"><span class="vsStyleRowLabel">Losses</span><b>{{ memberStats.losses }}</b></div>
+                <div class="vsStyleRow"><span class="vsStyleRowLabel">Draws</span><b>{{ memberStats.draws }}</b></div>
+                <div class="vsStyleRow"><span class="vsStyleRowLabel">Rank</span><b>{{ rankedTier }}</b></div>
+              </div>
+              <div class="vsStyleCard">
+                <div class="vsStyleCardTitle">MATCH HISTORY</div>
+                <div class="pbFineLine">Match history coming soon.</div>
+              </div>
+              <div class="vsStyleCard">
+                <div class="vsStyleCardTitle">ACCOUNT</div>
+                <button class="pbMiniBtn" style="margin-top:8px; --miniAcc:255,64,96" @click="doSignOut">SIGN OUT</button>
+              </div>
+            </template>
+
+            <!-- GUEST VIEW -->
+            <template v-else>
+              <div class="vsStyleCard">
+                <div class="vsStyleCardTitle">SIGN IN</div>
+                <div class="pbFineLine">Log in to access ranked, leaderboards, stats, and more.</div>
+                <button class="pbMiniBtn primary" style="margin-top:12px" @click="openAuthModal('login')">LOGIN</button>
+              </div>
+              <div class="vsStyleCard">
+                <div class="vsStyleCardTitle">NEW PLAYER</div>
+                <div class="pbFineLine">Free account. Takes 30 seconds.</div>
+                <button class="pbMiniBtn primary" style="margin-top:12px" @click="openAuthModal('signup')">CREATE ACCOUNT</button>
+              </div>
+            </template>
+          </div>
+        </div>
+      </section>
+
+
+      <!-- ══════════════════════════════════════════════════════════
+           PUZZLE MODE placeholder (login required)
+      ═══════════════════════════════════════════════════════════ -->
+      <section v-else-if="screen === 'puzzle'" class="menuShell pbShell pbShellCentered">
+        <div class="vsStylePanel">
+          <div class="vsStyleHeader">
+            <div class="vsStyleHeaderGlow"></div>
+            <div class="vsStyleTitle">🧩 PUZZLE MODE</div>
+            <div class="vsStyleSubtitle">Timed challenges · Coming soon</div>
+          </div>
+          <div class="vsStyleCards">
+            <div class="vsStyleCard">
+              <div class="vsStyleCardTitle">COMING SOON</div>
+              <div class="pbFineLine">Puzzle Mode is under construction. Stay tuned!</div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+
+      <!-- ══════════════════════════════════════════════════════════
+           LOBBY
+      ═══════════════════════════════════════════════════════════ -->
+      <!-- =========================
            LOBBY
       ========================== -->
       <section v-else-if="screen === 'lobby'" class="menuShell pbShell pbShellCentered">
@@ -1895,7 +2198,8 @@ const phaseSub = computed(() => {
 });
 
 const canGoBack = computed(() =>
-  ["mode", "lobby", "settings", "credits", "ranked"].includes(screen.value)
+  ["mode", "play", "casual", "vs_ai", "lobby", "ranked",
+   "leaderboards", "shop", "profile", "puzzle", "settings", "credits"].includes(screen.value)
 );
 
 
@@ -1928,15 +2232,22 @@ watch([bgmVolumeUi, sfxVolumeUi], () => {
   // If volume is 0, keep BGM playing silently (do not stop/reset).
 });
 const topPageTitle = computed(() => {
-  if (screen.value === "auth") return "WELCOME"; // Welcome page
-  if (screen.value === "mode") return "MENU"; // Main menu page
-  if (screen.value === "lobby") return "LOBBY";
-  if (screen.value === "ranked") return "RANKED";
-  if (screen.value === "settings") return "CONFIG";
-  if (screen.value === "credits") return "ABOUT";
+  if (screen.value === "auth")         return "WELCOME";
+  if (screen.value === "mode")         return "MENU";
+  if (screen.value === "play")         return "PLAY";
+  if (screen.value === "casual")       return "CASUAL";
+  if (screen.value === "vs_ai")        return "VS AI";
+  if (screen.value === "lobby")        return "LOBBY";
+  if (screen.value === "ranked")       return "RANKED";
+  if (screen.value === "leaderboards") return "LEADERBOARDS";
+  if (screen.value === "shop")         return "SHOP";
+  if (screen.value === "profile")      return "PROFILE";
+  if (screen.value === "puzzle")       return "PUZZLE";
+  if (screen.value === "settings")     return "CONFIG";
+  if (screen.value === "credits")      return "ABOUT";
   return "MENU";
 });
-const showMenuChrome = computed(() => isMenuScreen.value && ["auth","mode","lobby","ranked","settings","credits"].includes(screen.value));
+const showMenuChrome = computed(() => isMenuScreen.value && ["auth","mode","play","casual","vs_ai","lobby","ranked","leaderboards","shop","profile","puzzle","settings","credits"].includes(screen.value));
 const showBottomBar = computed(() => showMenuChrome.value);
 
 // ✅ Online match
@@ -2070,7 +2381,8 @@ watch(
       startUiLock({ label: "Loading match…", hint: "Syncing visuals and state…", minMs: 850 });
       stopUiLockAfterPaint(850);
     }
-    if (["auth", "mode", "lobby", "settings", "credits", "ranked"].includes(nv)) {
+    if (["auth", "mode", "play", "casual", "vs_ai", "lobby", "ranked",
+             "leaderboards", "shop", "profile", "puzzle", "settings", "credits"].includes(nv)) {
       // If we navigated back to menus, ensure the lock isn't stuck.
       if (uiLock.active && Date.now() > uiLock._minUntil) stopUiLock();
     }
@@ -4623,10 +4935,17 @@ function confirmInGame({ title, message, yesLabel = "YES", noLabel = "NO", onYes
 }
 
 function goBack() {
-  if (["lobby", "settings", "credits", "ranked"].includes(screen.value)) {
+  // Sub-screens of PLAY go back to play menu
+  if (["casual", "vs_ai", "lobby", "ranked", "puzzle"].includes(screen.value)) {
+    screen.value = "play";
+    return;
+  }
+  // Top-level menu screens go back to main menu
+  if (["play", "leaderboards", "shop", "profile", "settings", "credits"].includes(screen.value)) {
     screen.value = "mode";
     return;
   }
+  // Main menu goes back to welcome/auth
   if (screen.value === "mode") {
     screen.value = "auth";
     return;
@@ -4672,8 +4991,20 @@ function playAsGuest() {
 function goQuick() { return goLobby(); }
 
 function goRanked() {
-  if (!loggedIn.value) return;
+  if (!loggedIn.value) { showLoginRequired("Ranked"); return; }
   screen.value = "ranked";
+}
+
+function showLoginRequired(feature = "This feature") {
+  showModal({
+    title: "Login Required",
+    tone: "bad",
+    message: `${feature} is only available to registered players.\n\nCreate a free account to unlock ranked mode, leaderboards, puzzle mode, and more.`,
+    actions: [
+      { label: "LOGIN", tone: "primary", onClick: () => openAuthModal("login") },
+      { label: "CANCEL", tone: "secondary" },
+    ],
+  });
 }
 
 function startCouchPlay() {
@@ -8804,5 +9135,31 @@ onBeforeUnmount(() => {
 .pbMemberDesc{ color: rgba(255,255,255,0.65) !important; }
 .pbMemberName{ color: #4dff90; font-weight: 900; }
 
+
+/* ══════════════════════════════════════════════════════════════
+   PLAY / CASUAL / VS AI — section labels between tiles
+═══════════════════════════════════════════════════════════════ */
+.pbSectionLabel{
+  width: 100%;
+  font-size: 10px;
+  font-weight: 900;
+  letter-spacing: 3px;
+  text-transform: uppercase;
+  opacity: .45;
+  padding: 4px 2px 2px;
+  border-bottom: 1px solid rgba(255,255,255,0.07);
+  margin-bottom: 2px;
+  pointer-events: none;
+}
+
+/* Small online dot for profile tile glyph */
+.pbMemberDotSm{
+  display: inline-block;
+  width: 14px; height: 14px;
+  border-radius: 50%;
+  background: radial-gradient(circle at 35% 35%, rgba(77,255,144,1), rgba(0,200,100,0.8));
+  box-shadow: 0 0 14px rgba(77,255,144,0.7);
+  animation: memberPulse 2s ease-in-out infinite;
+}
 
 </style>
