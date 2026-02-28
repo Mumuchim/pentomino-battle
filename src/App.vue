@@ -1036,6 +1036,30 @@
       </div>
     </Transition>
 
+    <!-- ✅ Legendary Conquered Animation (shown when player beats Legendary) -->
+    <Transition name="unlockFade">
+      <div v-if="legendaryConqueredAnim.active" class="unlockOverlay lcOverlay">
+        <div class="lcBurst lcBurst1"></div>
+        <div class="lcBurst lcBurst2"></div>
+        <div class="lcBurst lcBurst3"></div>
+        <div class="lcStars">
+          <span v-for="i in 18" :key="i" class="lcStar" :style="`--i:${i};`">★</span>
+        </div>
+        <div class="lcCard">
+          <div class="lcGlowRing"></div>
+          <div class="lcCrown">👑</div>
+          <div class="lcSuperLabel">ALL STAGES CLEARED</div>
+          <div class="lcTitle">LEGENDARY<br>CONQUERED</div>
+          <div class="lcDivider"></div>
+          <div class="lcQuote">"Beyond Human Reach —<br>You proved them wrong."</div>
+          <div class="unlockActions" style="margin-top:28px;">
+            <button class="unlockBtn unlockBtnSoft" @click="onLcMainMenu">Main Menu</button>
+            <button class="unlockBtn lcBtnPlayAgain" @click="onLcPlayAgain">Play Again</button>
+          </div>
+        </div>
+      </div>
+    </Transition>
+
 <!-- ✅ In-game Settings Modal (Esc) -->
     <div v-if="inGameSettingsOpen" class="modalOverlay" @click.self="closeInGameSettings">
       <div class="modalCard" role="dialog" aria-modal="true">
@@ -3585,20 +3609,18 @@ watch(
         const nextDiff = getNextRank(aiDifficulty.value);
         const allCleared = !nextDiff;
 
+        // Special cinematic for beating Legendary — the ultimate achievement.
+        if (humanWon && allCleared) {
+          setTimeout(() => { legendaryConqueredAnim.active = true; }, 1000);
+          return;
+        }
+
         let actions;
         if (humanWon) {
-          if (allCleared) {
-            actions = [
-              { label: "Main Menu",   tone: "soft",      onClick: () => { screen.value = 'mode'; } },
-              { label: "Play Again",  tone: "secondary",  onClick: () => { closeModal(); nextAiRound(); } },
-              { label: "Next Battle", tone: "primary",    onClick: () => { closeModal(); _launchAi('dumbie'); } },
-            ];
-          } else {
-            actions = [
-              { label: "Next Battle", tone: "primary", onClick: () => { closeModal(); _launchAi(nextDiff); } },
-              { label: "Main Menu",   tone: "soft",    onClick: () => { screen.value = 'mode'; } },
-            ];
-          }
+          actions = [
+            { label: "Next Battle", tone: "primary", onClick: () => { closeModal(); _launchAi(nextDiff); } },
+            { label: "Main Menu",   tone: "soft",    onClick: () => { screen.value = 'mode'; } },
+          ];
         } else {
           actions = [
             { label: "Play Again", tone: "primary", onClick: () => { closeModal(); nextAiRound(); } },
@@ -4478,6 +4500,29 @@ function tryUnlockNextDifficulty(wonAsPlayer, winnerNum) {
 function closeUnlockAnim() {
   unlockAnim.active = false;
   unlockAnim.rank = '';
+}
+
+// ── Legendary Conquered overlay ──────────────────────────────────────────────
+const legendaryConqueredAnim = reactive({ active: false });
+
+function closeLegendaryConqueredAnim() {
+  legendaryConqueredAnim.active = false;
+}
+function onLcMainMenu() {
+  closeLegendaryConqueredAnim();
+  screen.value = 'mode';
+}
+function onLcPlayAgain() {
+  closeLegendaryConqueredAnim();
+  // Replay legendary directly, skip challenge intro
+  aiDifficulty.value = 'legendary';
+  aiPlayer.value = 1;
+  aiRound.value = 1;
+  aiScore.p1 = 0;
+  aiScore.p2 = 0;
+  stopPolling();
+  myPlayer.value = null;
+  _startAiGame();
 }
 
 function onUnlockMainMenu() {
@@ -6431,6 +6476,217 @@ onBeforeUnmount(() => {
 @keyframes unlockFadeUp{
   from{ transform: translateY(12px); opacity: 0; }
   to{ transform: translateY(0); opacity: 1; }
+}
+
+/* ══ Legendary Conquered Overlay ══════════════════════════════════════════ */
+.lcOverlay{
+  background: rgba(0,0,0,0.88);
+  backdrop-filter: blur(20px);
+}
+
+/* Three layered burst rings */
+.lcBurst{
+  position: absolute;
+  inset: 0;
+  border-radius: 50%;
+  pointer-events: none;
+}
+.lcBurst1{
+  background: radial-gradient(ellipse 55% 55% at 50% 50%, rgba(255,200,40,0.18), transparent 65%);
+  animation: lcPulse1 2s ease-in-out infinite alternate;
+}
+.lcBurst2{
+  background: radial-gradient(ellipse 75% 40% at 50% 50%, rgba(255,80,200,0.10), transparent 60%);
+  animation: lcPulse2 2.6s ease-in-out infinite alternate;
+}
+.lcBurst3{
+  background: radial-gradient(ellipse 40% 70% at 50% 50%, rgba(80,160,255,0.10), transparent 60%);
+  animation: lcPulse3 3.1s ease-in-out infinite alternate;
+}
+@keyframes lcPulse1{
+  from{ opacity:.5; transform: scale(0.92); }
+  to{   opacity:1;  transform: scale(1.08); }
+}
+@keyframes lcPulse2{
+  from{ opacity:.4; transform: scale(1.05) rotate(-4deg); }
+  to{   opacity:.9; transform: scale(0.95) rotate(4deg); }
+}
+@keyframes lcPulse3{
+  from{ opacity:.3; transform: scale(0.96) rotate(6deg); }
+  to{   opacity:.8; transform: scale(1.04) rotate(-6deg); }
+}
+
+/* Floating stars layer */
+.lcStars{
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  overflow: hidden;
+}
+.lcStar{
+  position: absolute;
+  font-size: calc(8px + (var(--i) * 1.2px));
+  left: calc((var(--i) * 5.5%) + 1%);
+  bottom: -20px;
+  opacity: 0;
+  color: rgba(255, 220, 60, 0.7);
+  animation: lcStarFloat calc(3s + (var(--i) * 0.25s)) ease-in calc(var(--i) * 0.18s) infinite;
+  text-shadow: 0 0 8px rgba(255,200,40,0.8);
+}
+.lcStar:nth-child(even){ color: rgba(255,120,220,0.7); text-shadow: 0 0 8px rgba(255,80,200,0.8); }
+.lcStar:nth-child(3n){ color: rgba(120,200,255,0.7); text-shadow: 0 0 8px rgba(80,160,255,0.8); }
+@keyframes lcStarFloat{
+  0%  { transform: translateY(0)   rotate(0deg);   opacity: 0; }
+  10% { opacity: 0.9; }
+  90% { opacity: 0.5; }
+  100%{ transform: translateY(-100vh) rotate(calc(var(--i) * 20deg)); opacity: 0; }
+}
+
+/* The main card */
+.lcCard{
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 10px;
+  padding: 40px 44px 32px;
+  border-radius: 32px;
+  border: 1px solid rgba(255,200,40,0.5);
+  background:
+    radial-gradient(ellipse 90% 50% at 50% 0%, rgba(255,200,40,0.16), transparent 65%),
+    radial-gradient(ellipse 60% 40% at 20% 100%, rgba(255,80,200,0.08), transparent 70%),
+    radial-gradient(ellipse 60% 40% at 80% 100%, rgba(80,160,255,0.08), transparent 70%),
+    linear-gradient(180deg, rgba(26,20,6,0.98), rgba(10,8,4,0.98));
+  box-shadow:
+    0 0 0 1px rgba(255,200,40,0.22) inset,
+    0 0 60px rgba(255,180,20,0.30),
+    0 0 120px rgba(255,80,200,0.12),
+    0 30px 80px rgba(0,0,0,0.8);
+  animation: lcCardIn .55s cubic-bezier(.22,1,.36,1);
+  text-align: center;
+  max-width: 360px;
+  width: 100%;
+}
+@keyframes lcCardIn{
+  from{ transform: scale(0.65) translateY(50px); opacity: 0; }
+  to{   transform: scale(1)    translateY(0);    opacity: 1; }
+}
+
+/* Rainbow shimmer border sweep */
+.lcCard::before{
+  content: '';
+  position: absolute;
+  inset: -1px;
+  border-radius: 33px;
+  background: conic-gradient(
+    from 0deg,
+    rgba(255,220,60,0.6),
+    rgba(255,80,200,0.5),
+    rgba(80,160,255,0.5),
+    rgba(80,255,160,0.4),
+    rgba(255,220,60,0.6)
+  );
+  -webkit-mask: linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0);
+  mask: linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0);
+  -webkit-mask-composite: xor;
+  mask-composite: exclude;
+  padding: 1px;
+  animation: lcBorderSpin 4s linear infinite;
+  pointer-events: none;
+}
+@keyframes lcBorderSpin{
+  from{ filter: hue-rotate(0deg); }
+  to{   filter: hue-rotate(360deg); }
+}
+
+.lcGlowRing{
+  position: absolute;
+  top: -40px; left: 50%; transform: translateX(-50%);
+  width: 160px; height: 160px;
+  border-radius: 50%;
+  background: radial-gradient(circle at 50% 50%, rgba(255,200,40,0.30), transparent 70%);
+  filter: blur(22px);
+  animation: lcPulse1 1.8s ease-in-out infinite alternate;
+  pointer-events: none;
+}
+
+.lcCrown{
+  font-size: 62px;
+  animation: lcCrownIn .7s cubic-bezier(.22,1,.36,1) .1s both;
+  position: relative;
+  z-index: 1;
+  filter: drop-shadow(0 0 18px rgba(255,200,40,0.9));
+}
+@keyframes lcCrownIn{
+  from{ transform: scale(0.3) translateY(-20px) rotate(-15deg); opacity: 0; }
+  50% { transform: scale(1.15) translateY(4px) rotate(3deg); }
+  to{   transform: scale(1) translateY(0) rotate(0deg); opacity: 1; }
+}
+
+.lcSuperLabel{
+  font-size: 10px;
+  letter-spacing: 4px;
+  text-transform: uppercase;
+  background: linear-gradient(90deg, rgba(255,200,40,0.9), rgba(255,120,200,0.9), rgba(100,180,255,0.9));
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+  animation: lcFadeUp .4s ease-out .3s both;
+  animation: lcBorderSpin 3s linear infinite, lcFadeUp .4s ease-out .3s both;
+}
+
+.lcTitle{
+  font-size: 34px;
+  font-weight: 900;
+  letter-spacing: 2px;
+  line-height: 1.1;
+  text-transform: uppercase;
+  background: linear-gradient(135deg,
+    rgba(255,230,80,1)  0%,
+    rgba(255,160,40,1)  35%,
+    rgba(255,80,180,1)  65%,
+    rgba(120,180,255,1) 100%
+  );
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+  animation: lcFadeUp .45s ease-out .4s both;
+  filter: drop-shadow(0 2px 12px rgba(255,180,40,0.4));
+}
+
+.lcDivider{
+  width: 60px;
+  height: 2px;
+  border-radius: 2px;
+  background: linear-gradient(90deg, transparent, rgba(255,200,40,0.7), rgba(255,80,200,0.7), transparent);
+  animation: lcFadeUp .4s ease-out .52s both;
+  margin: 4px 0;
+}
+
+.lcQuote{
+  font-size: 12px;
+  line-height: 1.6;
+  opacity: .55;
+  letter-spacing: .5px;
+  font-style: italic;
+  animation: lcFadeUp .4s ease-out .58s both;
+}
+
+.lcBtnPlayAgain{
+  --u: 255,200,40;
+  background: linear-gradient(135deg, rgba(255,200,40,0.28), rgba(255,120,60,0.18));
+  border-color: rgba(255,200,40,0.6);
+  color: rgba(255,220,80,1);
+  box-shadow: 0 0 20px rgba(255,180,40,0.25);
+}
+.lcBtnPlayAgain:hover{
+  background: linear-gradient(135deg, rgba(255,200,40,0.40), rgba(255,120,60,0.28));
+  box-shadow: 0 0 28px rgba(255,180,40,0.40);
+}
+
+@keyframes lcFadeUp{
+  from{ transform: translateY(14px); opacity: 0; }
+  to{   transform: translateY(0);    opacity: 1; }
 }
 
 /* Fit-to-viewport in-game (no scroll): keep the whole layout within the main area */
