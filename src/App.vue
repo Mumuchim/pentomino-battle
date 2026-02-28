@@ -162,7 +162,7 @@
       <!-- ══════════════════════════════════════════════════════════
            WELCOME / AUTH
       ═══════════════════════════════════════════════════════════ -->
-      <section v-if="screen === 'auth'" class="tetShell tetShellRight">
+      <section v-if="screen === 'auth'" class="tetShell tetShellRight tetShellAuth">
         <div class="tetWelcome">
           <div class="tetBrand">
             <template v-if="useSplitBrandPng">
@@ -5703,6 +5703,12 @@ onBeforeUnmount(() => {
   overflow-x: hidden;
 }
 
+/* In menu mode: remove right & bottom padding so tiles bleed flush to the viewport edge */
+.tetMode .main{
+  padding-right: 0;
+  padding-bottom: 0;
+}
+
 /* In-game: lock the canvas; UI already fits the viewport. */
 .app.inGame .main{ overflow: hidden; }
 
@@ -9124,7 +9130,7 @@ onBeforeUnmount(() => {
 .tetShell{
   width: min(860px, calc(100vw - 24px));
   margin: 0 auto;
-  padding: 0 0 80px;
+  padding: 0 0 120px;
   display: flex;
   flex-direction: column;
   gap: 0;
@@ -9137,6 +9143,11 @@ onBeforeUnmount(() => {
   margin-left: auto;
   margin-right: -60px;
   padding-right: 0;
+}
+
+/* Auth/landing screen: narrower — frees up the left ~58%, logo + tiles on right 42% */
+.tetShellAuth{
+  width: calc(45vw + 60px);
 }
 
 /* Brand/logo aligns with the tile left edge */
