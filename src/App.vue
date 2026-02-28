@@ -3570,8 +3570,14 @@ watch(
       if (screen.value === 'ai') {
         const humanWon = w === humanPlayer.value;
         const aiWon = w === aiPlayer.value;
-        if (humanWon) { aiScore.p1++; tryUnlockNextDifficulty(1, 1); }
+        let newStageUnlocked = false;
+        if (humanWon) { aiScore.p1++; newStageUnlocked = tryUnlockNextDifficulty(1, 1); }
         else if (aiWon) aiScore.p2++;
+
+        // If a new stage was just unlocked, skip the victory modal entirely.
+        // The unlock animation overlay (shown after 1.2 s) acts as the result screen
+        // and already provides Main Menu / Play Again / Next Battle actions.
+        if (newStageUnlocked) return;
 
         const diffLabel = { dumbie:'Dumbie', elite:'Elite', tactician:'Tactician', grandmaster:'Grandmaster', legendary:'Legendary' }[aiDifficulty.value] || aiDifficulty.value;
         title = humanWon ? "VICTORY" : "DEFEAT";
@@ -4466,6 +4472,7 @@ function tryUnlockNextDifficulty(wonAsPlayer, winnerNum) {
     unlockAnim.rank = next;
     unlockAnim.active = true;
   }, 1200);
+  return true;
 }
 
 function closeUnlockAnim() {
@@ -4487,7 +4494,16 @@ function onUnlockPlayAgain() {
 function onUnlockNextBattle() {
   const nextRank = unlockAnim.rank; // the just-unlocked rank IS the next battle
   closeUnlockAnim();
-  _launchAi(nextRank);
+  // Go straight to the game — skip the challenge intro animation
+  // so there's no redundant modal chain after the unlock screen.
+  aiDifficulty.value = nextRank;
+  aiPlayer.value = (nextRank === 'grandmaster' || nextRank === 'legendary') ? 1 : 2;
+  aiRound.value = 1;
+  aiScore.p1 = 0;
+  aiScore.p2 = 0;
+  stopPolling();
+  myPlayer.value = null;
+  _startAiGame();
 }
 
 function startPracticeAi() {
