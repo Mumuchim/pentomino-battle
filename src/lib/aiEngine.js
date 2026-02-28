@@ -351,7 +351,7 @@ function aiClusterPenalty(simBoard, W, H, ap) {
   }
 
   const strandedCells = aiCells.length - largestSize;
-  return strandedCells > 0 ? -(strandedCells * 10.0) : 0;
+  return strandedCells > 0 ? -(strandedCells * 25.0) : 0;
 }
 
 /**
@@ -580,19 +580,78 @@ export function createAiEngine({ game, aiPlayer, humanPlayer, aiDifficulty, PENT
 
   /** Quick score (used for lookahead pruning). */
 function quickScore(simBoard, ap, hp, boardW, boardH) {
-  // Territory is the primary signal; frontier and open-zone adjacency
-  // are boosted so the beam doesn't prune away right-side expansion moves.
   const t = territoryAdvantage(simBoard, boardW, boardH, ap, hp);
   const regs = floodFillRegions(simBoard, boardW, boardH);
   const trap = regionFeasibilityBonus(regs, simBoard, boardW, boardH, hp);
   const fr = frontierScore(simBoard, boardW, boardH, ap, hp);
-
-  // Open zone signal: largest empty region size (AI wants large open zones
-  // to still be available — means it's expanding rather than clustering)
   const largest = regs.length ? regs.reduce((a,b)=>b.length>a.length?b:a, regs[0]) : null;
   const openZone = largest ? largest.length * 0.08 : 0;
+  // Cluster penalty must be in quickScore — otherwise disconnected moves
+  // score huge on territory and pass the beam filter, making full-eval fixes useless.
+  const cluster = aiClusterPenalty(simBoard, boardW, boardH, ap);
+  return t * 6.0 + trap * 0.12 + fr * 0.55 + openZone + cluster * 0.8;
+}
 
-  return t * 6.0 + trap * 0.12 + fr * 0.55 + openZone;
+/**
+ * Connectivity-first beam selection.
+ *
+ * The previous approach sorted ALL moves by quickScore and took the top N.
+ * Disconnected moves (placing far from the main cluster) could score high
+ * on territory and pass the beam even with cluster penalties, because
+ * territory × 16 easily overwhelms -50 from a stranded piece.
+ *
+ * This function structurally enforces connectivity:
+ *   1. Separate moves into "connected" (touches AI's existing cells) and "disconnected".
+ *   2. Score and sort both groups by quickScore.
+ *   3. Fill the beam from connected first. Only add disconnected moves to pad
+ *      out the beam if there aren't enough connected candidates.
+ *
+ * Result: a disconnected move can only enter the beam if the AI genuinely
+ * has no good connected options — i.e. it's truly the first piece (empty board)
+ * or the AI is completely surrounded.
+ */
+function connectivityBeam(moves, board, boardW, boardH, ap, hp, beamSize) {
+  if (!moves.length) return [];
+
+  // Find AI's current occupied cells
+  const aiOccupied = new Set();
+  for (let y = 0; y < boardH; y++)
+    for (let x = 0; x < boardW; x++)
+      if (board[y][x]?.player === ap) aiOccupied.add(y * boardW + x);
+
+  const connected = [];
+  const disconnected = [];
+
+  for (const m of moves) {
+    const sim = board.map(r => [...r]);
+    for (const [x, y] of m.abs) sim[y][x] = { player: ap, pieceKey: m.pk };
+    const qs = quickScore(sim, ap, hp, boardW, boardH);
+
+    // First piece: no existing AI cells, all placements are "connected"
+    let touches = aiOccupied.size === 0;
+    if (!touches) {
+      outer: for (const [x, y] of m.abs) {
+        for (const [ox, oy] of DIRS) {
+          const nx = x+ox, ny = y+oy;
+          if (nx >= 0 && ny >= 0 && nx < boardW && ny < boardH && aiOccupied.has(ny * boardW + nx)) {
+            touches = true; break outer;
+          }
+        }
+      }
+    }
+    if (touches) connected.push({ m, s: qs });
+    else disconnected.push({ m, s: qs });
+  }
+
+  connected.sort((a,b) => b.s - a.s);
+  disconnected.sort((a,b) => b.s - a.s);
+
+  // Fill beam: connected first, then disconnected only to pad remaining slots
+  const beam = connected.slice(0, beamSize);
+  if (beam.length < beamSize) {
+    beam.push(...disconnected.slice(0, beamSize - beam.length));
+  }
+  return beam;
 }
 
   function simulateOpponentResponse(simBoard, ap, hp, boardW, boardH, remaining, placedCount, allowFlip) {
@@ -734,15 +793,11 @@ function movesTactician(moves) {
   const oppMobBefore     = countTotalMoves(board, boardW, boardH, hp, remaining, placedCount, allowFlip);
   const oppFeasibleBefore = countFeasiblePieces(board, boardW, boardH, hp, remaining, placedCount, allowFlip);
 
-  // Pass 1: territory-based prescore — wider beam catches more tactical shots
-  const prescored = moves.map(m => {
-    const sim = board.map(r => [...r]);
-    for (const [x, y] of m.abs) sim[y][x] = { player: ap, pieceKey: m.pk };
-    return { m, s: quickScore(sim, ap, hp, boardW, boardH) };
-  }).sort((a,b)=>b.s-a.s);
+  // Pass 1: connectivity-first beam — connected moves always ranked above disconnected
+  const prescored = connectivityBeam(moves, board, boardW, boardH, ap, hp, 26);
 
   let best = null, bestScore = -Infinity;
-  for (const { m } of prescored.slice(0, 26)) {
+  for (const { m } of prescored) {
     const sim = board.map(r => [...r]);
     for (const [x, y] of m.abs) sim[y][x] = { player: ap, pieceKey: m.pk };
 
@@ -797,15 +852,11 @@ function movesGrandmaster(moves) {
   // Feasibility baseline — was completely missing in Grandmaster
   const oppFeasibleBefore = countFeasiblePieces(board, boardW, boardH, hp, remaining, placedCount, allowFlip);
 
-  // Wider beam — was 18, now 22
-  const prescored = moves.map(m => {
-    const sim = board.map(r => [...r]);
-    for (const [x, y] of m.abs) sim[y][x] = { player: ap, pieceKey: m.pk };
-    return { m, s: quickScore(sim, ap, hp, boardW, boardH) };
-  }).sort((a,b)=>b.s-a.s);
+  // Connectivity-first beam — was causing isolated cluster placement in GM replay
+  const prescored = connectivityBeam(moves, board, boardW, boardH, ap, hp, 22);
 
   let best = null, bestScore = -Infinity;
-  for (const { m } of prescored.slice(0, 22)) {
+  for (const { m } of prescored) {
     const sim = board.map(r => [...r]);
     for (const [x, y] of m.abs) sim[y][x] = { player: ap, pieceKey: m.pk };
 
@@ -927,15 +978,11 @@ function movesLegendary(moves) {
   const oppMobilityBefore = countTotalMoves(board, boardW, boardH, hp, remaining, placedCount, allowFlip);
   const oppFeasibleBefore = countFeasiblePieces(board, boardW, boardH, hp, remaining, placedCount, allowFlip);
 
-  // Beam prune by quickScore (wider beam => fewer tactical misses)
-  const prescored = moves.map(m => {
-    const sim = board.map(r => [...r]);
-    for (const [x, y] of m.abs) sim[y][x] = { player: ap, pieceKey: m.pk };
-    return { m, s: quickScore(sim, ap, hp, boardW, boardH) };
-  }).sort((a,b)=>b.s-a.s);
+  // Connectivity-first beam (widest beam for Legendary)
+  const prescored = connectivityBeam(moves, board, boardW, boardH, ap, hp, 24);
 
   let best = null, bestScore = -Infinity;
-  for (const { m } of prescored.slice(0, 24)) {
+  for (const { m } of prescored) {
     const sim = board.map(r => [...r]);
     for (const [x, y] of m.abs) sim[y][x] = { player: ap, pieceKey: m.pk };
 
