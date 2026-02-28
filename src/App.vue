@@ -9130,10 +9130,10 @@ onBeforeUnmount(() => {
   gap: 0;
 }
 
-/* Right-anchored shell: covers the right ~60% of the screen + 60px bleed past viewport edge.
+/* Right-anchored shell: covers the right ~75% of the screen + 60px bleed past viewport edge.
    overflow-x:hidden on .main clips the bleed — tiles look flush to the right edge always. */
 .tetShellRight{
-  width: calc(62vw + 60px);
+  width: calc(78vw + 60px);
   margin-left: auto;
   margin-right: -60px;
   padding-right: 0;
@@ -9210,7 +9210,7 @@ onBeforeUnmount(() => {
   align-items: center;
   gap: 0;
   width: 100%;
-  min-height: 80px;
+  min-height: clamp(90px, 12vh, 130px);
   border: none;
   border-radius: 0;
   background:
@@ -9266,44 +9266,44 @@ onBeforeUnmount(() => {
 /* ── Glyph column (left icon/text) ───────────────────────────────────────── */
 .tetRowGlyph{
   flex-shrink: 0;
-  width: clamp(80px, 12vw, 110px);
+  width: clamp(100px, 14vw, 150px);
   height: 100%;
   display: flex;
   align-items: center;
   justify-content: center;
-  font-size: clamp(22px, 3.5vw, 32px);
+  font-size: clamp(26px, 4vw, 40px);
   font-weight: 1000;
   letter-spacing: 1px;
   color: rgba(var(--rc), 0.9);
   text-shadow: 0 0 20px rgba(var(--rc), 0.4);
   background: linear-gradient(90deg, rgba(var(--rc),0.14), rgba(var(--rc),0.04));
   border-right: 1px solid rgba(var(--rc), 0.12);
-  min-height: 80px;
+  min-height: clamp(90px, 12vh, 130px);
 }
 .tetGlyphPng{
-  width: clamp(40px, 6vw, 60px);
+  width: clamp(52px, 8vw, 84px);
   height: auto;
   object-fit: contain;
   filter: drop-shadow(0 0 8px rgba(var(--rc), 0.35));
 }
 .tetGlyphText{
   font-family: 'Orbitron', 'Rajdhani', Inter, system-ui, sans-serif;
-  font-size: clamp(18px, 3vw, 28px);
+  font-size: clamp(22px, 3.5vw, 36px);
   font-weight: 1000;
   letter-spacing: 2px;
   color: rgba(var(--rc), 0.88);
 }
-.tetGlyphBig{ font-size: clamp(20px, 3.2vw, 30px); }
+.tetGlyphBig{ font-size: clamp(24px, 4vw, 38px); }
 
 
 /* ── Text body ───────────────────────────────────────────────────────────── */
 .tetRowBody{
   flex: 1;
-  padding: clamp(14px,2.2vh,22px) clamp(14px,2vw,22px);
+  padding: clamp(16px,2.5vh,28px) clamp(18px,2.5vw,30px);
   min-width: 0;
 }
 .tetRowTitle{
-  font-size: clamp(18px, 3.2vh, 28px);
+  font-size: clamp(20px, 3.8vh, 34px);
   font-weight: 1000;
   letter-spacing: 2.5px;
   text-transform: uppercase;
@@ -9314,7 +9314,7 @@ onBeforeUnmount(() => {
   text-overflow: ellipsis;
 }
 .tetTextPng{
-  height: clamp(16px, 2.8vh, 26px);
+  height: clamp(18px, 3.2vh, 32px);
   width: auto;
   object-fit: contain;
   filter: drop-shadow(0 0 6px rgba(var(--rc),0.3));
@@ -9450,15 +9450,16 @@ onBeforeUnmount(() => {
 
 /* ── Responsive tweaks ───────────────────────────────────────────────────── */
 @media (max-width: 600px){
-  .tetRowGlyph{ width: 64px; min-height: 70px; font-size: 20px; }
-  .tetRow{ min-height: 70px; }
-  .tetRowTitle{ font-size: 16px; letter-spacing: 1.5px; }
+  .tetRowGlyph{ width: 72px; min-height: 80px; font-size: 22px; }
+  .tetRow{ min-height: 80px; }
+  .tetRowTitle{ font-size: 17px; letter-spacing: 1.5px; }
   .tetRowSub{ font-size: 10px; letter-spacing: 1.2px; }
   .tetBadgeNum{ font-size: 18px; }
+  .tetShellRight{ width: calc(90vw + 60px); }
 }
 @media (max-height: 600px){
-  .tetRow{ min-height: 62px; }
-  .tetRowGlyph{ min-height: 62px; }
+  .tetRow{ min-height: 70px; }
+  .tetRowGlyph{ min-height: 70px; }
   .tetShell{ padding-bottom: 50px; }
 }
 
