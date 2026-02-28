@@ -9130,11 +9130,13 @@ onBeforeUnmount(() => {
   gap: 0;
 }
 
-/* Right-anchored shell: tiles extend from center to right viewport edge (TETR.IO style) */
+/* Right-anchored shell: tiles extend past the right viewport edge (TETR.IO style).
+   The extra 60px bleeds under the scrollbar and beyond — overflow-x:hidden on .main clips it.
+   This means there's zero gap between tile and the right edge at all times. */
 .tetShellRight{
-  width: min(900px, calc(100vw - 0px));
+  width: calc(100vw + 60px);
   margin-left: auto;
-  margin-right: 0;
+  margin-right: -60px;
   padding-right: 0;
 }
 
