@@ -793,6 +793,15 @@ export const useGameStore = defineStore("game", {
       return this.tickBattleClock(now);
     },
 
+    aiDraftTimeout(loser, winner) {
+      if (this.phase !== 'draft') return false;
+      this.phase = 'gameover';
+      this.winner = winner;
+      this.moveSeq = Number(this.moveSeq || 0) + 1;
+      this.lastMove = { type: 'timeout', player: loser, seq: this.moveSeq, at: Date.now() };
+      return true;
+    },
+
     surrender(player) {
       if (this.phase === "gameover") return false;
       const loser = player;

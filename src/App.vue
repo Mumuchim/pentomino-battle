@@ -730,10 +730,7 @@
               <span v-if="game.phase === 'place'" class="hudControlsHint">
                 <b>Q</b> Rotate &nbsp;·&nbsp; <b>E</b> Flip
               </span>
-              <!-- AI score row -->
-              <span v-if="screen === 'ai' && aiRound > 1" class="hudAiScore">
-                {{ aiScore.p1 }}–{{ aiScore.p2 }}
-              </span>
+
             </div>
 
           </div>
@@ -1003,6 +1000,21 @@
             {{ unlockAnim.rank === 'elite' ? 'Sharpened Strategist' : unlockAnim.rank === 'tactician' ? 'Master of Patterns' : unlockAnim.rank === 'grandmaster' ? 'The Territorial God' : 'Beyond Human Reach' }}
           </div>
           <div class="unlockTap">Tap to continue</div>
+        </div>
+      </div>
+    </Transition>
+
+    <!-- ✅ Challenge Animation Overlay (shown when master replays any difficulty) -->
+    <Transition name="unlockFade">
+      <div v-if="challengeAnim.active" class="unlockOverlay" @click="closeChallengeAnim">
+        <div class="unlockBurst"></div>
+        <div class="challengeCard" :class="`unlockTier${['dumbie','elite','tactician','grandmaster','legendary'].indexOf(challengeAnim.rank)}`">
+          <div class="unlockGlowRing"></div>
+          <div class="challengeSwords">⚔️</div>
+          <div class="challengeLabel">YOU'RE UP AGAINST</div>
+          <div class="unlockRankName">{{ RANK_LABELS[challengeAnim.rank] || challengeAnim.rank?.toUpperCase() }}</div>
+          <div class="unlockRankDesc">{{ RANK_DESC[challengeAnim.rank] || '' }}</div>
+          <div class="unlockTap">Tap to begin</div>
         </div>
       </div>
     </Transition>
@@ -3256,7 +3268,13 @@ function winnerMessage(w) {
   if (!me) {
     const lm = game.lastMove?.type;
     if (lm === "surrender") return "Opponent surrendered.";
-    if (lm === "timeout") return "Opponent timer runs out.";
+    if (lm === "timeout") {
+      const loser = Number(game.lastMove?.player);
+      if (screen.value === 'ai') {
+        return loser === humanPlayer.value ? "Your timer runs out." : "Opponent timer runs out.";
+      }
+      return "Opponent timer runs out.";
+    }
     if (!isOnline.value) return "GG!";
     return `Player ${w} wins.\nGG!`;
   }
@@ -3537,8 +3555,8 @@ watch(
         else if (aiWon) aiScore.p2++;
 
         const diffLabel = { dumbie:'Dumbie', elite:'Elite', tactician:'Tactician', grandmaster:'Grandmaster', legendary:'Legendary' }[aiDifficulty.value] || aiDifficulty.value;
-        title = humanWon ? "VICTORY" : w === aiPlayer.value ? "DEFEAT" : "DRAW";
-        tone = humanWon ? "victory" : w === aiPlayer.value ? "bad" : "good";
+        title = humanWon ? "VICTORY" : "DEFEAT";
+        tone = humanWon ? "victory" : "bad";
         const nextDiff = getNextRank(aiDifficulty.value);
         const allCleared = !nextDiff;
 
@@ -4403,6 +4421,11 @@ const aiScore = reactive({ p1: 0, p2: 0 }); // human vs AI wins
 // Unlock animation state
 const unlockAnim = reactive({ active: false, rank: '' });
 
+// Challenge animation state (shown when replaying after clearing all stages)
+const challengeAnim = reactive({ active: false, rank: '' });
+const RANK_LABELS = { dumbie:'DUMBIE', elite:'ELITE', tactician:'TACTICIAN', grandmaster:'GRANDMASTER', legendary:'LEGENDARY' };
+const RANK_DESC = { dumbie:'The Rookie Crusher', elite:'Sharpened Strategist', tactician:'Master of Patterns', grandmaster:'The Territorial God', legendary:'Beyond Human Reach' };
+
 function getNextRank(current) {
   const idx = AI_RANK_ORDER.indexOf(current);
   return idx >= 0 && idx < AI_RANK_ORDER.length - 1 ? AI_RANK_ORDER[idx + 1] : null;
@@ -4448,6 +4471,19 @@ function _launchAi(diff) {
   aiScore.p2 = 0;
   stopPolling();
   myPlayer.value = null;
+
+  // Show challenge intro if player has cleared all stages (legendary unlocked)
+  const masterMode = !!aiUnlocks.value['legendary'];
+  if (masterMode) {
+    challengeAnim.rank = diff;
+    challengeAnim.active = true;
+    // Actual game starts when player taps the challenge overlay
+  } else {
+    _startAiGame();
+  }
+}
+
+function _startAiGame() {
   screen.value = "ai";
   game.boardW = 10;
   game.boardH = 6;
@@ -4456,15 +4492,18 @@ function _launchAi(diff) {
   tryPlayGameBgm();
 }
 
+function closeChallengeAnim() {
+  challengeAnim.active = false;
+  challengeAnim.rank = '';
+  _startAiGame();
+}
+
 function nextAiRound() {
   aiRound.value++;
   // Keep aiPlayer consistent with current difficulty
   aiPlayer.value = (aiDifficulty.value === 'grandmaster' || aiDifficulty.value === 'legendary') ? 1 : 2;
   myPlayer.value = null;
-  game.boardW = 10;
-  game.boardH = 6;
-  game.allowFlip = allowFlip.value;
-  game.resetGame();
+  _startAiGame();
 }
 
 /* =========================
@@ -4672,9 +4711,18 @@ onMounted(() => {
   tickTimer = window.setInterval(() => {
     nowTick.value = Date.now();
 
-    // AI mode: tick the battle clock for both players (P1 human timer, P2 AI timer)
-    if (screen.value === 'ai' && game.phase === 'place') {
-      game.tickBattleClock(Date.now());
+    // AI mode: tick battle clock + enforce draft timeout
+    if (screen.value === 'ai') {
+      if (game.phase === 'place') {
+        game.tickBattleClock(Date.now());
+      } else if (game.phase === 'draft' && game.draftTurn === humanPlayer.value && game.turnStartedAt) {
+        // If human runs out of time during draft, they lose
+        const limitSec = game.turnLimitDraftSec || 30;
+        const elapsed = (Date.now() - game.turnStartedAt) / 1000;
+        if (elapsed >= limitSec) {
+          game.aiDraftTimeout(humanPlayer.value, aiPlayer.value);
+        }
+      }
     }
     // Couch mode: tick the battle clock for the current player
     if (screen.value === 'couch' && game.phase === 'place') {
@@ -6172,6 +6220,45 @@ onBeforeUnmount(() => {
   letter-spacing: 1px;
   animation: unlockFadeUp .4s ease-out .42s both;
 }
+.challengeCard{
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  padding: 36px 40px 28px;
+  border-radius: 28px;
+  border: 1px solid rgba(255,80,80,0.35);
+  background:
+    radial-gradient(ellipse 80% 60% at 50% 0%, rgba(255,60,60,0.14), transparent 70%),
+    linear-gradient(180deg, rgba(24,6,6,0.97), rgba(12,4,4,0.97));
+  box-shadow:
+    0 0 80px rgba(255,40,60,0.28),
+    0 30px 80px rgba(0,0,0,0.7),
+    0 0 0 1px rgba(255,60,60,0.14) inset;
+  animation: unlockCardIn .45s cubic-bezier(.22,1,.36,1);
+  text-align: center;
+  max-width: 340px;
+  width: 100%;
+}
+.challengeCard.unlockTier0{ border-color: rgba(120,140,255,0.35); background: radial-gradient(ellipse 80% 60% at 50% 0%, rgba(120,140,255,0.12), transparent 70%), linear-gradient(180deg, rgba(6,8,22,0.97), rgba(4,4,12,0.97)); box-shadow: 0 0 80px rgba(100,120,255,0.22), 0 30px 80px rgba(0,0,0,0.7); }
+.challengeCard.unlockTier1{ border-color: rgba(80,170,255,0.4); background: radial-gradient(ellipse 80% 60% at 50% 0%, rgba(80,170,255,0.14), transparent 70%), linear-gradient(180deg, rgba(8,14,28,0.97), rgba(4,8,16,0.97)); box-shadow: 0 0 80px rgba(80,170,255,0.24), 0 30px 80px rgba(0,0,0,0.7); }
+.challengeCard.unlockTier2{ border-color: rgba(160,80,255,0.4); background: radial-gradient(ellipse 80% 60% at 50% 0%, rgba(160,80,255,0.14), transparent 70%), linear-gradient(180deg, rgba(14,8,28,0.97), rgba(8,4,16,0.97)); box-shadow: 0 0 80px rgba(160,80,255,0.24), 0 30px 80px rgba(0,0,0,0.7); }
+.challengeCard.unlockTier3{ border-color: rgba(255,140,40,0.4); background: radial-gradient(ellipse 80% 60% at 50% 0%, rgba(255,140,40,0.14), transparent 70%), linear-gradient(180deg, rgba(28,16,4,0.97), rgba(16,8,4,0.97)); box-shadow: 0 0 80px rgba(255,140,40,0.24), 0 30px 80px rgba(0,0,0,0.7); }
+.challengeCard.unlockTier4{ border-color: rgba(255,40,80,0.4); background: radial-gradient(ellipse 80% 60% at 50% 0%, rgba(255,40,80,0.14), transparent 70%), linear-gradient(180deg, rgba(28,4,8,0.97), rgba(16,4,8,0.97)); box-shadow: 0 0 80px rgba(255,40,80,0.24), 0 30px 80px rgba(0,0,0,0.7); }
+.challengeSwords{
+  font-size: 52px;
+  animation: unlockBounce .55s cubic-bezier(.22,1,.36,1) .1s both;
+  position: relative;
+  z-index: 1;
+}
+.challengeLabel{
+  font-size: 11px;
+  letter-spacing: 3px;
+  text-transform: uppercase;
+  opacity: .5;
+  animation: unlockFadeUp .4s ease-out .2s both;
+}
 .unlockTap{
   font-size: 11px;
   letter-spacing: 2px;
@@ -6406,15 +6493,7 @@ onBeforeUnmount(() => {
   opacity: .45;
   white-space: nowrap;
 }
-.hudAiScore{
-  margin-left: auto;
-  font-size: 11px;
-  font-weight: 900;
-  letter-spacing: 1px;
-  opacity: .65;
-  white-space: nowrap;
-  color: rgba(255,220,60,0.9);
-}
+
 
 
 
@@ -6422,7 +6501,7 @@ onBeforeUnmount(() => {
 @media (max-width: 920px){ .hudGrid{ grid-template-columns: 1fr; } }
 
 
-.statLabel{ font-size: 11px; opacity: .72; font-weight: 900; letter-spacing: 1.2px; }
+.statLabel{ font-size: 11px; opacity: .72; font-weight: 900; letter-spacing: 1.2px; white-space: nowrap; }
 .statValue{ font-size: 14px; font-weight: 900; }
 .hudStat{ display:flex; align-items:center; gap: 10px; padding: 10px 12px; border-radius: 16px; border: 1px solid rgba(255,255,255,0.12); background: linear-gradient(180deg, rgba(255,255,255,0.06), rgba(0,0,0,0.18)); box-shadow: 0 10px 26px rgba(0,0,0,0.32), 0 0 0 1px rgba(0,0,0,0.25) inset; transition: transform .15s, box-shadow .15s, border-color .15s; }
 .hudStat.timer .statValue{ font-variant-numeric: tabular-nums; }
