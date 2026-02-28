@@ -298,54 +298,134 @@ function pieceEfficiencyScore(abs, simBoard, W, H, ap) {
 }
 
 /**
- * Fragmentation penalty.
- * Strongly penalises placing a piece with zero friendly neighbours after
- * the AI already has cells on the board. This is the exact reason the AI
- * was creating isolated orange / pink / white clusters — each one had no
- * connection to the previous, wasting territory and mobility.
- * First two placements (placedCount < 3) are exempt — the board is empty.
+ * Global AI cluster penalty.
+ *
+ * fragmentationPenalty (old) only checked if the NEW piece touches a
+ * friendly neighbour. This allowed two-step stranding: piece A isolated
+ * (caught), but piece B touches piece A (passes!) — both end up marooned
+ * far from the main body, as seen in the Grandmaster replay where cyan
+ * landed isolated-left, then yellow touched cyan and both drifted away.
+ *
+ * This function checks the FULL board after placement:
+ *   1. Find all AI-occupied cells.
+ *   2. BFS from any cell to find the largest connected component.
+ *   3. Any AI cell not in that component is "stranded."
+ *   4. Penalise hard per stranded cell so clustering is always preferred.
+ *
+ * Weight: −10 per stranded cell (50 cells stranded = −500, dominant signal).
  */
-function fragmentationPenalty(abs, board, W, H, ap, placedCount) {
-  if (placedCount < 3) return 0;
-  for (const [x, y] of abs) {
-    for (const [ox, oy] of DIRS) {
-      const nx = x+ox, ny = y+oy;
-      if (nx < 0 || ny < 0 || nx >= W || ny >= H) continue;
-      if (board[ny][nx]?.player === ap) return 0; // has at least one friendly neighbour
+function aiClusterPenalty(simBoard, W, H, ap) {
+  const aiCells = [];
+  for (let y = 0; y < H; y++)
+    for (let x = 0; x < W; x++)
+      if (simBoard[y][x]?.player === ap) aiCells.push([x, y]);
+
+  if (aiCells.length === 0) return 0;
+
+  // BFS to find each connected component
+  const visited = new Set();
+  let largestSize = 0;
+
+  for (const [sx, sy] of aiCells) {
+    const k0 = sy * W + sx;
+    if (visited.has(k0)) continue;
+    // New component
+    const q = [[sx, sy]];
+    visited.add(k0);
+    let size = 0;
+    let qi = 0;
+    while (qi < q.length) {
+      const [cx, cy] = q[qi++];
+      size++;
+      for (const [ox, oy] of DIRS) {
+        const nx = cx+ox, ny = cy+oy;
+        if (nx < 0 || ny < 0 || nx >= W || ny >= H) continue;
+        const nk = ny * W + nx;
+        if (simBoard[ny][nx]?.player === ap && !visited.has(nk)) {
+          visited.add(nk);
+          q.push([nx, ny]);
+        }
+      }
     }
+    if (size > largestSize) largestSize = size;
   }
-  return -40.0; // fully isolated placement — heavily discourage
+
+  const strandedCells = aiCells.length - largestSize;
+  return strandedCells > 0 ? -(strandedCells * 10.0) : 0;
 }
 
 /**
- * Open territory racing bonus.
- * When a large uncontested empty region exists the AI should race into it,
- * not cluster near its current pieces. Rewards moves whose cells are
- * adjacent to or inside the board's largest empty region.
- * This prevents the "stays in center while player claims the whole right
- * side" pattern seen in the replay.
+ * Open territory racing bonus — cluster-aware.
+ *
+ * Previous version rewarded touching the globally largest empty region,
+ * which caused the AI to sprint toward the left side even when its main
+ * cluster was on the right — exactly the Grandmaster fragmentation replay.
+ *
+ * New version: find the largest empty region that is actually adjacent to
+ * (or reachable within 2 steps from) the AI's main connected component.
+ * Only then reward racing into it. This keeps expansion connected.
  */
-function openTerritoryBonus(abs, simBoard, W, H) {
+function openTerritoryBonus(abs, simBoard, W, H, ap) {
+  // 1. Find AI's main connected component cells
+  const aiCells = [];
+  for (let y = 0; y < H; y++)
+    for (let x = 0; x < W; x++)
+      if (simBoard[y][x]?.player === ap) aiCells.push([x, y]);
+
+  const mainCluster = new Set();
+  if (aiCells.length > 0) {
+    const q = [aiCells[0]];
+    mainCluster.add(aiCells[0][1] * W + aiCells[0][0]);
+    let qi = 0;
+    while (qi < q.length) {
+      const [cx, cy] = q[qi++];
+      for (const [ox, oy] of DIRS) {
+        const nx = cx+ox, ny = cy+oy;
+        if (nx < 0 || ny < 0 || nx >= W || ny >= H) continue;
+        const nk = ny * W + nx;
+        if (simBoard[ny][nx]?.player === ap && !mainCluster.has(nk)) {
+          mainCluster.add(nk); q.push([nx, ny]);
+        }
+      }
+    }
+  }
+
+  // 2. Find the largest empty region adjacent to the main cluster (or placement)
   const regions = floodFillRegions(simBoard, W, H);
   if (!regions.length) return 0;
 
-  // Find the largest empty region after simulating this placement
-  const largest = regions.reduce((a, b) => b.length > a.length ? b : a, regions[0]);
-  if (largest.length < 8) return 0;
-
-  const regSet = new Set(largest.map(([x, y]) => y * W + x));
-  let touches = 0;
-  for (const [x, y] of abs) {
-    if (regSet.has(y * W + x)) { touches += 2; continue; } // inside the region
+  // Build a set of cells adjacent to main cluster + placement cells
+  const nearAnchor = new Set();
+  const anchorCells = [...mainCluster].map(k => [k % W, Math.floor(k / W)]);
+  for (const [cx, cy] of [...anchorCells, ...abs]) {
     for (const [ox, oy] of DIRS) {
-      const nx = x+ox, ny = y+oy;
-      if (nx < 0 || ny < 0 || nx >= W || ny >= H) continue;
-      if (regSet.has(ny * W + nx)) { touches++; break; }
+      const nx = cx+ox, ny = cy+oy;
+      if (nx >= 0 && ny >= 0 && nx < W && ny < H) nearAnchor.add(ny * W + nx);
     }
   }
-  if (touches === 0) return 0;
-  // Scale: bigger zone = more urgency; more touching cells = more reward
-  return Math.sqrt(largest.length) * touches * 2.2;
+
+  // 3. Score only regions touching the anchor
+  let bestRegion = null, bestSize = 0;
+  for (const reg of regions) {
+    if (reg.length < 6) continue;
+    const touches = reg.some(([x, y]) => nearAnchor.has(y * W + x));
+    if (!touches) continue;
+    if (reg.length > bestSize) { bestSize = reg.length; bestRegion = reg; }
+  }
+
+  if (!bestRegion) return 0;
+
+  const regSet = new Set(bestRegion.map(([x, y]) => y * W + x));
+  let touchCount = 0;
+  for (const [x, y] of abs) {
+    if (regSet.has(y * W + x)) { touchCount += 2; continue; }
+    for (const [ox, oy] of DIRS) {
+      const nx = x+ox, ny = y+oy;
+      if (nx >= 0 && ny >= 0 && nx < W && ny < H && regSet.has(ny * W + nx)) { touchCount++; break; }
+    }
+  }
+  if (touchCount === 0) return 0;
+  return Math.sqrt(bestSize) * touchCount * 2.2;
 }
 
 // ─────────────────────────────────────────────────────────────────────
@@ -680,8 +760,8 @@ function movesTactician(moves) {
     score += zoneClaimBonus(m.abs, sim, boardW, boardH) * 0.9;
     score += frontierScore(sim, boardW, boardH, ap, hp) * 0.7;
     score += pieceEfficiencyScore(m.abs, sim, boardW, boardH, ap) * 0.8;
-    score += openTerritoryBonus(m.abs, sim, boardW, boardH);           // race open zones
-    score += fragmentationPenalty(m.abs, board, boardW, boardH, ap, placedCount); // no isolated clusters
+    score += openTerritoryBonus(m.abs, sim, boardW, boardH, ap);           // race open zones
+    score += aiClusterPenalty(sim, boardW, boardH, ap); // no isolated clusters
 
     // Mobility pressure — significantly stronger
     const oppMobAfter = countTotalMoves(sim, boardW, boardH, hp, remAfter, placedCount+1, allowFlip);
@@ -747,8 +827,8 @@ function movesGrandmaster(moves) {
     score += zoneClaimBonus(m.abs, sim, boardW, boardH);
     score += frontierScore(sim, boardW, boardH, ap, hp);
     score += pieceEfficiencyScore(m.abs, sim, boardW, boardH, ap);
-    score += openTerritoryBonus(m.abs, sim, boardW, boardH);           // race open zones
-    score += fragmentationPenalty(m.abs, board, boardW, boardH, ap, placedCount); // no isolated clusters
+    score += openTerritoryBonus(m.abs, sim, boardW, boardH, ap);           // race open zones
+    score += aiClusterPenalty(sim, boardW, boardH, ap); // no isolated clusters
 
     // locked / clean-region penalties
     let lockedPenalty = 0;
@@ -953,8 +1033,8 @@ function movesLegendary(moves) {
       - exposure           *  1.0
       + ownFeasible        * 10.0
       - oppFeasible        * 16.0
-      + openTerritoryBonus(m.abs, sim, boardW, boardH)
-      + fragmentationPenalty(m.abs, board, boardW, boardH, ap, placedCount);
+      + openTerritoryBonus(m.abs, sim, boardW, boardH, ap)
+      + aiClusterPenalty(sim, boardW, boardH, ap);
 
     // Early-game: claim center / reduce symmetry (prevents easy human steering)
     if (placedCount < 4) {
