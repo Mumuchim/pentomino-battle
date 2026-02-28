@@ -589,10 +589,14 @@ function movesTactician(moves) {
   const { board, boardW, boardH, remaining, placedCount, allowFlip } = game;
   const ap = aiPlayer.value, hp = humanPlayer.value;
 
-  if ((remaining[ap]?.length||0) <= 3 || (remaining[hp]?.length||0) <= 3)
+  // Expanded endgame threshold (was ≤3, now ≤4 — catches more closing situations)
+  if ((remaining[ap]?.length||0) <= 4 || (remaining[hp]?.length||0) <= 4)
     return endgameSolve(moves);
 
-  // Pass 1: territory-based prescore (beam pruning)
+  const oppMobBefore     = countTotalMoves(board, boardW, boardH, hp, remaining, placedCount, allowFlip);
+  const oppFeasibleBefore = countFeasiblePieces(board, boardW, boardH, hp, remaining, placedCount, allowFlip);
+
+  // Pass 1: territory-based prescore — wider beam catches more tactical shots
   const prescored = moves.map(m => {
     const sim = board.map(r => [...r]);
     for (const [x, y] of m.abs) sim[y][x] = { player: ap, pieceKey: m.pk };
@@ -600,33 +604,36 @@ function movesTactician(moves) {
   }).sort((a,b)=>b.s-a.s);
 
   let best = null, bestScore = -Infinity;
-  for (const { m } of prescored.slice(0, 20)) {
+  for (const { m } of prescored.slice(0, 26)) {
     const sim = board.map(r => [...r]);
     for (const [x, y] of m.abs) sim[y][x] = { player: ap, pieceKey: m.pk };
 
-    const regs = floodFillRegions(sim, boardW, boardH);
-
-    let score = 0;
-    score += territoryAdvantage(sim, boardW, boardH, ap, hp) * 7.0;
-    score += regionFeasibilityBonus(regs, sim, boardW, boardH, hp);
-    score += zoneClaimBonus(m.abs, sim, boardW, boardH) * 0.8;
-    score += frontierScore(sim, boardW, boardH, ap, hp) * 0.6;
-    score += pieceEfficiencyScore(m.abs, sim, boardW, boardH, ap) * 0.75;
-
-    // mobility pressure (lighter than GM+)
     const remAfter = {
       [ap]: (remaining[ap]||[]).filter(pk => pk !== m.pk),
       [hp]: [...(remaining[hp]||[])],
     };
-    const oppMobBefore = countTotalMoves(board, boardW, boardH, hp, remaining, placedCount, allowFlip);
+
+    const regs = floodFillRegions(sim, boardW, boardH);
+
+    let score = 0;
+    score += territoryAdvantage(sim, boardW, boardH, ap, hp) * 10.0;  // was 7.0
+    score += regionFeasibilityBonus(regs, sim, boardW, boardH, hp) * 1.1;
+    score += zoneSealBonus(regs, board, sim, boardW, boardH, hp);      // was MISSING
+    score += zoneClaimBonus(m.abs, sim, boardW, boardH) * 0.9;
+    score += frontierScore(sim, boardW, boardH, ap, hp) * 0.7;
+    score += pieceEfficiencyScore(m.abs, sim, boardW, boardH, ap) * 0.8;
+
+    // Mobility pressure — significantly stronger
     const oppMobAfter = countTotalMoves(sim, boardW, boardH, hp, remAfter, placedCount+1, allowFlip);
-    score += (oppMobBefore - oppMobAfter) * 1.2;
+    score += (oppMobBefore - oppMobAfter) * 2.8;  // was 1.2
 
-    // small lookahead (1-ply)
-    score += simulateOpponentResponse(sim, ap, hp, boardW, boardH, remAfter, placedCount+1, allowFlip) * 0.35;
+    // Feasibility pressure — was completely missing in Tactician
+    const oppFeasible = countFeasiblePieces(sim, boardW, boardH, hp, remAfter, placedCount+1, allowFlip);
+    score -= oppFeasible * 5.0;
+    score += (oppFeasibleBefore - oppFeasible) * 8.0;
 
-    // tiny noise so tactician isn't robotic
-    score += Math.random() * 0.08;
+    // 1-ply lookahead — weight lifted from 0.35 to 0.7 (was near-zero, now meaningful)
+    score += simulateOpponentResponse(sim, ap, hp, boardW, boardH, remAfter, placedCount+1, allowFlip) * 0.7;
 
     if (score > bestScore) { bestScore = score; best = m; }
   }
@@ -642,12 +649,15 @@ function movesGrandmaster(moves) {
   const ap = aiPlayer.value, hp = humanPlayer.value;
   const humanPieceCount = (remaining[hp] || []).length;
 
-  if ((remaining[ap]?.length||0) <= 3 || (remaining[hp]?.length||0) <= 3)
+  // Expanded endgame — was ≤3, now ≤4
+  if ((remaining[ap]?.length||0) <= 4 || (remaining[hp]?.length||0) <= 4)
     return endgameSolve(moves);
 
   const oppMobilityBefore = countTotalMoves(board, boardW, boardH, hp, remaining, placedCount, allowFlip);
+  // Feasibility baseline — was completely missing in Grandmaster
+  const oppFeasibleBefore = countFeasiblePieces(board, boardW, boardH, hp, remaining, placedCount, allowFlip);
 
-  // Beam prune by quickScore (trap-aware)
+  // Wider beam — was 18, now 22
   const prescored = moves.map(m => {
     const sim = board.map(r => [...r]);
     for (const [x, y] of m.abs) sim[y][x] = { player: ap, pieceKey: m.pk };
@@ -655,7 +665,7 @@ function movesGrandmaster(moves) {
   }).sort((a,b)=>b.s-a.s);
 
   let best = null, bestScore = -Infinity;
-  for (const { m } of prescored.slice(0, 18)) {
+  for (const { m } of prescored.slice(0, 22)) {
     const sim = board.map(r => [...r]);
     for (const [x, y] of m.abs) sim[y][x] = { player: ap, pieceKey: m.pk };
 
@@ -665,20 +675,20 @@ function movesGrandmaster(moves) {
     };
 
     const tAdv = territoryAdvantage(sim, boardW, boardH, ap, hp);
-    let score = tAdv * 11.0;
+    let score = tAdv * 14.0;  // was 11.0
 
-    // Mobility destruction
+    // Mobility destruction — slightly stronger
     const oppMobAfter = countTotalMoves(sim, boardW, boardH, hp, remAfter, placedCount+1, allowFlip);
-    score += (oppMobilityBefore - oppMobAfter) * 4.0;
+    score += (oppMobilityBefore - oppMobAfter) * 5.5;  // was 4.0
 
     const regions = floodFillRegions(sim, boardW, boardH);
-    score += regionFeasibilityBonus(regions, sim, boardW, boardH, hp);
+    score += regionFeasibilityBonus(regions, sim, boardW, boardH, hp) * 1.1;
     score += zoneSealBonus(regions, board, sim, boardW, boardH, hp);
     score += zoneClaimBonus(m.abs, sim, boardW, boardH);
     score += frontierScore(sim, boardW, boardH, ap, hp);
     score += pieceEfficiencyScore(m.abs, sim, boardW, boardH, ap);
 
-    // locked / clean-region penalties (keep)
+    // locked / clean-region penalties
     let lockedPenalty = 0;
     for (const reg of regions) {
       if (reg.length <= 4)                    score += (5 - reg.length) * 8.0;
@@ -687,8 +697,61 @@ function movesGrandmaster(moves) {
     }
     score -= lockedPenalty;
 
-    // 1-ply lookahead (stronger than tactician)
-    score += simulateOpponentResponse(sim, ap, hp, boardW, boardH, remAfter, placedCount+1, allowFlip) * 0.8;
+    // Feasibility pressure — was entirely absent, now a core signal
+    const ownFeasible = countFeasiblePieces(sim, boardW, boardH, ap, remAfter, placedCount+1, allowFlip);
+    const oppFeasible = countFeasiblePieces(sim, boardW, boardH, hp, remAfter, placedCount+1, allowFlip);
+    const feasibleReduction = oppFeasibleBefore - oppFeasible;
+    score += ownFeasible      *  7.0;
+    score -= oppFeasible      * 12.0;
+    score += feasibleReduction * 10.0;
+
+    // Depth-2 minimax — was 1-ply × 0.8, now full 2-ply (narrower beams than Legendary)
+    const oppMoves = movesOnBoard(hp, sim, boardW, boardH, remAfter, placedCount+1, allowFlip);
+    let lookaheadValue = 0;
+    if (oppMoves.length) {
+      const oppBeam = Math.min(12, oppMoves.length);
+      const oppScored = oppMoves.map(om => {
+        const afterOpp = sim.map(r => [...r]);
+        for (const [x, y] of om.abs) afterOpp[y][x] = { player: hp, pieceKey: om.pk };
+        return { om, s: quickScore(afterOpp, ap, hp, boardW, boardH) };
+      }).sort((a,b)=>a.s-b.s);  // opponent wants AI score as low as possible
+
+      let worstBoard = null, worstRem = null, worstS = Infinity;
+      for (const { om } of oppScored.slice(0, oppBeam)) {
+        const afterOpp = sim.map(r => [...r]);
+        for (const [x, y] of om.abs) afterOpp[y][x] = { player: hp, pieceKey: om.pk };
+        const s = quickScore(afterOpp, ap, hp, boardW, boardH);
+        if (s < worstS) {
+          worstS = s;
+          worstBoard = afterOpp;
+          worstRem = { [ap]: [...(remAfter[ap]||[])], [hp]: (remAfter[hp]||[]).filter(pk=>pk!==om.pk) };
+        }
+      }
+
+      if (worstBoard) {
+        const followMoves = movesOnBoard(ap, worstBoard, boardW, boardH, worstRem, placedCount+2, allowFlip);
+        if (followMoves.length) {
+          const followBeam = Math.min(12, followMoves.length);
+          const followScored = followMoves.map(fm => {
+            const afterF = worstBoard.map(r => [...r]);
+            for (const [x, y] of fm.abs) afterF[y][x] = { player: ap, pieceKey: fm.pk };
+            return { fm, s: quickScore(afterF, ap, hp, boardW, boardH) };
+          }).sort((a,b)=>b.s-a.s);
+
+          let bestFollow = -Infinity;
+          for (const { fm } of followScored.slice(0, followBeam)) {
+            const afterF = worstBoard.map(r => [...r]);
+            for (const [x, y] of fm.abs) afterF[y][x] = { player: ap, pieceKey: fm.pk };
+            const s = quickScore(afterF, ap, hp, boardW, boardH);
+            if (s > bestFollow) bestFollow = s;
+          }
+          lookaheadValue = (bestFollow + worstS) * 0.5;
+        } else {
+          lookaheadValue = worstS;
+        }
+      }
+    }
+    score += lookaheadValue * 7.0;
 
     // early-game center pressure
     if (placedCount < 4) {
