@@ -90,11 +90,17 @@
         </div>
 
         <div class="pbTopRight" v-if="screen !== 'auth'">
-          <img :src="guestAvatarUrl" class="pbTopAvatar" alt="Profile" />
-          <div class="pbTopIgn">
-            <span class="pbTopIgnLabel">IGN</span>
+          <div class="pbTopAvatarWrap" :class="{ pbTopAvatarMember: loggedIn }">
+            <img :src="guestAvatarUrl" class="pbTopAvatar" alt="Profile" />
+            <span v-if="loggedIn" class="pbTopOnlineDot" title="Logged in"></span>
+          </div>
+          <div class="pbTopIgn" :class="{ pbTopIgnMember: loggedIn }">
+            <span class="pbTopIgnLabel">{{ loggedIn ? "MEMBER" : "IGN" }}</span>
             <span class="pbTopIgnName">{{ displayName }}</span>
           </div>
+          <button v-if="loggedIn" class="pbTopLogoutBtn" @click="doSignOut" title="Sign out">
+            ⏏
+          </button>
         </div>
 </template>
 
@@ -189,25 +195,53 @@
           </div>
 
           <div class="pbTiles">
-            <button class="pbTile accentBlue disabled" disabled title="Login not implemented yet" @mouseenter="uiHover">
-              <div class="pbTileInner">
-                <div class="pbTileGlyph">
-                  <template v-if="useMenuPngs">
-                    <img :src="loginIconUrl" class="pbGlyphPng floatingLogo" alt="LG" />
-                  </template>
-                  <template v-else>LG</template>
-                </div>
-                <div class="pbTileText">
-                  <div class="pbTileTitle">
+            <!-- ── LOGIN tile: opens auth modal ─────────────────────── -->
+            <template v-if="!loggedIn">
+              <button class="pbTile accentBlue" @mouseenter="uiHover" @click="uiHover(); openAuthModal('login')">
+                <div class="pbTileInner">
+                  <div class="pbTileGlyph">
                     <template v-if="useMenuPngs">
-                      <img :src="loginTitleUrl" class="pbTextPng" alt="LOGIN" />
+                      <img :src="loginIconUrl" class="pbGlyphPng floatingLogo" alt="LG" />
                     </template>
-                    <template v-else>LOGIN</template>
+                    <template v-else>🔑</template>
                   </div>
-                  <div class="pbTileDesc">not working yet</div>
+                  <div class="pbTileText">
+                    <div class="pbTileTitle">
+                      <template v-if="useMenuPngs">
+                        <img :src="loginTitleUrl" class="pbTextPng" alt="LOGIN" />
+                      </template>
+                      <template v-else>LOGIN</template>
+                    </div>
+                    <div class="pbTileDesc">sign in · track stats · ranked mode</div>
+                  </div>
                 </div>
-              </div>
-            </button>
+              </button>
+
+              <button class="pbTile accentCyan pbTileSignup" @mouseenter="uiHover" @click="uiHover(); openAuthModal('signup')">
+                <div class="pbTileInner">
+                  <div class="pbTileGlyph">✦</div>
+                  <div class="pbTileText">
+                    <div class="pbTileTitle">CREATE ACCOUNT</div>
+                    <div class="pbTileDesc">new player · free · takes 30 seconds</div>
+                  </div>
+                </div>
+              </button>
+            </template>
+
+            <!-- ── Already logged in on welcome screen ────────────────── -->
+            <template v-else>
+              <button class="pbTile accentGreen" @mouseenter="uiHover" @click="uiClick(); screen = 'mode'">
+                <div class="pbTileInner">
+                  <div class="pbTileGlyph pbMemberGlyph">
+                    <span class="pbMemberDot"></span>
+                  </div>
+                  <div class="pbTileText">
+                    <div class="pbTileTitle">CONTINUE</div>
+                    <div class="pbTileDesc pbMemberDesc">logged in as <span class="pbMemberName">{{ displayName }}</span></div>
+                  </div>
+                </div>
+              </button>
+            </template>
 
             <button class="pbTile accentWhite" @mouseenter="uiHover" @click="uiClick(); playAsGuest()">
               <div class="pbTileInner">
@@ -251,6 +285,16 @@
         <div class="pbPane">
           <div class="pbHero compact">
             <div class="pbHeroTitle">FLIP | ROTATE | DOMINATE</div>
+            <!-- Member status strip -->
+            <div v-if="loggedIn" class="pbMemberStrip">
+              <span class="pbMemberStripDot"></span>
+              <span class="pbMemberStripText">MEMBER · {{ displayName }}</span>
+              <span class="pbMemberStripRight">W {{ memberStats.wins }} · L {{ memberStats.losses }} · D {{ memberStats.draws }}</span>
+            </div>
+            <div v-else class="pbGuestStrip">
+              <span>🔒 GUEST MODE</span>
+              <button class="pbGuestLoginBtn" @click="openAuthModal('login')">SIGN IN FOR RANKED &amp; STATS →</button>
+            </div>
           </div><div class="pbTiles">
             <button
               class="pbTile accentYellow"
@@ -757,6 +801,110 @@
 
         </section>
       </section>
+
+    <!-- ══════════════════════════════════════════════════════════
+         AUTH MODAL — Login / Create Account
+    ═══════════════════════════════════════════════════════════ -->
+    <Teleport to="body">
+      <Transition name="authFade">
+        <div v-if="authModal.open" class="authOverlay" @click.self="closeAuthModal" role="dialog" aria-modal="true" aria-label="Sign in">
+
+          <div class="authCard">
+            <!-- Accent stripe -->
+            <div class="authStripe"></div>
+
+            <div class="authInner">
+              <!-- Header -->
+              <div class="authHead">
+                <div class="authIconDot"></div>
+                <div class="authTitle">{{ authModal.mode === 'login' ? 'SIGN IN' : 'CREATE ACCOUNT' }}</div>
+                <button class="authClose" @click="closeAuthModal" aria-label="Close">✕</button>
+              </div>
+
+              <!-- Mode toggle tabs -->
+              <div class="authTabs">
+                <button class="authTab" :class="{ active: authModal.mode === 'login' }" @click="authModal.mode = 'login'; authModal.error = ''">
+                  LOGIN
+                </button>
+                <button class="authTab" :class="{ active: authModal.mode === 'signup' }" @click="authModal.mode = 'signup'; authModal.error = ''">
+                  CREATE ACCOUNT
+                </button>
+              </div>
+
+              <!-- Form -->
+              <div class="authForm">
+                <!-- Username (signup only) -->
+                <Transition name="authField">
+                  <label v-if="authModal.mode === 'signup'" class="authField">
+                    <span>USERNAME <span class="authFieldHint">(your in-game name)</span></span>
+                    <input
+                      v-model="authModal.username"
+                      class="authInput"
+                      type="text"
+                      placeholder="e.g. PentoKing99"
+                      autocomplete="username"
+                      maxlength="20"
+                      @keydown.enter="submitAuth"
+                    />
+                  </label>
+                </Transition>
+
+                <label class="authField">
+                  <span>EMAIL</span>
+                  <input
+                    v-model="authModal.email"
+                    class="authInput"
+                    type="email"
+                    placeholder="you@example.com"
+                    autocomplete="email"
+                    @keydown.enter="submitAuth"
+                  />
+                </label>
+
+                <label class="authField">
+                  <span>PASSWORD <span v-if="authModal.mode === 'signup'" class="authFieldHint">(min 6 characters)</span></span>
+                  <input
+                    v-model="authModal.password"
+                    class="authInput"
+                    type="password"
+                    placeholder="••••••••"
+                    autocomplete="current-password"
+                    @keydown.enter="submitAuth"
+                  />
+                </label>
+
+                <!-- Error -->
+                <Transition name="authField">
+                  <div v-if="authModal.error" class="authError">⚠ {{ authModal.error }}</div>
+                </Transition>
+
+                <!-- Submit -->
+                <button
+                  class="authSubmit"
+                  :class="{ loading: authModal.loading }"
+                  :disabled="authModal.loading"
+                  @click="submitAuth"
+                >
+                  <span v-if="authModal.loading" class="authSpinner"></span>
+                  <span v-else>{{ authModal.mode === 'login' ? 'SIGN IN' : 'CREATE ACCOUNT' }}</span>
+                </button>
+              </div>
+
+              <!-- Perks reminder (signup mode) -->
+              <Transition name="authField">
+                <div v-if="authModal.mode === 'signup'" class="authPerks">
+                  <div class="authPerk">🏆 Ranked matchmaking</div>
+                  <div class="authPerk">📊 Win/Loss tracking</div>
+                  <div class="authPerk">🌐 Cross-device login</div>
+                </div>
+              </Transition>
+            </div>
+          </div>
+
+        </div>
+      </Transition>
+    </Teleport>
+
     </main>
 
     <!-- ── Unified drag ghost: board-cell-sized blocks that follow the cursor.
@@ -1129,9 +1277,106 @@ const game = useGameStore();
 
 const screen = ref("auth");
 const loggedIn = ref(false);
+
+// ✅ Seed auth state from any persisted session on startup, then keep it live.
+// This runs once — the subscription in onMounted() handles future changes.
+import("./lib/auth.js").then(async ({ isLoggedIn, getCurrentPlayerName, onAuthChange }) => {
+  // Check for an existing session (e.g. after a page refresh)
+  loggedIn.value = await isLoggedIn();
+  if (loggedIn.value) guestName.value = await getCurrentPlayerName();
+
+  // React to future sign-in / sign-out events
+  onAuthChange(async ({ event, session }) => {
+    loggedIn.value = !!session;
+    guestName.value = await getCurrentPlayerName();
+  });
+}).catch(() => { /* Supabase not configured — stay logged out */ });
+// ─── Auth modal state ───────────────────────────────────────────────────────
+const authModal = reactive({
+  open: false,
+  mode: "login",         // "login" | "signup"
+  email: "",
+  password: "",
+  username: "",
+  error: "",
+  loading: false,
+});
+
+function openAuthModal(mode = "login") {
+  authModal.mode = mode;
+  authModal.email = "";
+  authModal.password = "";
+  authModal.username = "";
+  authModal.error = "";
+  authModal.loading = false;
+  authModal.open = true;
+}
+
+function closeAuthModal() {
+  if (authModal.loading) return;
+  authModal.open = false;
+}
+
+async function submitAuth() {
+  authModal.error = "";
+  const email = (authModal.email || "").trim();
+  const password = authModal.password || "";
+  const username = (authModal.username || "").trim();
+
+  if (!email)    { authModal.error = "Email is required."; return; }
+  if (!password) { authModal.error = "Password is required."; return; }
+  if (authModal.mode === "signup" && !username) { authModal.error = "Username is required."; return; }
+  if (authModal.mode === "signup" && username.length < 3) { authModal.error = "Username must be at least 3 characters."; return; }
+  if (password.length < 6) { authModal.error = "Password must be at least 6 characters."; return; }
+
+  authModal.loading = true;
+  try {
+    const { signIn, signUp } = await import("./lib/auth.js");
+    const fn = authModal.mode === "signup" ? signUp : signIn;
+    const args = authModal.mode === "signup"
+      ? [email, password, username]
+      : [email, password];
+
+    const { session, error } = await fn(...args);
+
+    if (error) {
+      // Make Supabase error messages friendlier
+      const msg = error.message || String(error);
+      if (msg.includes("Invalid login credentials"))  authModal.error = "Wrong email or password.";
+      else if (msg.includes("Email not confirmed"))   authModal.error = "Check your email to confirm your account.";
+      else if (msg.includes("already registered") || msg.includes("User already registered")) authModal.error = "That email already has an account. Try logging in.";
+      else authModal.error = msg;
+      return;
+    }
+
+    if (authModal.mode === "signup" && !session) {
+      // Email confirmation required
+      authModal.open = false;
+      showModal({ title: "Check Your Email", tone: "good", message: "We sent you a confirmation link. Click it to activate your account, then log in." });
+      return;
+    }
+
+    // Success — loggedIn and displayName update via onAuthChange listener
+    authModal.open = false;
+    uiClick();
+    screen.value = "mode";
+  } catch (e) {
+    authModal.error = e?.message || "Something went wrong. Try again.";
+  } finally {
+    authModal.loading = false;
+  }
+}
+
+async function doSignOut() {
+  const { signOut } = await import("./lib/auth.js");
+  await signOut();
+  screen.value = "auth";
+}
+// ────────────────────────────────────────────────────────────────────────────
+
 const allowFlip = ref(true);
 const guestName = ref("GUEST");
-const displayName = computed(() => (loggedIn.value ? "PLAYER" : guestName.value));
+const displayName = computed(() => guestName.value);
 
 /* =========================
    Menu SFX (no asset files)
@@ -1602,6 +1847,20 @@ const quick = reactive({
 
 const rankedTier = computed(() => (loggedIn.value ? "Wood" : "—"));
 
+// Member stats (loaded from pb_profiles when logged in)
+const memberStats = reactive({ wins: 0, losses: 0, draws: 0 });
+watch(loggedIn, async (isIn) => {
+  if (!isIn) { memberStats.wins = 0; memberStats.losses = 0; memberStats.draws = 0; return; }
+  try {
+    const { supabase } = await import("./lib/supabase.js");
+    const { getUser } = await import("./lib/auth.js");
+    const user = await getUser();
+    if (!user || !supabase) return;
+    const { data } = await supabase.from("pb_profiles").select("wins,losses,draws").eq("id", user.id).single();
+    if (data) { memberStats.wins = data.wins; memberStats.losses = data.losses; memberStats.draws = data.draws; }
+  } catch {}
+}, { immediate: true });
+
 const isInGame = computed(() => screen.value === "couch" || screen.value === "ai" || screen.value === "online");
 const modeLabel = computed(() => {
   if (screen.value === "ai") {
@@ -2035,35 +2294,20 @@ const loadingPublic = ref(false);
 const myPrivateLobbies = ref([]);
 const loadingPrivate = ref(false);
 
-function getGuestId() {
-  const k = "pb_guest_id";
-  let id = localStorage.getItem(k);
-  if (!id) {
-    id = (crypto?.randomUUID?.() || `g_${Math.random().toString(16).slice(2)}_${Date.now()}`).toString();
-    localStorage.setItem(k, id);
-  }
-  return id;
+// ✅ Delegate to auth.js — works for both logged-in users and guests.
+// getGuestId / getGuestName kept as thin async wrappers for call-site compat.
+async function getGuestId() {
+  const { getCurrentPlayerId } = await import("./lib/auth.js");
+  return getCurrentPlayerId();
 }
 
-function getGuestName() {
-  const k = "pb_guest_name";
-  let name = localStorage.getItem(k);
-  if (!name) {
-    const id = getGuestId();
-    // Make a stable 4-digit code from the UUID-ish guest id
-    let h = 0;
-    for (let i = 0; i < id.length; i++) h = (h * 31 + id.charCodeAt(i)) >>> 0;
-    const num = (h % 10000).toString().padStart(4, "0");
-    name = `GUEST-${num}`;
-    localStorage.setItem(k, name);
-  }
-  return name;
+async function getGuestName() {
+  const { getCurrentPlayerName } = await import("./lib/auth.js");
+  return getCurrentPlayerName();
 }
 
-// Ensure guest name is ready for menus/topbar
-try {
-  guestName.value = getGuestName();
-} catch {}
+// Seed guestName for the topbar (best-effort; will update when auth resolves)
+getGuestName().then(n => { guestName.value = n; }).catch(() => {});
 
 
 function sbConfig() {
@@ -2072,11 +2316,20 @@ function sbConfig() {
   return { url, anon };
 }
 
-function sbHeaders() {
+// ✅ Auth-aware headers: sends the user's JWT when logged in so RLS can
+// identify them. Falls back to the anon key for unauthenticated requests.
+async function sbHeaders() {
   const { anon } = sbConfig();
+  // Try to get the live session token from the Supabase auth module
+  let token = anon;
+  try {
+    const { getAccessToken } = await import("./lib/auth.js");
+    const jwt = await getAccessToken();
+    if (jwt) token = jwt;
+  } catch { /* auth module not available – use anon key */ }
   return {
     apikey: anon,
-    Authorization: `Bearer ${anon}`,
+    Authorization: `Bearer ${token}`,
     "Content-Type": "application/json",
   };
 }
@@ -2117,7 +2370,7 @@ async function leaveOnlineLobby(reason = "left") {
     const lobby = await sbSelectLobbyById(online.lobbyId);
     if (!lobby) return;
 
-    const me = getGuestId();
+    const me = await getGuestId();
     const nextVersion = Number(lobby.version || 0) + 1;
     const st = lobby.state || {};
     const meta = st.meta || {};
@@ -2210,7 +2463,7 @@ async function leaveOnlineLobby(reason = "left") {
 
 async function sbSelectLobbyById(id) {
   const res = await fetch(sbRestUrl(`pb_lobbies?id=eq.${encodeURIComponent(id)}&select=*`), {
-    headers: sbHeaders(),
+    headers: await sbHeaders(),
   });
   if (!res.ok) throw new Error(`Select lobby failed (${res.status})`);
   const rows = await res.json();
@@ -2220,7 +2473,7 @@ async function sbSelectLobbyById(id) {
 async function sbSelectLobbyByCode(code) {
   const safe = String(code || "").trim();
   const res = await fetch(sbRestUrl(`pb_lobbies?code=eq.${encodeURIComponent(safe)}&select=*`), {
-    headers: sbHeaders(),
+    headers: await sbHeaders(),
   });
   if (!res.ok) throw new Error(`Lookup by code failed (${res.status})`);
   const rows = await res.json();
@@ -2239,7 +2492,7 @@ async function sbListPublicWaitingLobbies() {
     "limit=25",
   ].join("&");
 
-  const res = await fetch(sbRestUrl(`pb_lobbies?${q}`), { headers: sbHeaders() });
+  const res = await fetch(sbRestUrl(`pb_lobbies?${q}`), { headers: await sbHeaders() });
   if (!res.ok) throw new Error(`List public lobbies failed (${res.status})`);
   return await res.json();
 }
@@ -2259,7 +2512,7 @@ async function sbFindPublicLobbyByName(term) {
     "limit=10",
   ].join("&");
 
-  const res = await fetch(sbRestUrl(`pb_lobbies?${q}`), { headers: sbHeaders() });
+  const res = await fetch(sbRestUrl(`pb_lobbies?${q}`), { headers: await sbHeaders() });
   if (!res.ok) throw new Error(`Search lobby failed (${res.status})`);
   const rows = await res.json();
   const list = Array.isArray(rows) ? rows : [];
@@ -2279,7 +2532,7 @@ async function sbFindPublicLobbyByName(term) {
 }
 
 async function sbCreateLobby({ isPrivate = false, lobbyName = "", extraStateMeta = null, mode = null } = {}) {
-  const hostId = getGuestId();
+  const hostId = await getGuestId();
   const lobbyMode = String(mode || (extraStateMeta?.kind === "quickmatch" ? "quick" : "custom") || "custom");
   const code = `PB-${Math.random().toString(16).slice(2, 6).toUpperCase()}${Math.random()
     .toString(16)
@@ -2302,7 +2555,7 @@ async function sbCreateLobby({ isPrivate = false, lobbyName = "", extraStateMeta
 
   const res = await fetch(sbRestUrl("pb_lobbies"), {
     method: "POST",
-    headers: { ...sbHeaders(), Prefer: "return=representation" },
+    headers: { ...(await sbHeaders()), Prefer: "return=representation" },
     body: JSON.stringify(payload),
   });
 
@@ -2316,13 +2569,13 @@ async function sbCreateLobby({ isPrivate = false, lobbyName = "", extraStateMeta
 }
 
 async function sbJoinLobby(lobbyId) {
-  const guestId = getGuestId();
+  const guestId = await getGuestId();
 
   // ✅ Guard join so you can't join closed/full/expired lobbies.
   // This PATCH will only succeed if the lobby is still waiting and has no guest.
   const res = await fetch(sbRestUrl(`pb_lobbies?id=eq.${encodeURIComponent(lobbyId)}&guest_id=is.null&status=eq.waiting`), {
     method: "PATCH",
-    headers: { ...sbHeaders(), Prefer: "return=representation" },
+    headers: { ...(await sbHeaders()), Prefer: "return=representation" },
     body: JSON.stringify({
       guest_id: guestId,
       // Keep status as 'waiting' until the match is fully initialized (players assigned).
@@ -2426,7 +2679,7 @@ async function sbDeleteLobby(id) {
   // best-effort delete. If RLS blocks DELETE, fallback to closing.
   const res = await fetch(sbRestUrl(`pb_lobbies?id=eq.${encodeURIComponent(id)}`), {
     method: "DELETE",
-    headers: sbHeaders(),
+    headers: await sbHeaders(),
   });
   if (res.ok) return true;
   return false;
@@ -2650,7 +2903,7 @@ async function sbPatchStateWithVersionGuard(lobbyId, knownVersion, patchObj) {
   const url = sbRestUrl(`pb_lobbies?id=eq.${encodeURIComponent(lobbyId)}&version=eq.${encodeURIComponent(knownVersion)}`);
   const res = await fetch(url, {
     method: "PATCH",
-    headers: { ...sbHeaders(), Prefer: "return=representation" },
+    headers: { ...(await sbHeaders()), Prefer: "return=representation" },
     body: JSON.stringify(patchObj),
   });
 
@@ -2667,7 +2920,7 @@ async function sbForcePatchState(lobbyId, patchObj) {
   const url = sbRestUrl(`pb_lobbies?id=eq.${encodeURIComponent(lobbyId)}`);
   const res = await fetch(url, {
     method: "PATCH",
-    headers: { ...sbHeaders(), Prefer: "return=representation" },
+    headers: { ...(await sbHeaders()), Prefer: "return=representation" },
     body: JSON.stringify(patchObj),
   });
   if (!res.ok) {
@@ -2771,7 +3024,7 @@ async function pushMyState(reason = "") {
 }
 
 function maybeSetMyPlayerFromLobby(lobby) {
-  const myId = getGuestId();
+  const myId = await getGuestId();
   const players = lobby?.state?.meta?.players;
 
   if (players) {
@@ -3726,7 +3979,7 @@ async function refreshMyPrivateLobbies() {
   if (!(await ensureSupabaseReadyOrExplain())) return;
   loadingPrivate.value = true;
   try {
-    const me = getGuestId();
+    const me = await getGuestId();
     // Your own waiting private lobbies (so you can re-enter / copy code)
     const q = [
       "select=id,code,status,is_private,lobby_name,updated_at,host_id,guest_id,state,version",
@@ -3737,7 +3990,7 @@ async function refreshMyPrivateLobbies() {
       "limit=20",
     ].join("&");
 
-    const res = await fetch(sbRestUrl(`pb_lobbies?${q}`), { headers: sbHeaders() });
+    const res = await fetch(sbRestUrl(`pb_lobbies?${q}`), { headers: await sbHeaders() });
     if (!res.ok) throw new Error(`List private lobbies failed (${res.status})`);
     const rows = await res.json();
     const list = Array.isArray(rows) ? rows : [];
@@ -4291,7 +4544,7 @@ async function quickMatchAcceptFlow(lobbyId, role) {
 
 async function sbQuickMatch() {
   // Quick Match rooms are hidden from the lobby browser by lobby_name="__QM__"
-  const me = getGuestId();
+  const me = await getGuestId();
 
   // 1) Try to claim the oldest waiting quickmatch room
   const q = [
@@ -4304,7 +4557,7 @@ async function sbQuickMatch() {
     "limit=6",
   ].join("&");
 
-  const res = await fetch(sbRestUrl(`pb_lobbies?${q}`), { headers: sbHeaders() });
+  const res = await fetch(sbRestUrl(`pb_lobbies?${q}`), { headers: await sbHeaders() });
   if (!res.ok) throw new Error(`Quick match lookup failed (${res.status})`);
   const rows = await res.json();
   const list = Array.isArray(rows) ? rows : [];
@@ -8188,5 +8441,368 @@ onBeforeUnmount(() => {
   width: auto;
   image-rendering: pixelated;
 }
+
+/* ══════════════════════════════════════════════════════════════
+   AUTH MODAL
+═══════════════════════════════════════════════════════════════ */
+.authOverlay{
+  position: fixed;
+  inset: 0;
+  background: rgba(0,0,0,0.72);
+  backdrop-filter: blur(8px);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 9000;
+  padding: 16px;
+}
+.authFade-enter-active, .authFade-leave-active{ transition: opacity .2s ease, transform .22s cubic-bezier(.22,1,.36,1); }
+.authFade-enter-from, .authFade-leave-to{ opacity:0; transform: scale(0.95) translateY(8px); }
+
+.authCard{
+  width: min(440px, 100%);
+  border-radius: 20px;
+  border: 1px solid rgba(255,255,255,0.12);
+  background: linear-gradient(180deg, rgba(16,16,28,0.98), rgba(10,10,22,0.96));
+  box-shadow:
+    0 24px 80px rgba(0,0,0,0.7),
+    0 0 0 1px rgba(255,255,255,0.05) inset,
+    0 0 60px rgba(80,170,255,0.05);
+  overflow: hidden;
+  animation: popIn .22s cubic-bezier(.22,1,.36,1);
+}
+
+.authStripe{
+  height: 3px;
+  background: linear-gradient(90deg, rgba(80,170,255,0.9), rgba(140,80,255,0.8), rgba(255,43,214,0.7));
+}
+
+.authInner{ padding: 20px 22px 24px; }
+
+.authHead{
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 18px;
+}
+.authIconDot{
+  width: 8px; height: 8px;
+  border-radius: 50%;
+  flex-shrink: 0;
+  background: rgba(80,170,255,0.9);
+  box-shadow: 0 0 10px rgba(80,170,255,0.5);
+}
+.authTitle{
+  flex: 1;
+  font-size: 15px;
+  font-weight: 900;
+  letter-spacing: 2px;
+  text-transform: uppercase;
+  font-family: 'Orbitron', 'Rajdhani', Inter, system-ui, sans-serif;
+}
+.authClose{
+  width: 28px; height: 28px;
+  border-radius: 8px;
+  border: 1px solid rgba(255,255,255,0.10);
+  background: rgba(255,255,255,0.05);
+  color: rgba(255,255,255,0.55);
+  font-size: 13px;
+  cursor: pointer;
+  display:flex; align-items:center; justify-content:center;
+  transition: background .12s, color .12s;
+}
+.authClose:hover{ background: rgba(255,255,255,0.10); color:#fff; }
+
+/* ── Tabs ── */
+.authTabs{
+  display: flex;
+  gap: 4px;
+  background: rgba(0,0,0,0.3);
+  border-radius: 12px;
+  padding: 4px;
+  margin-bottom: 18px;
+  border: 1px solid rgba(255,255,255,0.07);
+}
+.authTab{
+  flex: 1;
+  padding: 9px 10px;
+  border-radius: 9px;
+  border: none;
+  background: transparent;
+  color: rgba(255,255,255,0.5);
+  font-size: 11px;
+  font-weight: 900;
+  letter-spacing: 1.5px;
+  text-transform: uppercase;
+  cursor: pointer;
+  transition: background .14s, color .14s, box-shadow .14s;
+}
+.authTab.active{
+  background: rgba(80,170,255,0.14);
+  color: rgba(80,170,255,0.95);
+  box-shadow: 0 0 0 1px rgba(80,170,255,0.22) inset;
+}
+.authTab:hover:not(.active){ color: rgba(255,255,255,0.75); }
+
+/* ── Form fields ── */
+.authForm{ display:grid; gap: 13px; }
+
+.authField{
+  display: grid;
+  gap: 6px;
+}
+.authField > span{
+  font-size: 11px;
+  letter-spacing: 2px;
+  text-transform: uppercase;
+  opacity: .7;
+  font-weight: 900;
+}
+.authFieldHint{
+  font-size: 10px;
+  opacity: .55;
+  letter-spacing: 1px;
+  text-transform: none;
+  font-weight: 600;
+}
+.authInput{
+  width: 100%;
+  border-radius: 10px;
+  padding: 13px 12px;
+  border: 1px solid rgba(255,255,255,0.12);
+  background: rgba(0,0,0,0.4);
+  color: #eaeaea;
+  outline: none;
+  font-weight: 800;
+  letter-spacing: .6px;
+  font-size: 14px;
+  transition: border-color .15s, box-shadow .15s;
+  box-sizing: border-box;
+}
+.authInput:focus{
+  border-color: rgba(80,170,255,0.35);
+  box-shadow: 0 0 0 1px rgba(80,170,255,0.12) inset, 0 0 22px rgba(80,170,255,0.10);
+}
+
+.authError{
+  padding: 10px 13px;
+  border-radius: 10px;
+  background: rgba(255,64,96,0.10);
+  border: 1px solid rgba(255,64,96,0.22);
+  color: rgba(255,100,120,0.95);
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: .5px;
+}
+
+/* ── Submit button ── */
+.authSubmit{
+  width: 100%;
+  padding: 14px;
+  border-radius: 12px;
+  border: 1px solid rgba(80,170,255,0.30);
+  background: linear-gradient(180deg, rgba(80,170,255,0.18), rgba(80,170,255,0.08));
+  color: rgba(80,170,255,0.95);
+  font-size: 13px;
+  font-weight: 900;
+  letter-spacing: 2px;
+  text-transform: uppercase;
+  cursor: pointer;
+  margin-top: 4px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  transition: background .15s, border-color .15s, box-shadow .15s, transform .1s;
+  box-shadow: 0 8px 28px rgba(0,0,0,0.4), 0 0 20px rgba(80,170,255,0.07);
+}
+.authSubmit:hover:not(:disabled){
+  background: linear-gradient(180deg, rgba(80,170,255,0.26), rgba(80,170,255,0.14));
+  border-color: rgba(80,170,255,0.50);
+  box-shadow: 0 10px 32px rgba(0,0,0,0.45), 0 0 28px rgba(80,170,255,0.14);
+  transform: translateY(-1px);
+}
+.authSubmit:disabled{ opacity: .6; cursor: not-allowed; }
+
+/* Loading spinner */
+.authSpinner{
+  width: 14px; height: 14px;
+  border: 2px solid rgba(80,170,255,0.3);
+  border-top-color: rgba(80,170,255,0.9);
+  border-radius: 50%;
+  animation: spin .7s linear infinite;
+}
+@keyframes spin{ to{ transform: rotate(360deg); } }
+
+/* ── Perks (signup) ── */
+.authPerks{
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin-top: 16px;
+  padding-top: 14px;
+  border-top: 1px solid rgba(255,255,255,0.07);
+}
+.authPerk{
+  flex: 1;
+  min-width: 120px;
+  padding: 8px 10px;
+  border-radius: 9px;
+  background: rgba(255,255,255,0.04);
+  border: 1px solid rgba(255,255,255,0.07);
+  font-size: 11px;
+  letter-spacing: .5px;
+  opacity: .75;
+}
+
+/* auth field slide transition */
+.authField-enter-active{ transition: all .18s ease; }
+.authField-enter-from{ opacity:0; transform:translateY(-4px); }
+.authField-leave-active{ transition: all .14s ease; }
+.authField-leave-to{ opacity:0; transform:translateY(-4px); }
+
+
+/* ══════════════════════════════════════════════════════════════
+   TOPBAR — Member status upgrades
+═══════════════════════════════════════════════════════════════ */
+.pbTopAvatarWrap{
+  position: relative;
+  display: inline-flex;
+}
+.pbTopOnlineDot{
+  position: absolute;
+  bottom: -2px; right: -2px;
+  width: 9px; height: 9px;
+  border-radius: 50%;
+  background: #4dff90;
+  border: 2px solid rgba(10,10,20,0.9);
+  box-shadow: 0 0 6px rgba(77,255,144,0.7);
+}
+.pbTopAvatarMember .pbTopAvatar{
+  border-color: rgba(80,170,255,0.35);
+  box-shadow: 0 0 14px rgba(80,170,255,0.18), 0 10px 24px rgba(0,0,0,.45);
+}
+.pbTopIgnMember{
+  border-color: rgba(80,170,255,0.18) !important;
+  background: rgba(80,170,255,0.07) !important;
+}
+.pbTopIgnMember .pbTopIgnLabel{
+  color: rgba(80,170,255,0.8);
+}
+.pbTopIgnMember .pbTopIgnName{
+  color: rgba(80,170,255,0.95);
+}
+.pbTopLogoutBtn{
+  width: 32px; height: 32px;
+  border-radius: 8px;
+  border: 1px solid rgba(255,255,255,0.10);
+  background: rgba(255,255,255,0.04);
+  color: rgba(255,255,255,0.45);
+  font-size: 15px;
+  cursor: pointer;
+  display:flex; align-items:center; justify-content:center;
+  transition: background .12s, color .12s, border-color .12s;
+  flex-shrink: 0;
+}
+.pbTopLogoutBtn:hover{
+  background: rgba(255,64,96,0.12);
+  border-color: rgba(255,64,96,0.25);
+  color: rgba(255,80,100,0.9);
+}
+
+
+/* ══════════════════════════════════════════════════════════════
+   MODE MENU — Member / Guest strips
+═══════════════════════════════════════════════════════════════ */
+.pbMemberStrip{
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 8px;
+  padding: 8px 12px;
+  border-radius: 10px;
+  background: rgba(80,170,255,0.07);
+  border: 1px solid rgba(80,170,255,0.16);
+  font-size: 11px;
+  letter-spacing: 1.5px;
+  text-transform: uppercase;
+  font-weight: 900;
+  color: rgba(80,170,255,0.85);
+  flex-wrap: wrap;
+}
+.pbMemberStripDot{
+  width: 7px; height: 7px;
+  border-radius: 50%;
+  background: #4dff90;
+  box-shadow: 0 0 6px rgba(77,255,144,0.8);
+  flex-shrink: 0;
+}
+.pbMemberStripText{ flex: 1; }
+.pbMemberStripRight{ opacity: .7; font-size: 10px; }
+
+.pbGuestStrip{
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-top: 8px;
+  padding: 8px 12px;
+  border-radius: 10px;
+  background: rgba(255,255,255,0.03);
+  border: 1px solid rgba(255,255,255,0.08);
+  font-size: 11px;
+  letter-spacing: 1px;
+  text-transform: uppercase;
+  opacity: .65;
+  flex-wrap: wrap;
+}
+.pbGuestLoginBtn{
+  margin-left: auto;
+  background: none;
+  border: none;
+  color: rgba(80,170,255,0.8);
+  font-size: 10px;
+  font-weight: 900;
+  letter-spacing: 1.2px;
+  cursor: pointer;
+  text-transform: uppercase;
+  padding: 4px 8px;
+  border-radius: 6px;
+  transition: background .12s, color .12s;
+}
+.pbGuestLoginBtn:hover{
+  background: rgba(80,170,255,0.10);
+  color: rgba(80,170,255,1);
+}
+
+
+/* ══════════════════════════════════════════════════════════════
+   WELCOME SCREEN — new tiles
+═══════════════════════════════════════════════════════════════ */
+.pbTile.accentCyan{ --acc: 0, 229, 255; }
+.pbTileSignup .pbTileGlyph{
+  font-size: clamp(28px, 4.5vh, 38px);
+  color: rgba(0,229,255,0.85);
+}
+
+/* Member glyph (logged-in CONTINUE tile) */
+.pbMemberGlyph{
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.pbMemberDot{
+  width: 18px; height: 18px;
+  border-radius: 50%;
+  background: radial-gradient(circle at 35% 35%, rgba(77,255,144,1), rgba(0,200,100,0.8));
+  box-shadow: 0 0 18px rgba(77,255,144,0.6), 0 0 32px rgba(77,255,144,0.3);
+  animation: memberPulse 2s ease-in-out infinite;
+}
+@keyframes memberPulse{
+  0%,100%{ box-shadow: 0 0 18px rgba(77,255,144,0.6), 0 0 32px rgba(77,255,144,0.3); }
+  50%{ box-shadow: 0 0 28px rgba(77,255,144,0.85), 0 0 48px rgba(77,255,144,0.45); }
+}
+.pbMemberDesc{ color: rgba(255,255,255,0.65) !important; }
+.pbMemberName{ color: #4dff90; font-weight: 900; }
+
 
 </style>

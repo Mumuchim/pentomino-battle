@@ -1,5 +1,6 @@
 // src/lib/onlineMatch.js
 import { requireSupabase } from "./supabase.js";
+import { getCurrentPlayerId } from "./auth.js";
 
 function uid(prefix = "g") {
   return prefix + "_" + Math.random().toString(16).slice(2) + "_" + Date.now().toString(16);
@@ -17,15 +18,11 @@ function isLobbyExpiredClient(lobby) {
 }
 
 
-export function getGuestId() {
-  const key = "pb_guest_id";
-  let id = localStorage.getItem(key);
-  if (!id) {
-    id = uid("guest");
-    localStorage.setItem(key, id);
-  }
-  return id;
-}
+// ─── Player identity ─────────────────────────────────────────────────────────
+// Re-export getCurrentPlayerId as getGuestId for backward compatibility.
+// When logged in → returns Supabase auth.uid (stable across devices).
+// When guest     → returns a stable localStorage ID (same device only).
+export { getCurrentPlayerId as getGuestId };
 
 function makeCode() {
   const chars = "ABCDEFGHJKMNPQRSTUVWXYZ23456789";
@@ -36,7 +33,7 @@ function makeCode() {
 
 export async function createLobby({ lobbyName = "", region = "auto", isPrivate = false } = {}) {
   const supabase = requireSupabase();
-  const me = getGuestId();
+  const me = await getCurrentPlayerId();
 
   const payload = {
     code: makeCode(),
@@ -63,7 +60,7 @@ export async function createLobby({ lobbyName = "", region = "auto", isPrivate =
 
 export async function quickMatch({ region = "auto" } = {}) {
   const supabase = requireSupabase();
-  const me = getGuestId();
+  const me = await getCurrentPlayerId();
 
   // Look for an open public lobby without a guest
   const { data: openList, error: selErr } = await supabase
@@ -100,7 +97,7 @@ export async function quickMatch({ region = "auto" } = {}) {
 
 export async function joinByCode(code) {
   const supabase = requireSupabase();
-  const me = getGuestId();
+  const me = await getCurrentPlayerId();
   const c = String(code || "").trim().toUpperCase();
   if (!c) throw new Error("Enter a lobby code.");
 
