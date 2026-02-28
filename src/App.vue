@@ -1789,7 +1789,7 @@ function stopOnlineBgm() {
   } catch {}
 }
 
-function tryPlayGameBgm() {
+async function tryPlayGameBgm() {
   try {
     if (!isInGame.value) return;
     if (bgmVolume.value <= 0) return;
@@ -3023,7 +3023,7 @@ async function pushMyState(reason = "") {
   }
 }
 
-function maybeSetMyPlayerFromLobby(lobby) {
+async function maybeSetMyPlayerFromLobby(lobby) {
   const myId = await getGuestId();
   const players = lobby?.state?.meta?.players;
 
@@ -3094,7 +3094,7 @@ function teardownRealtimeLobby() {
   online.rtEnabled = false;
 }
 
-function setupRealtimeLobby(lobbyId) {
+async function setupRealtimeLobby(lobbyId) {
   teardownRealtimeLobby();
   try {
     if (!sbRealtime || !lobbyId) return false;
@@ -3133,7 +3133,7 @@ function setupRealtimeLobby(lobbyId) {
             online.lastAppliedVersion = v;
             online.lastSeenUpdatedAt = row.updated_at || online.lastSeenUpdatedAt;
 
-            maybeSetMyPlayerFromLobby(row);
+            await maybeSetMyPlayerFromLobby(row);
 
             const st = normalizeLobbyState(row.state);
             if (st?.game) applySyncedState(st);
@@ -3183,7 +3183,7 @@ function serverNow() {
   return Date.now() + (online.serverTimeOffset || 0);
 }
 
-function startPollingLobby(lobbyId, role) {
+async function startPollingLobby(lobbyId, role) {
   // ✅ Prevent early clicks while the online screen + first poll are not fully rendered.
   startUiLock({ label: "Connecting…", hint: "Establishing link to lobby…", minMs: 900 });
 
@@ -3429,7 +3429,7 @@ function startPollingLobby(lobbyId, role) {
         await ensureOnlineInitialized(lobby);
       }
 
-      maybeSetMyPlayerFromLobby(lobby);
+      await maybeSetMyPlayerFromLobby(lobby);
 
       const v = Number(lobby.version || 0);
       const st = lobby.state || null;
@@ -3736,7 +3736,7 @@ function onPrimaryMatchAction() {
    GAMEOVER + REMATCH UX
 ========================= */
 
-function ensureRematchPrompt() {
+async function ensureRematchPrompt() {
   if (!isOnline.value) return;
   if (game.phase !== "gameover") return;
   if (!myPlayer.value) return;
