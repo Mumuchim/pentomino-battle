@@ -9130,14 +9130,18 @@ onBeforeUnmount(() => {
   gap: 0;
 }
 
-/* Right-anchored shell: tiles extend past the right viewport edge (TETR.IO style).
-   The extra 60px bleeds under the scrollbar and beyond — overflow-x:hidden on .main clips it.
-   This means there's zero gap between tile and the right edge at all times. */
+/* Right-anchored shell: covers the right ~60% of the screen + 60px bleed past viewport edge.
+   overflow-x:hidden on .main clips the bleed — tiles look flush to the right edge always. */
 .tetShellRight{
-  width: calc(100vw + 60px);
+  width: calc(62vw + 60px);
   margin-left: auto;
   margin-right: -60px;
   padding-right: 0;
+}
+
+/* Brand/logo aligns with the tile left edge */
+.tetShellRight .tetWelcome{
+  padding-left: 0;
 }
 
 
@@ -9188,9 +9192,9 @@ onBeforeUnmount(() => {
   gap: 0;
   padding-top: 8px;
 }
-/* In right-anchored shell, rows get a left indent that slides away on hover */
+/* In right-anchored shell, no extra left indent needed — shell width positions the tiles */
 .tetShellRight .tetRows{
-  margin-left: clamp(60px, 10vw, 160px);
+  margin-left: 0;
 }
 
 
