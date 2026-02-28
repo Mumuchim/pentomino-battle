@@ -1,5 +1,5 @@
 <template>
-  <div ref="appRoot" class="app" :class="{ inGame: isInGame, hasBottomBar: showBottomBar }">
+  <div ref="appRoot" class="app" :class="{ inGame: isInGame, hasBottomBar: showBottomBar, tetMode: showMenuChrome }">
     <!-- 🔥 Animated RGB background -->
     <div class="bg">
       <div class="bgGradient"></div>
@@ -68,39 +68,27 @@
       </div>
     </Transition>
 
-    <header class="topbar" :class="{ pbBar: showMenuChrome }">
-      <!-- Menu-style top bar (menus) -->
+    <header class="topbar" :class="{ tetBar: showMenuChrome }">
+      <!-- TETR.IO-style menu top bar -->
       <template v-if="showMenuChrome">
-        <div class="pbTopLeft">
-          <div class="pbTopTitle">
-            <template v-if="useMenuPngs && String(topPageTitle).toUpperCase() === 'WELCOME'">
-              <img :src="welcomeUrl" class="pbTopTitlePng floatingLogo" alt="WELCOME" />
-            </template>
-            <template v-else-if="useMenuPngs && String(topPageTitle).toUpperCase() === 'MENU'">
-              <img :src="menuTitleUrl" class="pbTopTitlePng floatingLogo" alt="MENU" />
-            </template>
-            <template v-else-if="useMenuPngs && String(topPageTitle).toUpperCase() === 'LOBBY'">
-              <img :src="lobbyTopTitleUrl" class="pbTopTitlePng floatingLogo" alt="LOBBY" />
-            </template>
-            <template v-else-if="useMenuPngs && screen === 'settings'">
-              <img :src="configTopTitleUrl" class="pbTopTitlePng floatingLogo" alt="CONFIG" />
-            </template>
-            <template v-else>{{ topPageTitle }}</template>
-          </div>
+        <div class="tetBarLeft">
+          <!-- Back button (text style like TETR.IO) -->
+          <button v-if="canGoBack" class="tetBackBtn" @click="goBack" aria-label="Back">BACK</button>
+          <!-- Page title -->
+          <div class="tetBarTitle">{{ topPageTitle }}</div>
         </div>
 
-        <div class="pbTopRight" v-if="screen !== 'auth'">
-          <div class="pbTopAvatarWrap" :class="{ pbTopAvatarMember: loggedIn }">
-            <img :src="guestAvatarUrl" class="pbTopAvatar" alt="Profile" />
-            <span v-if="loggedIn" class="pbTopOnlineDot" title="Logged in"></span>
+        <div class="tetBarRight" v-if="screen !== 'auth'">
+          <div class="tetBarUser" :class="{ tetBarUserMember: loggedIn }" @click="loggedIn ? screen = 'channel' : openAuthModal('login')">
+            <div class="tetBarAvatarWrap">
+              <img :src="guestAvatarUrl" class="tetBarAvatar" alt="Profile" />
+              <span v-if="loggedIn" class="tetBarOnlineDot"></span>
+            </div>
+            <div class="tetBarIgn">
+              <span class="tetBarIgnName">{{ displayName }}</span>
+            </div>
           </div>
-          <div class="pbTopIgn" :class="{ pbTopIgnMember: loggedIn }">
-            <span class="pbTopIgnLabel">{{ loggedIn ? "MEMBER" : "IGN" }}</span>
-            <span class="pbTopIgnName">{{ displayName }}</span>
-          </div>
-          <button v-if="loggedIn" class="pbTopLogoutBtn" @click="doSignOut" title="Sign out">
-            ⏏
-          </button>
+          <button v-if="loggedIn" class="tetBarSignOutBtn" @click="doSignOut" title="Sign out">⏏</button>
         </div>
 </template>
 
@@ -172,466 +160,330 @@
     <main class="main">
 
       <!-- ══════════════════════════════════════════════════════════
-           WELCOME / AUTH SCREEN
+           WELCOME / AUTH
       ═══════════════════════════════════════════════════════════ -->
-      <section v-if="screen === 'auth'" class="menuShell pbShell">
-        <div class="pbPane">
-          <div class="pbHero">
-            <div class="pbHeroTop"></div>
-            <div class="pbHeroTitle pbWelcomeTitle" aria-label="PentoBattle">
-              <template v-if="useSplitBrandPng">
-                <div class="pbBrandRow">
-                  <img :src="logoUrl" class="pbBrandLogo floatingLogo" alt="Logo" />
-                  <img :src="titleUrl" class="pbTitlePng floatingLogo" alt="Pento Battle" />
-                </div>
-              </template>
-              <template v-else>
-                <img :src="logoUrl" class="pbWelcomeLogo" alt="" />
-                <span class="pbWelcomeWord">PENTO</span>
-                <span class="pbWelcomeWord strong">BATTLE</span>
-              </template>
-            </div>
-          </div>
-
-          <div class="pbTiles">
-            <!-- Logged-in: jump straight to main menu -->
-            <template v-if="loggedIn">
-              <button class="pbTile accentGreen" @mouseenter="uiHover" @click="uiClick(); screen = 'mode'">
-                <div class="pbTileInner">
-                  <div class="pbTileGlyph pbMemberGlyph"><span class="pbMemberDot"></span></div>
-                  <div class="pbTileText">
-                    <div class="pbTileTitle">CONTINUE</div>
-                    <div class="pbTileDesc pbMemberDesc">logged in as <span class="pbMemberName">{{ displayName }}</span></div>
-                  </div>
-                </div>
-              </button>
+      <section v-if="screen === 'auth'" class="tetShell">
+        <div class="tetWelcome">
+          <div class="tetBrand">
+            <template v-if="useSplitBrandPng">
+              <img :src="logoUrl" class="tetBrandLogo floatingLogo" alt="" />
+              <img :src="titleUrl" class="tetBrandTitle floatingLogo" alt="Pento Battle" />
             </template>
-
-            <!-- Guest: login button (has sign-up tab inside) -->
             <template v-else>
-              <button class="pbTile accentBlue" @mouseenter="uiHover" @click="uiHover(); openAuthModal('login')">
-                <div class="pbTileInner">
-                  <div class="pbTileGlyph">
-                    <template v-if="useMenuPngs">
-                      <img :src="loginIconUrl" class="pbGlyphPng floatingLogo" alt="LG" />
-                    </template>
-                    <template v-else>🔑</template>
-                  </div>
-                  <div class="pbTileText">
-                    <div class="pbTileTitle">
-                      <template v-if="useMenuPngs">
-                        <img :src="loginTitleUrl" class="pbTextPng" alt="LOGIN" />
-                      </template>
-                      <template v-else>LOGIN</template>
-                    </div>
-                    <div class="pbTileDesc">sign in · create account · ranked mode</div>
-                  </div>
-                </div>
-              </button>
+              <img :src="logoUrl" class="tetBrandLogo" alt="" />
+              <span class="tetBrandWord">PENTO<span class="tetBrandStrong">BATTLE</span></span>
             </template>
+          </div>
+          <div class="tetWelcomeSub">FLIP · ROTATE · DOMINATE</div>
+        </div>
 
-            <!-- Always visible: play as guest -->
-            <button class="pbTile accentWhite" @mouseenter="uiHover" @click="uiClick(); playAsGuest()">
-              <div class="pbTileInner">
-                <div class="pbTileGlyph">
-                  <template v-if="useMenuPngs">
-                    <img :src="playGuestIconUrl" class="pbGlyphPng floatingLogo" alt="GS" />
-                  </template>
-                  <template v-else>GS</template>
-                </div>
-                <div class="pbTileText">
-                  <div class="pbTileTitle">
-                    <template v-if="useMenuPngs">
-                      <img :src="playGuestTitleUrl" class="pbTextPng" alt="PLAY AS GUEST" />
-                    </template>
-                    <template v-else>PLAY AS GUEST</template>
-                  </div>
-                  <div class="pbTileDesc">play anonymous · no account needed</div>
-                </div>
+        <div class="tetRows">
+          <!-- Logged in → single big CONTINUE row -->
+          <template v-if="loggedIn">
+            <button class="tetRow tetRowGreen" @mouseenter="uiHover" @click="uiClick(); screen = 'mode'">
+              <div class="tetRowGlyph"><span class="tetOnlineDot"></span></div>
+              <div class="tetRowBody">
+                <div class="tetRowTitle">CONTINUE</div>
+                <div class="tetRowSub">WELCOME BACK, <span class="tetMemberName">{{ displayName }}</span></div>
               </div>
             </button>
-          </div>
+          </template>
 
-          <div class="pbFine">Tip: Q rotate • E flip</div>
+          <!-- Guest → login + play as guest -->
+          <template v-else>
+            <button class="tetRow tetRowBlue" @mouseenter="uiHover" @click="uiHover(); openAuthModal('login')">
+              <div class="tetRowGlyph">
+                <img v-if="useMenuPngs" :src="loginIconUrl" class="tetGlyphPng floatingLogo" alt="" />
+                <span v-else class="tetGlyphText">LG</span>
+              </div>
+              <div class="tetRowBody">
+                <div class="tetRowTitle">
+                  <img v-if="useMenuPngs" :src="loginTitleUrl" class="tetTextPng" alt="LOGIN" />
+                  <template v-else>LOGIN</template>
+                </div>
+                <div class="tetRowSub">SIGN IN · CREATE ACCOUNT · UNLOCK RANKED</div>
+              </div>
+            </button>
+
+            <button class="tetRow tetRowMuted" @mouseenter="uiHover" @click="uiClick(); playAsGuest()">
+              <div class="tetRowGlyph">
+                <img v-if="useMenuPngs" :src="playGuestIconUrl" class="tetGlyphPng floatingLogo" alt="" />
+                <span v-else class="tetGlyphText">GS</span>
+              </div>
+              <div class="tetRowBody">
+                <div class="tetRowTitle">
+                  <img v-if="useMenuPngs" :src="playGuestTitleUrl" class="tetTextPng" alt="PLAY AS GUEST" />
+                  <template v-else>PLAY AS GUEST</template>
+                </div>
+                <div class="tetRowSub">PLAY ANONYMOUS · NO ACCOUNT NEEDED</div>
+              </div>
+            </button>
+          </template>
         </div>
       </section>
 
 
       <!-- ══════════════════════════════════════════════════════════
-           MAIN MENU
+           MAIN MENU  (TETR.IO inspired full-width rows)
       ═══════════════════════════════════════════════════════════ -->
-      <section v-else-if="screen === 'mode'" class="menuShell pbShell">
-        <div class="pbPane">
-          <div class="pbHero compact">
-            <div class="pbHeroTitle">FLIP | ROTATE | DOMINATE</div>
-            <div v-if="loggedIn" class="pbMemberStrip">
-              <span class="pbMemberStripDot"></span>
-              <span class="pbMemberStripText">MEMBER · {{ displayName }}</span>
-              <span class="pbMemberStripRight">W {{ memberStats.wins }} · L {{ memberStats.losses }} · D {{ memberStats.draws }}</span>
+      <section v-else-if="screen === 'mode'" class="tetShell">
+        <div class="tetRows">
+
+          <!-- MULTIPLAYER -->
+          <button class="tetRow tetRowRed" @mouseenter="uiHover" @click="uiClick(); screen = 'multiplayer'">
+            <div class="tetRowGlyph">
+              <img v-if="useMenuPngs" :src="qmIconUrl" class="tetGlyphPng floatingLogo" alt="" />
+              <span v-else class="tetGlyphText tetGlyphBig">MP</span>
             </div>
-            <div v-else class="pbGuestStrip">
-              <span>🔒 GUEST MODE</span>
-              <button class="pbGuestLoginBtn" @click="openAuthModal('login')">SIGN IN FOR RANKED &amp; STATS →</button>
+            <div class="tetRowBody">
+              <div class="tetRowTitle">MULTIPLAYER</div>
+              <div class="tetRowSub">PLAY ONLINE WITH FRIENDS AND FOES</div>
             </div>
-          </div>
+            <div class="tetRowBadge" v-if="publicLobbies.length > 0">
+              <span class="tetBadgeNum">{{ publicLobbies.length }}</span>
+              <span class="tetBadgeLabel">ROOMS</span>
+            </div>
+          </button>
 
-          <div class="pbTiles">
-            <!-- PLAY -->
-            <button class="pbTile accentGreen" @mouseenter="uiHover" @click="uiClick(); screen = 'play'">
-              <div class="pbTileInner">
-                <div class="pbTileGlyph">▶</div>
-                <div class="pbTileText">
-                  <div class="pbTileTitle">PLAY</div>
-                  <div class="pbTileDesc">quick match · ranked · lobby · local · vs ai</div>
-                </div>
-              </div>
-            </button>
+          <!-- SOLO -->
+          <button class="tetRow tetRowPurple" @mouseenter="uiHover" @click="uiClick(); screen = 'solo'">
+            <div class="tetRowGlyph">
+              <img v-if="useMenuPngs" :src="onePIconUrl" class="tetGlyphPng floatingLogo" alt="" />
+              <span v-else class="tetGlyphText tetGlyphBig">1P</span>
+            </div>
+            <div class="tetRowBody">
+              <div class="tetRowTitle">SOLO</div>
+              <div class="tetRowSub">VS AI · COUCH PLAY · PUZZLE MODE</div>
+            </div>
+          </button>
 
-            <!-- LEADERBOARDS (locked for guests) -->
-            <button
-              class="pbTile accentYellow"
-              :class="{ disabled: !loggedIn }"
-              @mouseenter="uiHover"
-              @click="uiClick(); loggedIn ? screen = 'leaderboards' : showLoginRequired('Leaderboards')">
-              <div class="pbTileInner">
-                <div class="pbTileGlyph">🏆</div>
-                <div class="pbTileText">
-                  <div class="pbTileTitle">LEADERBOARDS</div>
-                  <div class="pbTileDesc">{{ loggedIn ? 'ranked standings · hall of fame' : '🔒 login required' }}</div>
-                </div>
-              </div>
-            </button>
+          <!-- CHANNEL (member) / LOGIN PROMPT (guest) -->
+          <button
+            class="tetRow tetRowGreen"
+            @mouseenter="uiHover"
+            @click="uiClick(); loggedIn ? screen = 'channel' : showLoginRequired('Channel')">
+            <div class="tetRowGlyph">
+              <img v-if="useMenuPngs" :src="rkIconUrl" class="tetGlyphPng floatingLogo" alt="" />
+              <span v-else class="tetGlyphText tetGlyphBig">CH</span>
+            </div>
+            <div class="tetRowBody">
+              <div class="tetRowTitle">CHANNEL</div>
+              <div class="tetRowSub">{{ loggedIn ? 'LEADERBOARDS · PROFILE · STATS' : '🔒 LOGIN TO ACCESS CHANNEL' }}</div>
+            </div>
+            <div v-if="!loggedIn" class="tetRowLock">🔒</div>
+          </button>
 
-            <!-- SHOP (locked for guests) -->
-            <button
-              class="pbTile accentCyan"
-              :class="{ disabled: !loggedIn }"
-              @mouseenter="uiHover"
-              @click="uiClick(); loggedIn ? screen = 'shop' : showLoginRequired('Shop')">
-              <div class="pbTileInner">
-                <div class="pbTileGlyph">🛒</div>
-                <div class="pbTileText">
-                  <div class="pbTileTitle">SHOP</div>
-                  <div class="pbTileDesc">{{ loggedIn ? 'coming soon' : '🔒 login required' }}</div>
-                </div>
-              </div>
-            </button>
+          <!-- SHOP -->
+          <button
+            class="tetRow tetRowCyan"
+            @mouseenter="uiHover"
+            @click="uiClick(); loggedIn ? screen = 'shop' : showLoginRequired('Shop')">
+            <div class="tetRowGlyph">🛒</div>
+            <div class="tetRowBody">
+              <div class="tetRowTitle">SHOP</div>
+              <div class="tetRowSub">{{ loggedIn ? 'COSMETICS · THEMES · COMING SOON' : '🔒 LOGIN REQUIRED' }}</div>
+            </div>
+            <div v-if="!loggedIn" class="tetRowLock">🔒</div>
+          </button>
 
-            <!-- PROFILE / LOGIN -->
-            <button class="pbTile accentBlue" @mouseenter="uiHover" @click="uiClick(); screen = 'profile'">
-              <div class="pbTileInner">
-                <div class="pbTileGlyph">
-                  <template v-if="loggedIn"><span class="pbMemberDotSm"></span></template>
-                  <template v-else>
-                    <img v-if="useMenuPngs" :src="loginIconUrl" class="pbGlyphPng floatingLogo" alt="LG" />
-                    <template v-else>👤</template>
-                  </template>
-                </div>
-                <div class="pbTileText">
-                  <div class="pbTileTitle">{{ loggedIn ? 'PROFILE' : 'LOGIN' }}</div>
-                  <div class="pbTileDesc">{{ loggedIn ? displayName + ' · stats · logout' : 'sign in · create account' }}</div>
-                </div>
+          <!-- CONFIG -->
+          <button class="tetRow tetRowBlue" @mouseenter="uiHover" @click="uiClick(); screen = 'settings'">
+            <div class="tetRowGlyph">
+              <img v-if="useMenuPngs" :src="stIconUrl" class="tetGlyphPng floatingLogo" alt="" />
+              <span v-else class="tetGlyphText tetGlyphBig">CFG</span>
+            </div>
+            <div class="tetRowBody">
+              <div class="tetRowTitle">
+                <img v-if="useMenuPngs" :src="settingsTitleUrl" class="tetTextPng" alt="CONFIG" />
+                <template v-else>CONFIG</template>
               </div>
-            </button>
+              <div class="tetRowSub">GAMEPLAY · AUDIO · CONTROLS</div>
+            </div>
+          </button>
 
-            <!-- SETTINGS -->
-            <button class="pbTile accentWhite" @mouseenter="uiHover" @click="uiClick(); screen = 'settings'">
-              <div class="pbTileInner">
-                <div class="pbTileGlyph">
-                  <template v-if="useMenuPngs">
-                    <img :src="stIconUrl" class="pbGlyphPng floatingLogo" alt="ST" />
-                  </template>
-                  <template v-else>⚙</template>
-                </div>
-                <div class="pbTileText">
-                  <div class="pbTileTitle">
-                    <template v-if="useMenuPngs">
-                      <img :src="settingsTitleUrl" class="pbTextPng" alt="SETTINGS" />
-                    </template>
-                    <template v-else>SETTINGS</template>
-                  </div>
-                  <div class="pbTileDesc">controls · preferences · audio</div>
-                </div>
+          <!-- ABOUT -->
+          <button class="tetRow tetRowMuted" @mouseenter="uiHover" @click="uiClick(); screen = 'credits'">
+            <div class="tetRowGlyph">
+              <img v-if="useMenuPngs" :src="crIconUrl" class="tetGlyphPng floatingLogo" alt="" />
+              <span v-else class="tetGlyphText tetGlyphBig">ABT</span>
+            </div>
+            <div class="tetRowBody">
+              <div class="tetRowTitle">
+                <img v-if="useMenuPngs" :src="creditsTitleUrl" class="tetTextPng" alt="ABOUT" />
+                <template v-else>ABOUT</template>
               </div>
-            </button>
+              <div class="tetRowSub">CREDITS · MADE BY MUMUCHXM</div>
+            </div>
+          </button>
 
-            <!-- CREDITS -->
-            <button class="pbTile accentWhite" @mouseenter="uiHover" @click="uiClick(); screen = 'credits'">
-              <div class="pbTileInner">
-                <div class="pbTileGlyph">
-                  <template v-if="useMenuPngs">
-                    <img :src="crIconUrl" class="pbGlyphPng floatingLogo" alt="CR" />
-                  </template>
-                  <template v-else>✦</template>
-                </div>
-                <div class="pbTileText">
-                  <div class="pbTileTitle">
-                    <template v-if="useMenuPngs">
-                      <img :src="creditsTitleUrl" class="pbTextPng" alt="CREDITS" />
-                    </template>
-                    <template v-else>CREDITS</template>
-                  </div>
-                  <div class="pbTileDesc">about the game</div>
-                </div>
-              </div>
-            </button>
-          </div>
         </div>
       </section>
 
 
       <!-- ══════════════════════════════════════════════════════════
-           PLAY MENU
+           MULTIPLAYER MENU
       ═══════════════════════════════════════════════════════════ -->
-      <section v-else-if="screen === 'play'" class="menuShell pbShell">
-        <div class="pbPane">
-          <div class="pbHero compact">
-            <div class="pbHeroTitle">CHOOSE YOUR BATTLE</div>
-          </div>
-          <div class="pbTiles">
-            <!-- QUICK PLAY — instant matchmaking -->
-            <button class="pbTile accentGreen" @mouseenter="uiHover" @click="uiClick(); startQuickMatchAuto()">
-              <div class="pbTileInner">
-                <div class="pbTileGlyph">
-                  <template v-if="useMenuPngs">
-                    <img :src="qmIconUrl" class="pbGlyphPng floatingLogo" alt="QM" />
-                  </template>
-                  <template v-else>QM</template>
-                </div>
-                <div class="pbTileText">
-                  <div class="pbTileTitle">
-                    <template v-if="useMenuPngs">
-                      <img :src="quickMatchTitleUrl" class="pbTextPng" alt="QUICK MATCH" />
-                    </template>
-                    <template v-else>QUICK PLAY</template>
-                  </div>
-                  <div class="pbTileDesc">instant online match · auto find opponent</div>
-                </div>
-              </div>
-            </button>
+      <section v-else-if="screen === 'multiplayer'" class="tetShell">
+        <div class="tetRows">
 
-            <!-- RANKED (login required) -->
-            <button
-              class="pbTile accentYellow"
-              :class="{ disabled: !loggedIn }"
-              @mouseenter="uiHover"
-              @click="uiClick(); loggedIn ? goRanked() : showLoginRequired('Ranked')">
-              <div class="pbTileInner">
-                <div class="pbTileGlyph">
-                  <template v-if="useMenuPngs">
-                    <img :src="rkIconUrl" class="pbGlyphPng floatingLogo" alt="RK" />
-                  </template>
-                  <template v-else>RK</template>
-                </div>
-                <div class="pbTileText">
-                  <div class="pbTileTitle">
-                    <template v-if="useMenuPngs">
-                      <img :src="rankedTitleUrl" class="pbTextPng" alt="RANKED" />
-                    </template>
-                    <template v-else>RANKED</template>
-                  </div>
-                  <div class="pbTileDesc">{{ loggedIn ? 'auto finds lobby with same tier' : '🔒 login required' }}</div>
-                </div>
+          <!-- QUICK PLAY -->
+          <button class="tetRow tetRowOrange" @mouseenter="uiHover" @click="uiClick(); startQuickMatchAuto()">
+            <div class="tetRowGlyph">
+              <img v-if="useMenuPngs" :src="qmIconUrl" class="tetGlyphPng floatingLogo" alt="" />
+              <span v-else class="tetGlyphText tetGlyphBig">QP</span>
+            </div>
+            <div class="tetRowBody">
+              <div class="tetRowTitle">
+                <img v-if="useMenuPngs" :src="quickMatchTitleUrl" class="tetTextPng" alt="QUICK PLAY" />
+                <template v-else>QUICK PLAY</template>
               </div>
-            </button>
+              <div class="tetRowSub">INSTANT MATCH · AUTO FIND OPPONENT</div>
+            </div>
+            <div class="tetRowBadge" v-if="publicLobbies.length > 0">
+              <span class="tetBadgeNum">{{ publicLobbies.length }}</span>
+              <span class="tetBadgeLabel">ONLINE</span>
+            </div>
+          </button>
 
-            <!-- CASUAL ONLINE — lobby sub-menu -->
-            <button class="pbTile accentPurple" @mouseenter="uiHover" @click="uiClick(); screen = 'casual'">
-              <div class="pbTileInner">
-                <div class="pbTileGlyph">
-                  <template v-if="useMenuPngs">
-                    <img :src="lbIconUrl" class="pbGlyphPng floatingLogo" alt="LB" />
-                  </template>
-                  <template v-else>LB</template>
-                </div>
-                <div class="pbTileText">
-                  <div class="pbTileTitle">CASUAL</div>
-                  <div class="pbTileDesc">online lobby · couch play · custom modes</div>
-                </div>
+          <!-- RANKED -->
+          <button
+            class="tetRow tetRowYellow"
+            :class="{ tetRowLocked: !loggedIn }"
+            @mouseenter="uiHover"
+            @click="uiClick(); loggedIn ? goRanked() : showLoginRequired('Ranked')">
+            <div class="tetRowGlyph">
+              <img v-if="useMenuPngs" :src="rkIconUrl" class="tetGlyphPng floatingLogo" alt="" />
+              <span v-else class="tetGlyphText tetGlyphBig">RK</span>
+            </div>
+            <div class="tetRowBody">
+              <div class="tetRowTitle">
+                <img v-if="useMenuPngs" :src="rankedTitleUrl" class="tetTextPng" alt="RANKED" />
+                <template v-else>RANKED</template>
               </div>
-            </button>
+              <div class="tetRowSub">{{ loggedIn ? 'FIGHT PLAYERS OF YOUR SKILL IN RANKED DUELS' : '🔒 LOGIN REQUIRED' }}</div>
+            </div>
+            <div v-if="!loggedIn" class="tetRowLock">🔒</div>
+            <div v-else-if="loggedIn" class="tetRowBadge tetRowBadgeTier">
+              <span class="tetBadgeNum">{{ rankedTier }}</span>
+            </div>
+          </button>
 
-            <!-- VS AI -->
-            <button class="pbTile accentBlue" @mouseenter="uiHover" @click="uiClick(); screen = 'vs_ai'">
-              <div class="pbTileInner">
-                <div class="pbTileGlyph">
-                  <template v-if="useMenuPngs">
-                    <img :src="aiIconUrl" class="pbGlyphPng floatingLogo" alt="AI" />
-                  </template>
-                  <template v-else>AI</template>
-                </div>
-                <div class="pbTileText">
-                  <div class="pbTileTitle">
-                    <template v-if="useMenuPngs">
-                      <img :src="practiceAiTitleUrl" class="pbTextPng" alt="VS AI" />
-                    </template>
-                    <template v-else>VS AI</template>
-                  </div>
-                  <div class="pbTileDesc">standard · mirror match · blind pick</div>
-                </div>
+          <!-- CUSTOM GAME / LOBBY -->
+          <button class="tetRow tetRowMuted" @mouseenter="uiHover" @click="uiClick(); goLobby()">
+            <div class="tetRowGlyph">
+              <img v-if="useMenuPngs" :src="lbIconUrl" class="tetGlyphPng floatingLogo" alt="" />
+              <span v-else class="tetGlyphText tetGlyphBig">LB</span>
+            </div>
+            <div class="tetRowBody">
+              <div class="tetRowTitle">
+                <img v-if="useMenuPngs" :src="goLobbyTitleUrl" class="tetTextPng" alt="CUSTOM GAME" />
+                <template v-else>CUSTOM GAME</template>
               </div>
-            </button>
+              <div class="tetRowSub">CREATE PUBLIC AND PRIVATE ROOMS · JOIN BY CODE</div>
+            </div>
+          </button>
 
-            <!-- PUZZLE MODE (login required) -->
-            <button
-              class="pbTile accentPeach"
-              :class="{ disabled: !loggedIn }"
-              @mouseenter="uiHover"
-              @click="uiClick(); loggedIn ? screen = 'puzzle' : showLoginRequired('Puzzle Mode')">
-              <div class="pbTileInner">
-                <div class="pbTileGlyph">🧩</div>
-                <div class="pbTileText">
-                  <div class="pbTileTitle">PUZZLE MODE</div>
-                  <div class="pbTileDesc">{{ loggedIn ? 'coming soon · timed challenges' : '🔒 login required' }}</div>
-                </div>
-              </div>
-            </button>
-          </div>
         </div>
       </section>
 
 
       <!-- ══════════════════════════════════════════════════════════
-           CASUAL MENU
+           SOLO MENU
       ═══════════════════════════════════════════════════════════ -->
-      <section v-else-if="screen === 'casual'" class="menuShell pbShell">
-        <div class="pbPane">
-          <div class="pbHero compact">
-            <div class="pbHeroTitle">CASUAL PLAY</div>
-          </div>
-          <div class="pbTiles">
-            <!-- Online sub-section label -->
-            <div class="pbSectionLabel">ONLINE</div>
+      <section v-else-if="screen === 'solo'" class="tetShell">
+        <div class="tetRows">
 
-            <!-- Lobby / Custom Match -->
-            <button class="pbTile accentPurple" @mouseenter="uiHover" @click="uiClick(); goLobby()">
-              <div class="pbTileInner">
-                <div class="pbTileGlyph">
-                  <template v-if="useMenuPngs">
-                    <img :src="lbIconUrl" class="pbGlyphPng floatingLogo" alt="LB" />
-                  </template>
-                  <template v-else>LB</template>
-                </div>
-                <div class="pbTileText">
-                  <div class="pbTileTitle">
-                    <template v-if="useMenuPngs">
-                      <img :src="goLobbyTitleUrl" class="pbTextPng" alt="LOBBY" />
-                    </template>
-                    <template v-else>LOBBY</template>
-                  </div>
-                  <div class="pbTileDesc">create session · browse rooms · join by code</div>
-                </div>
+          <!-- VS AI -->
+          <button class="tetRow tetRowBlue" @mouseenter="uiHover" @click="uiClick(); startPracticeAi()">
+            <div class="tetRowGlyph">
+              <img v-if="useMenuPngs" :src="aiIconUrl" class="tetGlyphPng floatingLogo" alt="" />
+              <span v-else class="tetGlyphText tetGlyphBig">AI</span>
+            </div>
+            <div class="tetRowBody">
+              <div class="tetRowTitle">
+                <img v-if="useMenuPngs" :src="practiceAiTitleUrl" class="tetTextPng" alt="VS AI" />
+                <template v-else>VS AI</template>
               </div>
-            </button>
+              <div class="tetRowSub">PRACTICE AGAINST THE COMPUTER · CHOOSE DIFFICULTY</div>
+            </div>
+          </button>
 
-            <!-- Mirror Match (coming soon placeholder) -->
-            <button class="pbTile accentPurple disabled" disabled @mouseenter="uiHover">
-              <div class="pbTileInner">
-                <div class="pbTileGlyph">🪞</div>
-                <div class="pbTileText">
-                  <div class="pbTileTitle">MIRROR MATCH</div>
-                  <div class="pbTileDesc">both players see the same board · coming soon</div>
-                </div>
+          <!-- COUCH PLAY -->
+          <button class="tetRow tetRowPeach" @mouseenter="uiHover" @click="uiClick(); startCouchPlay()">
+            <div class="tetRowGlyph">
+              <img v-if="useMenuPngs" :src="onePIconUrl" class="tetGlyphPng floatingLogo" alt="" />
+              <span v-else class="tetGlyphText tetGlyphBig">1P</span>
+            </div>
+            <div class="tetRowBody">
+              <div class="tetRowTitle">
+                <img v-if="useMenuPngs" :src="couchPlayTitleUrl" class="tetTextPng" alt="COUCH PLAY" />
+                <template v-else>COUCH PLAY</template>
               </div>
-            </button>
+              <div class="tetRowSub">LOCAL 2-PLAYER ON ONE DEVICE · PASS AND PLAY</div>
+            </div>
+          </button>
 
-            <!-- Blind Pick (coming soon placeholder) -->
-            <button class="pbTile accentPurple disabled" disabled @mouseenter="uiHover">
-              <div class="pbTileInner">
-                <div class="pbTileGlyph">🙈</div>
-                <div class="pbTileText">
-                  <div class="pbTileTitle">BLIND PICK</div>
-                  <div class="pbTileDesc">pieces hidden until placed · coming soon</div>
-                </div>
-              </div>
-            </button>
+          <!-- PUZZLE MODE -->
+          <button
+            class="tetRow tetRowOrange"
+            :class="{ tetRowLocked: !loggedIn }"
+            @mouseenter="uiHover"
+            @click="uiClick(); loggedIn ? screen = 'puzzle' : showLoginRequired('Puzzle Mode')">
+            <div class="tetRowGlyph">🧩</div>
+            <div class="tetRowBody">
+              <div class="tetRowTitle">PUZZLE MODE</div>
+              <div class="tetRowSub">{{ loggedIn ? 'TIMED CHALLENGES · COMING SOON' : '🔒 LOGIN REQUIRED' }}</div>
+            </div>
+            <div v-if="!loggedIn" class="tetRowLock">🔒</div>
+          </button>
 
-            <!-- Local sub-section label -->
-            <div class="pbSectionLabel">LOCAL</div>
-
-            <!-- Couch Play -->
-            <button class="pbTile accentPeach" @mouseenter="uiHover" @click="uiClick(); startCouchPlay()">
-              <div class="pbTileInner">
-                <div class="pbTileGlyph">
-                  <template v-if="useMenuPngs">
-                    <img :src="onePIconUrl" class="pbGlyphPng floatingLogo" alt="1P" />
-                  </template>
-                  <template v-else>1P</template>
-                </div>
-                <div class="pbTileText">
-                  <div class="pbTileTitle">
-                    <template v-if="useMenuPngs">
-                      <img :src="couchPlayTitleUrl" class="pbTextPng" alt="COUCH PLAY" />
-                    </template>
-                    <template v-else>COUCH PLAY</template>
-                  </div>
-                  <div class="pbTileDesc">local 2-player on one device</div>
-                </div>
-              </div>
-            </button>
-          </div>
         </div>
       </section>
 
 
       <!-- ══════════════════════════════════════════════════════════
-           VS AI MENU
+           CHANNEL  (members only)
       ═══════════════════════════════════════════════════════════ -->
-      <section v-else-if="screen === 'vs_ai'" class="menuShell pbShell">
-        <div class="pbPane">
-          <div class="pbHero compact">
-            <div class="pbHeroTitle">VS AI</div>
-          </div>
-          <div class="pbTiles">
-            <!-- Standard Match -->
-            <button class="pbTile accentBlue" @mouseenter="uiHover" @click="uiClick(); startPracticeAi()">
-              <div class="pbTileInner">
-                <div class="pbTileGlyph">
-                  <template v-if="useMenuPngs">
-                    <img :src="aiIconUrl" class="pbGlyphPng floatingLogo" alt="AI" />
-                  </template>
-                  <template v-else>AI</template>
-                </div>
-                <div class="pbTileText">
-                  <div class="pbTileTitle">
-                    <template v-if="useMenuPngs">
-                      <img :src="practiceAiTitleUrl" class="pbTextPng" alt="STANDARD MATCH" />
-                    </template>
-                    <template v-else>STANDARD MATCH</template>
-                  </div>
-                  <div class="pbTileDesc">classic game vs computer · choose difficulty</div>
-                </div>
-              </div>
-            </button>
+      <section v-else-if="screen === 'channel'" class="tetShell">
+        <div class="tetRows">
 
-            <!-- Mirror Match AI (coming soon) -->
-            <button class="pbTile accentBlue disabled" disabled @mouseenter="uiHover">
-              <div class="pbTileInner">
-                <div class="pbTileGlyph">🪞</div>
-                <div class="pbTileText">
-                  <div class="pbTileTitle">MIRROR MATCH</div>
-                  <div class="pbTileDesc">same board layout for both sides · coming soon</div>
-                </div>
-              </div>
-            </button>
+          <!-- MY PROFILE -->
+          <button class="tetRow tetRowGreen" @mouseenter="uiHover" @click="uiClick(); screen = 'profile'">
+            <div class="tetRowGlyph"><span class="tetOnlineDot"></span></div>
+            <div class="tetRowBody">
+              <div class="tetRowTitle">{{ displayName }}</div>
+              <div class="tetRowSub">VIEW YOUR STATS AND RECENT MATCHES</div>
+            </div>
+            <div class="tetRowBadge tetRowBadgeWins">
+              <span class="tetBadgeNum">{{ memberStats.wins }}</span>
+              <span class="tetBadgeLabel">WINS</span>
+            </div>
+          </button>
 
-            <!-- Blind Pick AI (coming soon) -->
-            <button class="pbTile accentBlue disabled" disabled @mouseenter="uiHover">
-              <div class="pbTileInner">
-                <div class="pbTileGlyph">🙈</div>
-                <div class="pbTileText">
-                  <div class="pbTileTitle">BLIND PICK</div>
-                  <div class="pbTileDesc">pieces hidden until placed · coming soon</div>
-                </div>
-              </div>
-            </button>
-          </div>
+          <!-- LEADERBOARDS -->
+          <button class="tetRow tetRowGreen" @mouseenter="uiHover" @click="uiClick(); screen = 'leaderboards'">
+            <div class="tetRowGlyph">🏆</div>
+            <div class="tetRowBody">
+              <div class="tetRowTitle">LEADERBOARDS</div>
+              <div class="tetRowSub">RANKED STANDINGS · HALL OF FAME</div>
+            </div>
+          </button>
+
+          <!-- SIGN OUT -->
+          <button class="tetRow tetRowDanger" @mouseenter="uiHover" @click="uiClick(); doSignOut()">
+            <div class="tetRowGlyph">⏏</div>
+            <div class="tetRowBody">
+              <div class="tetRowTitle">SIGN OUT</div>
+              <div class="tetRowSub">SIGNED IN AS {{ displayName }}</div>
+            </div>
+          </button>
+
         </div>
       </section>
 
 
       <!-- ══════════════════════════════════════════════════════════
-           LEADERBOARDS (login required)
+           LEADERBOARDS
       ═══════════════════════════════════════════════════════════ -->
       <section v-else-if="screen === 'leaderboards'" class="menuShell pbShell pbShellCentered">
         <div class="vsStylePanel">
@@ -659,7 +511,7 @@
 
 
       <!-- ══════════════════════════════════════════════════════════
-           SHOP (login required)
+           SHOP
       ═══════════════════════════════════════════════════════════ -->
       <section v-else-if="screen === 'shop'" class="menuShell pbShell pbShellCentered">
         <div class="vsStylePanel">
@@ -679,37 +531,30 @@
 
 
       <!-- ══════════════════════════════════════════════════════════
-           PROFILE / LOGIN
+           PROFILE
       ═══════════════════════════════════════════════════════════ -->
       <section v-else-if="screen === 'profile'" class="menuShell pbShell pbShellCentered">
         <div class="vsStylePanel">
           <div class="vsStyleHeader">
             <div class="vsStyleHeaderGlow"></div>
-            <div class="vsStyleTitle">{{ loggedIn ? '👤 PROFILE' : '🔑 LOGIN' }}</div>
-            <div class="vsStyleSubtitle">{{ loggedIn ? displayName + ' · Member' : 'Sign in or create an account' }}</div>
+            <div class="vsStyleTitle">{{ loggedIn ? '👤 ' + displayName : '🔑 LOGIN' }}</div>
+            <div class="vsStyleSubtitle">{{ loggedIn ? 'Member · Stats · Match History' : 'Sign in or create an account' }}</div>
           </div>
           <div class="vsStyleCards">
-            <!-- LOGGED IN VIEW -->
             <template v-if="loggedIn">
               <div class="vsStyleCard">
                 <div class="vsStyleCardTitle">STATS</div>
                 <div class="vsStyleRow"><span class="vsStyleRowLabel">Username</span><b>{{ displayName }}</b></div>
+                <div class="vsStyleRow"><span class="vsStyleRowLabel">Rank</span><b>{{ rankedTier }}</b></div>
                 <div class="vsStyleRow"><span class="vsStyleRowLabel">Wins</span><b>{{ memberStats.wins }}</b></div>
                 <div class="vsStyleRow"><span class="vsStyleRowLabel">Losses</span><b>{{ memberStats.losses }}</b></div>
                 <div class="vsStyleRow"><span class="vsStyleRowLabel">Draws</span><b>{{ memberStats.draws }}</b></div>
-                <div class="vsStyleRow"><span class="vsStyleRowLabel">Rank</span><b>{{ rankedTier }}</b></div>
               </div>
               <div class="vsStyleCard">
                 <div class="vsStyleCardTitle">MATCH HISTORY</div>
                 <div class="pbFineLine">Match history coming soon.</div>
               </div>
-              <div class="vsStyleCard">
-                <div class="vsStyleCardTitle">ACCOUNT</div>
-                <button class="pbMiniBtn" style="margin-top:8px; --miniAcc:255,64,96" @click="doSignOut">SIGN OUT</button>
-              </div>
             </template>
-
-            <!-- GUEST VIEW -->
             <template v-else>
               <div class="vsStyleCard">
                 <div class="vsStyleCardTitle">SIGN IN</div>
@@ -728,7 +573,7 @@
 
 
       <!-- ══════════════════════════════════════════════════════════
-           PUZZLE MODE placeholder (login required)
+           PUZZLE PLACEHOLDER
       ═══════════════════════════════════════════════════════════ -->
       <section v-else-if="screen === 'puzzle'" class="menuShell pbShell pbShellCentered">
         <div class="vsStylePanel">
@@ -1230,34 +1075,13 @@
     </Teleport>
 
 <!-- Menu-style bottom bar (menus) -->
-<footer v-if="showBottomBar" class="pbBottomBar">
-  <!-- Left: MADE BY -->
-  <div class="pbBottomLeft">
-    <div class="pbBottomHint">
-      <template v-if="useMenuPngs">
-        <img :src="madeByUrl" class="pbBottomPng" alt="MADE BY MUMUCHXM" />
-      </template>
-      <template v-else>MADE BY MUMUCHXM</template>
-    </div>
-  </div>
-
-  <!-- Center: Logo + Title -->
-  <div class="pbBottomCenter" v-if="screen !== 'auth'">
-    <img :src="logoUrl" alt="" class="pbBottomLogo" />
-    <img :src="titleUrl" alt="Pento Battle" class="pbBottomBrandPng" />
-  </div>
-
-  <!-- Right: Back (menu pages) -->
-  <div class="pbBottomRight">
-    <button
-      v-if="canGoBack"
-      class="btn ghost imgBtn pbBottomBackBtn"
-      @click="goBack"
-      aria-label="Back"
-      title="Back"
-    >
-      <img :src="backBtnUrl" class="btnPng floatingLogo" alt="Back" />
-    </button>
+<!-- TETR.IO-style contextual status bar -->
+<footer v-if="showBottomBar" class="tetBottomBar">
+  <span class="tetBottomText">{{ bottomStatusText }}</span>
+  <div class="tetBottomRight">
+    <img :src="logoUrl" alt="" class="tetBottomLogo" />
+    <img v-if="useMenuPngs" :src="madeByUrl" class="tetBottomMadeBy" alt="MADE BY MUMUCHXM" />
+    <span v-else class="tetBottomMadeByText">MADE BY MUMUCHXM</span>
   </div>
 </footer>
 
@@ -2198,7 +2022,7 @@ const phaseSub = computed(() => {
 });
 
 const canGoBack = computed(() =>
-  ["mode", "play", "casual", "vs_ai", "lobby", "ranked",
+  ["mode", "multiplayer", "solo", "channel", "lobby", "ranked",
    "leaderboards", "shop", "profile", "puzzle", "settings", "credits"].includes(screen.value)
 );
 
@@ -2232,23 +2056,41 @@ watch([bgmVolumeUi, sfxVolumeUi], () => {
   // If volume is 0, keep BGM playing silently (do not stop/reset).
 });
 const topPageTitle = computed(() => {
-  if (screen.value === "auth")         return "WELCOME";
-  if (screen.value === "mode")         return "MENU";
-  if (screen.value === "play")         return "PLAY";
-  if (screen.value === "casual")       return "CASUAL";
-  if (screen.value === "vs_ai")        return "VS AI";
-  if (screen.value === "lobby")        return "LOBBY";
-  if (screen.value === "ranked")       return "RANKED";
-  if (screen.value === "leaderboards") return "LEADERBOARDS";
-  if (screen.value === "shop")         return "SHOP";
-  if (screen.value === "profile")      return "PROFILE";
-  if (screen.value === "puzzle")       return "PUZZLE";
-  if (screen.value === "settings")     return "CONFIG";
-  if (screen.value === "credits")      return "ABOUT";
-  return "MENU";
+  if (screen.value === "auth")          return "HOME";
+  if (screen.value === "mode")          return "HOME";
+  if (screen.value === "multiplayer")   return "MULTIPLAYER";
+  if (screen.value === "solo")          return "SOLO";
+  if (screen.value === "channel")       return "CHANNEL";
+  if (screen.value === "lobby")         return "LOBBY";
+  if (screen.value === "ranked")        return "RANKED";
+  if (screen.value === "leaderboards")  return "LEADERBOARDS";
+  if (screen.value === "shop")          return "SHOP";
+  if (screen.value === "profile")       return "PROFILE";
+  if (screen.value === "puzzle")        return "PUZZLE";
+  if (screen.value === "settings")      return "CONFIG";
+  if (screen.value === "credits")       return "ABOUT";
+  return "HOME";
 });
-const showMenuChrome = computed(() => isMenuScreen.value && ["auth","mode","play","casual","vs_ai","lobby","ranked","leaderboards","shop","profile","puzzle","settings","credits"].includes(screen.value));
+const showMenuChrome = computed(() => isMenuScreen.value && ["auth","mode","multiplayer","solo","channel","lobby","ranked","leaderboards","shop","profile","puzzle","settings","credits"].includes(screen.value));
 const showBottomBar = computed(() => showMenuChrome.value);
+
+// TETR.IO-style contextual status line at the bottom
+const bottomStatusText = computed(() => {
+  if (screen.value === "auth")         return loggedIn.value ? `WELCOME BACK, ${displayName.value}!` : "WELCOME TO PENTOBATTLE!";
+  if (screen.value === "mode")         return loggedIn.value ? `PLAYING AS ${displayName.value} · PICK A MODE` : "GUEST MODE · LOGIN TO UNLOCK RANKED & MORE";
+  if (screen.value === "multiplayer")  return "PICK AN ONLINE GAME MODE";
+  if (screen.value === "solo")         return "PLAY OFFLINE · VS AI OR COUCH";
+  if (screen.value === "channel")      return `WELCOME, ${displayName.value}!`;
+  if (screen.value === "lobby")        return "BROWSE ROOMS · CREATE OR JOIN A SESSION";
+  if (screen.value === "ranked")       return "RANKED MATCHMAKING";
+  if (screen.value === "leaderboards") return "GLOBAL RANKINGS";
+  if (screen.value === "settings")     return "TWEAK YOUR PENTOBATTLE EXPERIENCE";
+  if (screen.value === "credits")      return "THANK YOU FOR PLAYING PENTOBATTLE!";
+  if (screen.value === "shop")         return "SHOP · COMING SOON";
+  if (screen.value === "profile")      return loggedIn.value ? `VIEWING PROFILE: ${displayName.value}` : "LOGIN OR CREATE AN ACCOUNT";
+  if (screen.value === "puzzle")       return "PUZZLE MODE · COMING SOON";
+  return "";
+});
 
 // ✅ Online match
 const isOnline = computed(() => screen.value === "online");
@@ -2381,7 +2223,7 @@ watch(
       startUiLock({ label: "Loading match…", hint: "Syncing visuals and state…", minMs: 850 });
       stopUiLockAfterPaint(850);
     }
-    if (["auth", "mode", "play", "casual", "vs_ai", "lobby", "ranked",
+    if (["auth", "mode", "multiplayer", "solo", "channel", "lobby", "ranked",
              "leaderboards", "shop", "profile", "puzzle", "settings", "credits"].includes(nv)) {
       // If we navigated back to menus, ensure the lock isn't stuck.
       if (uiLock.active && Date.now() > uiLock._minUntil) stopUiLock();
@@ -4935,17 +4777,27 @@ function confirmInGame({ title, message, yesLabel = "YES", noLabel = "NO", onYes
 }
 
 function goBack() {
-  // Sub-screens of PLAY go back to play menu
-  if (["casual", "vs_ai", "lobby", "ranked", "puzzle"].includes(screen.value)) {
-    screen.value = "play";
+  // Multiplayer sub-screens
+  if (["lobby", "ranked"].includes(screen.value)) {
+    screen.value = "multiplayer";
     return;
   }
-  // Top-level menu screens go back to main menu
-  if (["play", "leaderboards", "shop", "profile", "settings", "credits"].includes(screen.value)) {
+  // Solo sub-screens
+  if (["puzzle"].includes(screen.value)) {
+    screen.value = "solo";
+    return;
+  }
+  // Channel sub-screens
+  if (["leaderboards", "profile"].includes(screen.value)) {
+    screen.value = "channel";
+    return;
+  }
+  // Top-level menu screens → main menu
+  if (["multiplayer", "solo", "channel", "shop", "settings", "credits"].includes(screen.value)) {
     screen.value = "mode";
     return;
   }
-  // Main menu goes back to welcome/auth
+  // Main menu → welcome
   if (screen.value === "mode") {
     screen.value = "auth";
     return;
@@ -9160,6 +9012,427 @@ onBeforeUnmount(() => {
   background: radial-gradient(circle at 35% 35%, rgba(77,255,144,1), rgba(0,200,100,0.8));
   box-shadow: 0 0 14px rgba(77,255,144,0.7);
   animation: memberPulse 2s ease-in-out infinite;
+}
+
+/* ══════════════════════════════════════════════════════════════════════════════
+   TETR.IO-INSPIRED MENU SYSTEM
+   Full-width rows · Dark panel · Accent glow · Contextual status bar
+══════════════════════════════════════════════════════════════════════════════ */
+
+/* ── Top bar ──────────────────────────────────────────────────────────────── */
+.tetBar{
+  background: rgba(8,8,16,0.92) !important;
+  border-bottom: 1px solid rgba(255,255,255,0.08) !important;
+  backdrop-filter: blur(14px) !important;
+  height: 52px !important;
+  padding: 0 18px !important;
+  display: flex !important;
+  align-items: center !important;
+  justify-content: space-between !important;
+}
+.tetBarLeft{
+  display: flex;
+  align-items: center;
+  gap: 20px;
+}
+.tetBarTitle{
+  font-size: clamp(18px, 3vh, 24px);
+  font-weight: 900;
+  letter-spacing: 3px;
+  text-transform: uppercase;
+  opacity: .92;
+  font-family: 'Orbitron', 'Rajdhani', Inter, system-ui, sans-serif;
+}
+.tetBackBtn{
+  background: none;
+  border: none;
+  color: rgba(255,255,255,0.55);
+  font-size: 13px;
+  font-weight: 900;
+  letter-spacing: 2px;
+  text-transform: uppercase;
+  cursor: pointer;
+  padding: 6px 12px;
+  border-radius: 6px;
+  border: 1px solid rgba(255,255,255,0.12);
+  transition: background .12s, color .12s;
+  font-family: 'Orbitron', 'Rajdhani', Inter, system-ui, sans-serif;
+}
+.tetBackBtn:hover{
+  background: rgba(255,255,255,0.07);
+  color: #fff;
+}
+.tetBarRight{
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.tetBarUser{
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 5px 10px;
+  border-radius: 8px;
+  border: 1px solid rgba(255,255,255,0.08);
+  cursor: pointer;
+  transition: background .12s;
+}
+.tetBarUser:hover{ background: rgba(255,255,255,0.06); }
+.tetBarUserMember{ border-color: rgba(80,170,255,0.18); }
+.tetBarAvatarWrap{ position: relative; display: inline-flex; }
+.tetBarAvatar{
+  width: 28px; height: 28px;
+  border-radius: 7px;
+  object-fit: cover;
+  border: 1px solid rgba(255,255,255,0.12);
+}
+.tetBarOnlineDot{
+  position: absolute;
+  bottom: -2px; right: -2px;
+  width: 8px; height: 8px;
+  border-radius: 50%;
+  background: #4dff90;
+  border: 2px solid rgba(8,8,16,0.9);
+  box-shadow: 0 0 6px rgba(77,255,144,0.7);
+}
+.tetBarIgnName{
+  font-size: 12px;
+  font-weight: 900;
+  letter-spacing: 1px;
+  text-transform: uppercase;
+}
+.tetBarUserMember .tetBarIgnName{ color: rgba(80,170,255,0.9); }
+.tetBarSignOutBtn{
+  width: 30px; height: 30px;
+  border-radius: 7px;
+  border: 1px solid rgba(255,255,255,0.10);
+  background: rgba(255,255,255,0.04);
+  color: rgba(255,255,255,0.4);
+  font-size: 14px;
+  cursor: pointer;
+  display:flex; align-items:center; justify-content:center;
+  transition: background .12s, color .12s, border-color .12s;
+}
+.tetBarSignOutBtn:hover{
+  background: rgba(255,64,96,0.12);
+  border-color: rgba(255,64,96,0.3);
+  color: rgba(255,80,100,0.9);
+}
+
+
+/* ── Main shell ───────────────────────────────────────────────────────────── */
+.tetShell{
+  width: min(860px, calc(100vw - 24px));
+  margin: 0 auto;
+  padding: 0 0 80px;
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+}
+
+
+/* ── Welcome brand block ──────────────────────────────────────────────────── */
+.tetWelcome{
+  padding: 32px 0 22px;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+}
+.tetBrand{
+  display: flex;
+  align-items: center;
+  gap: 14px;
+}
+.tetBrandLogo{
+  width: clamp(44px, 7vw, 68px);
+  height: clamp(44px, 7vw, 68px);
+  object-fit: contain;
+}
+.tetBrandTitle{
+  height: clamp(32px, 5vw, 52px);
+  width: auto;
+  object-fit: contain;
+}
+.tetBrandWord{
+  font-size: clamp(28px, 5vw, 52px);
+  font-weight: 1000;
+  letter-spacing: 4px;
+  text-transform: uppercase;
+  line-height: 1;
+}
+.tetBrandStrong{ opacity: .65; }
+.tetWelcomeSub{
+  margin-top: 8px;
+  font-size: 11px;
+  letter-spacing: 4px;
+  text-transform: uppercase;
+  opacity: .45;
+  font-weight: 900;
+}
+
+
+/* ── Row list ─────────────────────────────────────────────────────────────── */
+.tetRows{
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  padding-top: 8px;
+}
+
+
+/* ── Single row (the core component) ────────────────────────────────────────
+   Inspired by TETR.IO: full-width, left-icon + text, accent colour wash
+   ────────────────────────────────────────────────────────────────────────── */
+.tetRow{
+  --rc: 255,255,255;          /* accent colour (per-variant) */
+  --rbg: 22,24,34;            /* base bg */
+
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 0;
+  width: 100%;
+  min-height: 80px;
+  border: none;
+  border-radius: 0;
+  background:
+    linear-gradient(90deg,
+      rgba(var(--rc), 0.18) 0%,
+      rgba(var(--rc), 0.07) 22%,
+      rgba(var(--rbg), 0.92) 55%,
+      rgba(var(--rbg), 0.96) 100%);
+  cursor: pointer;
+  text-align: left;
+  padding: 0;
+  overflow: hidden;
+  transition: filter .15s ease, transform .12s ease;
+
+  /* Subtle separator */
+  border-bottom: 1px solid rgba(0,0,0,0.35);
+}
+
+/* First row: rounded top */
+.tetRows > .tetRow:first-child{ border-radius: 10px 10px 0 0; }
+/* Last row: rounded bottom */
+.tetRows > .tetRow:last-child{ border-radius: 0 0 10px 10px; border-bottom: none; }
+/* Single row: fully rounded */
+.tetRows > .tetRow:only-child{ border-radius: 10px; }
+
+.tetRow:hover{
+  filter: brightness(1.10) saturate(1.12);
+  transform: translateX(-3px);
+  z-index: 1;
+}
+.tetRow:active{
+  transform: translateX(-1px) scale(0.995);
+}
+.tetRow.tetRowLocked{
+  filter: grayscale(0.4);
+  opacity: .7;
+}
+.tetRow.tetRowLocked:hover{
+  filter: grayscale(0.2) brightness(1.05);
+  transform: none;
+}
+
+
+/* ── Glyph column (left icon/text) ───────────────────────────────────────── */
+.tetRowGlyph{
+  flex-shrink: 0;
+  width: clamp(80px, 12vw, 110px);
+  height: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: clamp(22px, 3.5vw, 32px);
+  font-weight: 1000;
+  letter-spacing: 1px;
+  color: rgba(var(--rc), 0.9);
+  text-shadow: 0 0 20px rgba(var(--rc), 0.4);
+  background: linear-gradient(90deg, rgba(var(--rc),0.14), rgba(var(--rc),0.04));
+  border-right: 1px solid rgba(var(--rc), 0.12);
+  min-height: 80px;
+}
+.tetGlyphPng{
+  width: clamp(40px, 6vw, 60px);
+  height: auto;
+  object-fit: contain;
+  filter: drop-shadow(0 0 8px rgba(var(--rc), 0.35));
+}
+.tetGlyphText{
+  font-family: 'Orbitron', 'Rajdhani', Inter, system-ui, sans-serif;
+  font-size: clamp(18px, 3vw, 28px);
+  font-weight: 1000;
+  letter-spacing: 2px;
+  color: rgba(var(--rc), 0.88);
+}
+.tetGlyphBig{ font-size: clamp(20px, 3.2vw, 30px); }
+
+
+/* ── Text body ───────────────────────────────────────────────────────────── */
+.tetRowBody{
+  flex: 1;
+  padding: clamp(14px,2.2vh,22px) clamp(14px,2vw,22px);
+  min-width: 0;
+}
+.tetRowTitle{
+  font-size: clamp(18px, 3.2vh, 28px);
+  font-weight: 1000;
+  letter-spacing: 2.5px;
+  text-transform: uppercase;
+  line-height: 1.1;
+  color: rgba(var(--rc), 0.95);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.tetTextPng{
+  height: clamp(16px, 2.8vh, 26px);
+  width: auto;
+  object-fit: contain;
+  filter: drop-shadow(0 0 6px rgba(var(--rc),0.3));
+}
+.tetRowSub{
+  margin-top: 4px;
+  font-size: 11px;
+  letter-spacing: 2px;
+  text-transform: uppercase;
+  opacity: .55;
+  font-weight: 700;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+
+/* ── Right badge / lock ──────────────────────────────────────────────────── */
+.tetRowBadge{
+  flex-shrink: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 0 22px;
+  min-width: 70px;
+  gap: 2px;
+}
+.tetBadgeNum{
+  font-size: clamp(20px, 3.5vh, 30px);
+  font-weight: 1000;
+  letter-spacing: 1px;
+  color: rgba(var(--rc), 0.9);
+  line-height: 1;
+}
+.tetBadgeLabel{
+  font-size: 9px;
+  letter-spacing: 2px;
+  font-weight: 900;
+  text-transform: uppercase;
+  opacity: .55;
+}
+.tetRowBadgeTier .tetBadgeNum{ font-size: clamp(14px, 2.2vh, 20px); }
+.tetRowBadgeWins .tetBadgeNum{ color: #4dff90; }
+.tetRowLock{
+  padding: 0 22px;
+  font-size: 22px;
+  opacity: .45;
+  flex-shrink: 0;
+}
+
+
+/* ── Accent colour variants ──────────────────────────────────────────────── */
+.tetRowRed    { --rc: 255, 80, 100;   --rbg: 28, 14, 18; }
+.tetRowOrange { --rc: 255, 140, 50;   --rbg: 28, 18, 10; }
+.tetRowYellow { --rc: 255, 210, 60;   --rbg: 26, 22, 8;  }
+.tetRowGreen  { --rc: 60, 220, 120;   --rbg: 10, 24, 16; }
+.tetRowBlue   { --rc: 80, 170, 255;   --rbg: 10, 16, 28; }
+.tetRowCyan   { --rc: 0, 220, 240;    --rbg: 6, 22, 26;  }
+.tetRowPurple { --rc: 180, 100, 255;  --rbg: 18, 10, 28; }
+.tetRowPeach  { --rc: 255, 170, 120;  --rbg: 28, 16, 10; }
+.tetRowDanger { --rc: 255, 64, 96;    --rbg: 28, 8, 12;  }
+.tetRowMuted  { --rc: 180, 190, 210;  --rbg: 18, 20, 26; }
+
+
+/* ── Online dot (welcome / channel) ─────────────────────────────────────── */
+.tetOnlineDot{
+  display: inline-block;
+  width: 16px; height: 16px;
+  border-radius: 50%;
+  background: radial-gradient(circle at 35% 35%, #4dff90, #00c864);
+  box-shadow: 0 0 18px rgba(77,255,144,0.7), 0 0 32px rgba(77,255,144,0.35);
+  animation: tetPulse 2s ease-in-out infinite;
+}
+@keyframes tetPulse{
+  0%,100%{ box-shadow: 0 0 18px rgba(77,255,144,0.7), 0 0 32px rgba(77,255,144,0.35); }
+  50%{ box-shadow: 0 0 28px rgba(77,255,144,0.95), 0 0 48px rgba(77,255,144,0.5); }
+}
+.tetMemberName{ color: #4dff90; font-weight: 900; }
+
+
+/* ── Bottom status bar ───────────────────────────────────────────────────── */
+.tetBottomBar{
+  position: fixed;
+  left: 0; right: 0; bottom: 0;
+  height: 38px;
+  z-index: 25;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 16px;
+  background: rgba(4,4,10,0.88);
+  border-top: 1px solid rgba(255,255,255,0.07);
+  backdrop-filter: blur(10px);
+}
+.tetBottomText{
+  font-size: 11px;
+  font-weight: 900;
+  letter-spacing: 2px;
+  text-transform: uppercase;
+  opacity: .65;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  min-width: 0;
+}
+.tetBottomRight{
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-shrink: 0;
+  margin-left: 14px;
+}
+.tetBottomLogo{
+  width: 22px; height: 22px;
+  object-fit: contain;
+  opacity: .5;
+}
+.tetBottomMadeBy{
+  height: 18px;
+  width: auto;
+  object-fit: contain;
+  opacity: .4;
+}
+.tetBottomMadeByText{
+  font-size: 10px;
+  font-weight: 900;
+  letter-spacing: 2px;
+  text-transform: uppercase;
+  opacity: .4;
+}
+
+
+/* ── Responsive tweaks ───────────────────────────────────────────────────── */
+@media (max-width: 600px){
+  .tetRowGlyph{ width: 64px; min-height: 70px; font-size: 20px; }
+  .tetRow{ min-height: 70px; }
+  .tetRowTitle{ font-size: 16px; letter-spacing: 1.5px; }
+  .tetRowSub{ font-size: 10px; letter-spacing: 1.2px; }
+  .tetBadgeNum{ font-size: 18px; }
+}
+@media (max-height: 600px){
+  .tetRow{ min-height: 62px; }
+  .tetRowGlyph{ min-height: 62px; }
+  .tetShell{ padding-bottom: 50px; }
 }
 
 </style>
