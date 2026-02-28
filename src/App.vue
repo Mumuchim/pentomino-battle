@@ -3119,7 +3119,7 @@ async function setupRealtimeLobby(lobbyId) {
       .on(
         "postgres_changes",
         { event: "UPDATE", schema: "public", table: "pb_lobbies", filter: `id=eq.${lobbyId}` },
-        (payload) => {
+        async (payload) => {
           try {
             const row = payload?.new;
             if (!row) return;
