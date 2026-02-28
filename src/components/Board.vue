@@ -63,24 +63,20 @@
           />
         </div>
       </div>
+
+      <!-- Illegal placement toast — floats over the board -->
+      <div v-if="warningMessage" class="boardWarnToast" role="status" aria-live="polite">
+        <span class="warnIcon" aria-hidden="true">⚠</span>
+        <span class="warnText">{{ warningMessage }}</span>
+      </div>
     </div>
 
     <div class="legend">
       <span class="legendItem"><span class="swatch ok"></span> OK</span>
       <span class="legendItem"><span class="swatch bad"></span> BAD</span>
-
-      <span v-if="game.phase === 'draft'" class="legendItem muted">
-        Click a piece to draft — it’ll fly to the player tray.
-      </span>
-      <span v-else class="legendItem muted">
-        Drop or click. (Q rotate, E flip) · Mobile: drag ghost to reposition.
-      </span>
     </div>
 
-    <div v-if="warningMessage" class="warning" role="status" aria-live="polite">
-      <span class="warnIcon" aria-hidden="true">⚠</span>
-      <span class="warnText">{{ warningMessage }}</span>
-    </div>
+
   </div>
 
   <!-- ── Mobile action bar: fixed at bottom, outside board layout flow ── -->
@@ -1032,7 +1028,7 @@ function ghostBlockStyle(b) {
 }
 
 .legend {
-  margin-top: 14px;
+  margin-top: 8px;
   display: flex;
   gap: 14px;
   opacity: 0.92;
@@ -1048,35 +1044,42 @@ function ghostBlockStyle(b) {
 .swatch.ok { background: rgba(0,255,170,0.60); }
 .swatch.bad { background: rgba(255,80,120,0.60); }
 
-.warning {
+.boardWarnToast {
+  position: absolute;
+  bottom: 14px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 20;
   display: inline-flex;
   align-items: center;
-  gap: 10px;
-  padding: 10px 12px;
+  gap: 8px;
+  padding: 9px 14px;
   border-radius: 12px;
-  background: rgba(10, 10, 14, 0.72);
-  border: 1px solid rgba(255, 120, 150, 0.22);
+  background: rgba(10, 10, 14, 0.88);
+  border: 1px solid rgba(255, 120, 150, 0.28);
   box-shadow:
-    0 12px 26px rgba(0,0,0,0.55),
-    0 0 16px rgba(255, 80, 120, 0.10);
-  color: rgba(255, 160, 175, 0.95);
+    0 8px 22px rgba(0,0,0,0.65),
+    0 0 14px rgba(255, 80, 120, 0.12);
+  color: rgba(255, 160, 175, 0.96);
   font-weight: 900;
   letter-spacing: 0.02em;
-  animation: warnPop 170ms ease;
+  white-space: nowrap;
+  animation: warnPop 160ms ease;
+  pointer-events: none;
 }
 .warnIcon {
-  width: 22px;
-  height: 22px;
+  width: 20px;
+  height: 20px;
   display: grid;
   place-items: center;
-  border-radius: 8px;
-  background: rgba(255, 80, 120, 0.14);
-  border: 1px solid rgba(255, 80, 120, 0.22);
+  border-radius: 7px;
+  background: rgba(255, 80, 120, 0.16);
+  border: 1px solid rgba(255, 80, 120, 0.24);
 }
-.warnText { font-size: 13px; opacity: 0.95; }
+.warnText { font-size: 12px; opacity: 0.95; }
 @keyframes warnPop {
-  from { transform: translateY(-4px); opacity: 0; }
-  to   { transform: translateY(0); opacity: 1; }
+  from { transform: translateX(-50%) translateY(6px); opacity: 0; }
+  to   { transform: translateX(-50%) translateY(0); opacity: 1; }
 }
 
 /* ── Ghost overlay staged style (pendingPlace) ── */

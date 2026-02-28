@@ -1,21 +1,5 @@
 <template>
   <div class="controls">
-    <div class="row">
-      <div class="label">Selected:</div>
-      <div class="value">
-        <b>{{ game.selectedPieceKey || "None" }}</b>
-      </div>
-    </div>
-
-    <div v-if="game.selectedPieceKey" class="previewRow">
-      <PiecePreview
-        :pieceKey="game.selectedPieceKey"
-        :rotation="game.rotation"
-        :flipped="game.flipped"
-        :cell="16"
-      />
-    </div>
-
     <div class="row buttons">
       <button class="btn hideOnMobile" :disabled="!game.selectedPieceKey || !props.canAct" @click="game.rotateSelected()">
         Rotate (Q)
@@ -55,7 +39,6 @@
 <script setup>
 import { computed, onMounted, onBeforeUnmount } from "vue";
 import { useGameStore } from "../store/game";
-import PiecePreview from "./PiecePreview.vue";
 import { playBuzz } from "../lib/sfx";
 
 const props = defineProps({
@@ -130,11 +113,6 @@ onBeforeUnmount(() => window.removeEventListener("keydown", onKeyDown));
   align-items: center;
   margin: 8px 0;
 }
-
-.label { width: 86px; opacity: 0.75; }
-.value { opacity: 0.95; }
-
-.previewRow { margin: 10px 0; }
 
 .buttons { gap: 8px; flex-wrap: wrap; }
 
