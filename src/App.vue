@@ -162,7 +162,7 @@
       <!-- ══════════════════════════════════════════════════════════
            WELCOME / AUTH
       ═══════════════════════════════════════════════════════════ -->
-      <section v-if="screen === 'auth'" class="tetShell">
+      <section v-if="screen === 'auth'" class="tetShell tetShellRight">
         <div class="tetWelcome">
           <div class="tetBrand">
             <template v-if="useSplitBrandPng">
@@ -9137,10 +9137,6 @@ onBeforeUnmount(() => {
   margin-right: 0;
   padding-right: 0;
 }
-/* Rows in right-anchored shell: flush to right edge, no right border-radius */
-.tetShellRight .tetRows > .tetRow:first-child{ border-radius: 10px 0 0 0; }
-.tetShellRight .tetRows > .tetRow:last-child{ border-radius: 0 0 0 10px; }
-.tetShellRight .tetRows > .tetRow:only-child{ border-radius: 10px 0 0 10px; }
 
 
 /* ── Welcome brand block ──────────────────────────────────────────────────── */
@@ -9187,7 +9183,7 @@ onBeforeUnmount(() => {
 .tetRows{
   display: flex;
   flex-direction: column;
-  gap: 3px;
+  gap: 0;
   padding-top: 8px;
 }
 /* In right-anchored shell, rows get a left indent that slides away on hover */
@@ -9227,12 +9223,18 @@ onBeforeUnmount(() => {
   border-bottom: 1px solid rgba(0,0,0,0.35);
 }
 
-/* First row: rounded top */
+/* First row: rounded top-left only (right-shell) or full top */
 .tetRows > .tetRow:first-child{ border-radius: 10px 10px 0 0; }
-/* Last row: rounded bottom */
+/* Last row: rounded bottom, no separator line */
 .tetRows > .tetRow:last-child{ border-radius: 0 0 10px 10px; border-bottom: none; }
 /* Single row: fully rounded */
 .tetRows > .tetRow:only-child{ border-radius: 10px; }
+
+/* Override for right-shell: tiles flush to right edge */
+.tetShellRight .tetRows > .tetRow{ border-radius: 0; }
+.tetShellRight .tetRows > .tetRow:first-child{ border-radius: 10px 0 0 0; }
+.tetShellRight .tetRows > .tetRow:last-child{ border-radius: 0 0 0 10px; border-bottom: none; }
+.tetShellRight .tetRows > .tetRow:only-child{ border-radius: 10px 0 0 10px; }
 
 .tetRow:hover{
   filter: brightness(1.18) saturate(1.2);
