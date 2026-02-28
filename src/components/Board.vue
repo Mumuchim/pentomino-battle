@@ -71,10 +71,7 @@
       </div>
     </div>
 
-    <div class="legend">
-      <span class="legendItem"><span class="swatch ok"></span> OK</span>
-      <span class="legendItem"><span class="swatch bad"></span> BAD</span>
-    </div>
+
 
 
   </div>
@@ -796,7 +793,7 @@ function ghostBlockStyle(b) {
 .boardWrap {
   display: flex;
   flex-direction: column;
-  gap: 14px;
+  gap: 0;
   /* Let the board consume all remaining space in the right panel */
   flex: 1 1 auto;
   min-height: 0;
@@ -1027,22 +1024,10 @@ function ghostBlockStyle(b) {
   );
 }
 
-.legend {
-  margin-top: 8px;
-  display: flex;
-  gap: 14px;
-  opacity: 0.92;
-  font-size: 13px;
-  flex-wrap: wrap;
-}
-.legendItem { display: flex; align-items: center; gap: 8px; }
-.muted { opacity: 0.7; }
-.swatch {
-  width: 14px; height: 14px; border-radius: 4px;
-  border: 1px solid rgba(255,255,255,0.18);
-}
-.swatch.ok { background: rgba(0,255,170,0.60); }
-.swatch.bad { background: rgba(255,80,120,0.60); }
+
+
+
+
 
 .boardWarnToast {
   position: absolute;

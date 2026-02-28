@@ -727,10 +727,16 @@
                 {{ modeLabel }}
                 <span v-if="isOnline && myPlayer" class="hudYouInline">· YOU P{{ myPlayer }}</span>
               </span>
+
+              <!-- OK / BAD legend dots -->
+              <span v-if="isInGame" class="hudLegend">
+                <span class="hudLegendItem"><span class="hudSwatch ok"></span> OK</span>
+                <span class="hudLegendItem"><span class="hudSwatch bad"></span> BAD</span>
+              </span>
+
               <span v-if="game.phase === 'place'" class="hudControlsHint">
                 <b>Q</b> Rotate &nbsp;·&nbsp; <b>E</b> Flip
               </span>
-
             </div>
 
           </div>
@@ -6562,6 +6568,29 @@ onBeforeUnmount(() => {
 .hudYouInline{
   opacity: .7;
 }
+.hudLegend{
+  display: flex;
+  gap: 10px;
+  align-items: center;
+}
+.hudLegendItem{
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 11px;
+  font-weight: 900;
+  letter-spacing: 0.8px;
+  opacity: .65;
+  white-space: nowrap;
+}
+.hudSwatch{
+  width: 10px;
+  height: 10px;
+  border-radius: 3px;
+  border: 1px solid rgba(255,255,255,0.16);
+}
+.hudSwatch.ok  { background: rgba(0,255,170,0.70); }
+.hudSwatch.bad { background: rgba(255,80,120,0.70); }
 .hudControlsHint{
   margin-left: auto;
   font-size: 11px;
