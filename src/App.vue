@@ -840,7 +840,14 @@
 
         <!-- Message lines -->
         <div class="rmBody">
-          <p v-for="(line, i) in modalLines" :key="i" class="rmMsg">{{ line }}</p>
+          <template v-for="(line, i) in modalLines" :key="i">
+            <p
+              v-if="modal.diffTier !== null && line.startsWith('Difficulty:')"
+              class="rmMsg rmDiffBadge"
+              :class="'rmDiffTier' + modal.diffTier"
+            >{{ line }}</p>
+            <p v-else class="rmMsg">{{ line }}</p>
+          </template>
         </div>
 
         <!-- Actions -->
@@ -1787,6 +1794,7 @@ const modal = reactive({
   tone: "info", // "info" | "bad" | "good" | "victory"
   actions: [],
   locked: false,
+  diffTier: null, // null | 0-4 — AI difficulty tier for styled badge
 });
 
 const modalLines = computed(() => String(modal.message || "").split("\n").filter(Boolean));
@@ -1899,10 +1907,11 @@ function copyLobbyCode() {
   copyToClipboard(online.code);
 }
 
-function showModal({ title = "Notice", message = "", tone = "info", actions = null, locked = false } = {}) {
+function showModal({ title = "Notice", message = "", tone = "info", actions = null, locked = false, diffTier = null } = {}) {
   modal.title = title;
   modal.message = message;
   modal.tone = tone;
+  modal.diffTier = diffTier;
   // If actions is explicitly provided as an array (even empty), respect it.
   // If actions is null/undefined, default to a single OK button.
   if (Array.isArray(actions)) modal.actions = actions;
@@ -3581,11 +3590,13 @@ watch(
           ];
         }
 
+        const diffTierVal = { dumbie:0, elite:1, tactician:2, grandmaster:3, legendary:4 }[aiDifficulty.value] ?? null;
         showModal({
           title,
           message: `${winnerMessage(w ?? "?")} \nDifficulty: ${diffLabel}`,
           tone,
           actions,
+          diffTier: diffTierVal,
         });
         return;
       }
@@ -5716,6 +5727,59 @@ onBeforeUnmount(() => {
   font-size: 13px;
 }
 .rmMsg:last-child{ margin-bottom: 0; }
+
+/* ── Difficulty tier badge in result modal ── */
+.rmDiffBadge{
+  display: inline-block;
+  padding: 5px 18px;
+  border-radius: 999px;
+  font-size: 13px;
+  font-weight: 900;
+  letter-spacing: 1.4px;
+  opacity: 1;
+  border: 1.5px solid rgba(255,255,255,0.18);
+  background: rgba(0,0,0,0.25);
+  margin-top: 2px;
+  text-transform: uppercase;
+}
+/* Tier 0 – Dumbie: silver mist */
+.rmDiffTier0{ border-color: rgba(180,190,220,0.35); color: rgba(200,210,240,0.9); box-shadow: 0 0 12px rgba(180,190,220,0.08); }
+/* Tier 1 – Elite: cyan */
+.rmDiffTier1{
+  border-color: rgba(80,170,255,0.5);
+  background: linear-gradient(90deg, rgba(80,170,255,1), rgba(140,220,255,1));
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+  box-shadow: 0 0 16px rgba(80,170,255,0.22), inset 0 0 0 1.5px rgba(80,170,255,0.3);
+}
+/* Tier 2 – Tactician: purple */
+.rmDiffTier2{
+  border-color: rgba(160,80,255,0.5);
+  background: linear-gradient(90deg, rgba(160,80,255,1), rgba(210,140,255,1));
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+  box-shadow: 0 0 16px rgba(160,80,255,0.22), inset 0 0 0 1.5px rgba(160,80,255,0.3);
+}
+/* Tier 3 – Grandmaster: orange/gold */
+.rmDiffTier3{
+  border-color: rgba(255,160,40,0.5);
+  background: linear-gradient(90deg, rgba(255,140,40,1), rgba(255,210,80,1));
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+  box-shadow: 0 0 16px rgba(255,160,40,0.25), inset 0 0 0 1.5px rgba(255,160,40,0.3);
+}
+/* Tier 4 – Legendary: red/crimson */
+.rmDiffTier4{
+  border-color: rgba(255,40,80,0.5);
+  background: linear-gradient(90deg, rgba(255,40,80,1), rgba(255,120,80,1));
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+  box-shadow: 0 0 16px rgba(255,40,80,0.28), inset 0 0 0 1.5px rgba(255,40,80,0.3);
+}
 
 .rmActions{
   display: flex;
