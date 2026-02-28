@@ -3571,7 +3571,7 @@ watch(
         const humanWon = w === humanPlayer.value;
         const aiWon = w === aiPlayer.value;
         let newStageUnlocked = false;
-        if (humanWon) { aiScore.p1++; newStageUnlocked = tryUnlockNextDifficulty(1, 1); }
+        if (humanWon) { aiScore.p1++; newStageUnlocked = tryUnlockNextDifficulty(humanPlayer.value, humanPlayer.value); }
         else if (aiWon) aiScore.p2++;
 
         // If a new stage was just unlocked, skip the victory modal entirely.
