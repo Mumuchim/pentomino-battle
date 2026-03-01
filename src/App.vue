@@ -2962,6 +2962,11 @@ function buildSyncedState(meta = {}) {
       timeoutPendingAt: game.timeoutPendingAt,
       timeoutPendingPlayer: game.timeoutPendingPlayer,
 
+      // Draft grace window — sync so both clients share the same pending-dodge state.
+      // If the opponent already entered the grace window, receiving client inherits it
+      // rather than restarting the window from scratch on the next poll.
+      draftTimeoutPendingAt: game.draftTimeoutPendingAt,
+
       // Needed for correct gameover messaging (surrender / timeout) across both clients.
       lastMove: deepClone(game.lastMove),
 
@@ -3037,6 +3042,10 @@ function applySyncedState(state) {
       // cancelling any grace-period countdown we had started locally.
       timeoutPendingAt: g.timeoutPendingAt,
       timeoutPendingPlayer: g.timeoutPendingPlayer,
+
+      // Inherit the draft grace window from the remote snapshot.
+      // If remote is null (opponent picked successfully), this cancels our local window too.
+      draftTimeoutPendingAt: g.draftTimeoutPendingAt ?? null,
 
       lastMove: g.lastMove,
 
@@ -5546,9 +5555,17 @@ onMounted(() => {
       //   • Winner pushes immediately (they have no incentive to delay)
       //   • Loser acts as a 3-second fallback push in case the winner is briefly offline
       //   • confirmTimeoutWithServer() still validates before either push lands
+      // Push strategy depends on termination type:
+      // PLACE timeout: winner pushes at 0ms, loser is 3s fallback.
+      // DRAFT dodge:   opponent (non-dodger) pushes at 0ms — they have no incentive
+      //                to delay. The dodger waits 3s as fallback so a clutch last-second
+      //                pick has time to arrive and cancel via confirmTimeoutWithServer().
       const localMoveSeq = Number(game.moveSeq || 0);
-      const iAmWinner    = myPlayer.value === game.winner;
-      const pushDelay    = iAmWinner ? 0 : 3000;
+      const isDodge    = game.lastMove?.type === "dodged";
+      const iAmDodger  = isDodge && myPlayer.value === game.lastMove?.player;
+      const iAmWinner  = !isDodge && myPlayer.value === game.winner;
+      // Opponent/winner pushes immediately; dodger/loser waits 3s as fallback.
+      const pushDelay  = (iAmDodger || (!isDodge && !iAmWinner)) ? 3000 : 0;
 
       setTimeout(async () => {
         // Abort if the match was resolved another way while we were waiting
