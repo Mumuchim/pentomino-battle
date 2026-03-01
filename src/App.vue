@@ -2667,19 +2667,32 @@ async function sbCreateLobby({ isPrivate = false, lobbyName = "", extraStateMeta
 async function sbJoinLobby(lobbyId) {
   const guestId = await getGuestId();
 
-  // ✅ Guard join so you can't join closed/full/expired lobbies.
+  // Guard join so you can't join closed/full/expired lobbies.
   // This PATCH will only succeed if the lobby is still waiting and has no guest.
-  // ✅ FIX (Bug 2): Also clear the game state (state.game) when joining.
-  // A QM lobby reused from a stale session could have old state.game.phase="gameover"
-  // or old state.meta.players. Clearing the game sub-state ensures ensureOnlineInitialized
-  // runs a fresh init instead of bailing out due to stale meta.players.
-  // NOTE: We preserve state.meta (host config like timerMinutes, kind, heartbeat).
+  //
+  // FIX (Bug 2 - root cause): Clear ALL stale session data when a new guest joins.
+  //
+  // The core problem: a QM host lobby may carry meta.players / game state from a
+  // PREVIOUS session (previous game ended without full cleanup). When a new guest
+  // joins and meta.players is already set, ensureOnlineInitialized returns early
+  // ("if (hasPlayers) return"), so the game is never re-initialized. Both players
+  // end up applying the OLD state (gameover, old board) and get stuck.
+  //
+  // The fix: wipe ALL session-specific state on join (players, round, roundSeed,
+  // started_at, qmAccept, etc.) and keep ONLY permanent lobby config.
+  // After this, hasPlayers=false, so ensureOnlineInitialized runs a fresh init.
   let clearStateBody;
   try {
-    // Fetch current state to preserve meta while clearing game
     const existing = await sbSelectLobbyById(lobbyId);
-    const existingMeta = existing?.state?.meta || {};
-    clearStateBody = { state: { meta: existingMeta, game: {} } };
+    const m = existing?.state?.meta || {};
+    // Only preserve permanent lobby config, drop all previous-session data
+    const cleanMeta = {};
+    if (m.kind         !== undefined) cleanMeta.kind         = m.kind;
+    if (m.timerMinutes !== undefined) cleanMeta.timerMinutes = m.timerMinutes;
+    if (m.hidden       !== undefined) cleanMeta.hidden       = m.hidden;
+    // Note: heartbeat is intentionally NOT preserved - it gets a fresh write on first poll
+    // Note: players, round, roundSeed, started_at, qmAccept are all cleared
+    clearStateBody = { state: { meta: cleanMeta, game: {} } };
   } catch {
     clearStateBody = { state: { meta: {}, game: {} } };
   }
@@ -2690,7 +2703,6 @@ async function sbJoinLobby(lobbyId) {
     body: JSON.stringify({
       guest_id: guestId,
       // Keep status as 'waiting' until the match is fully initialized (players assigned).
-      // This avoids edge cases where clients treat unknown statuses differently.
       status: "waiting",
       updated_at: new Date().toISOString(),
       ...clearStateBody,
@@ -2906,6 +2918,11 @@ function buildSyncedState(meta = {}) {
 
 function applySyncedState(state) {
   if (!state || !state.game) return;
+
+  // ✅ FIX: Skip applying a state with no phase — this means the game slot was just
+  // cleared (e.g., by sbJoinLobby wiping game:{}) and has no real data yet.
+  // Applying an empty game object would clobber local state with undefined fields.
+  if (!state.game.phase) return;
 
   // ✅ Anti-clobber (stronger): never apply an older move sequence.
   // This prevents the visible “snap back” where an older remote snapshot briefly overwrites
@@ -3150,16 +3167,11 @@ async function ensureOnlineInitialized(lobby) {
   if (!lobby) return;
 
   const hasPlayers = !!lobby?.state?.meta?.players;
-  const gamePhase = lobby?.state?.game?.phase;
 
-  // ✅ FIX (Bug 2 & 4): Allow re-initialization when a stale/completed game is detected.
-  // Previously: ANY lobby with meta.players caused an early return, even one with
-  // phase="gameover" from a previous session. This caused:
-  //   - Guest sees old GAME OVER state (Bug 2)
-  //   - Host repeatedly calls game.resetGame() since applySyncedState keeps getting
-  //     the old gameover state every poll cycle (Bug 4 — draft board reshuffling)
-  // Fix: only skip init if game is CURRENTLY ACTIVE (not ended).
-  if (hasPlayers && gamePhase && gamePhase !== "gameover") return;
+  // ✅ FIX (Bug 2): The stale-session problem is handled UPSTREAM in sbJoinLobby,
+  // which now clears meta.players before a new guest joins. So hasPlayers=true here
+  // means the game is GENUINELY initialized for the current session. Do not re-init.
+  if (hasPlayers) return;
 
   if (!lobby.host_id || !lobby.guest_id) return;
 
