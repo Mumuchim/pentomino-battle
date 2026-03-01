@@ -891,7 +891,7 @@
               </label>
             </div>
 
-            <div class="vsStyleFinePrint">Board is fixed to <b>10×6</b>. Tip: Q rotate · E flip</div>
+            <div class="vsStyleFinePrint">Default board: <b>10×6</b> (Mirror War uses 20×12). Tip: Q rotate · E flip</div>
           </div>
         </div>
       </section>
@@ -969,8 +969,8 @@
               </div>
             </div>
 
-            <!-- ── DUAL CLOCKS: online + AI only (couch/puzzle have no timers) ── -->
-            <div v-if="game.phase === 'place' && screen !== 'couch' && screen !== 'puzzle'" class="hudGrid hudClocks">
+            <!-- ── DUAL CLOCKS: online + AI + couch MW/BD (not normal couch or puzzle) ── -->
+            <div v-if="game.phase === 'place' && screen !== 'puzzle' && !(screen === 'couch' && couchMode === 'normal')" class="hudGrid hudClocks">
               <div
                 class="hudStat timer p1"
                 :class="{
@@ -2204,6 +2204,7 @@ const quick = reactive({
 const qmPickerOpen = ref(false);
 const lobbyModeOption = ref("normal"); // "normal" | "mirror_war" | "blind_draft"
 const couchPickerOpen = ref(false);
+const couchMode = ref("normal"); // "normal" | "mirror_war" | "blind_draft"
 
 const rankedTier = computed(() => {
   if (!loggedIn.value) return "—";
@@ -2566,7 +2567,10 @@ const modeLabel = computed(() => {
     const roundStr = aiRound.value > 1 ? ` · R${aiRound.value}` : '';
     return `VS AI · ${labels[aiDifficulty.value] || "Dumbie"}${roundStr}`;
   }
-  return screen.value === "couch" ? "Couch Play"
+  return screen.value === "couch"
+       ? couchMode.value === "mirror_war"  ? "MIRROR WAR — Couch"
+       : couchMode.value === "blind_draft" ? "BLIND DRAFT — Couch"
+       : "Couch Play"
        : screen.value === "puzzle" ? "Puzzle Mode"
        : screen.value === "online"
            ? online.matchKind === "mirror_war"  ? "MIRROR WAR — Full Arsenal"
@@ -2747,8 +2751,9 @@ const timerHud = computed(() => {
   if (!isInGame.value) return null;
   if (game.phase === "gameover") return null;
   if (isOnline.value && !myPlayer.value) return null;
-  // No timers for couch play or puzzle mode
-  if (screen.value === 'couch' || screen.value === 'puzzle') return null;
+  // No timers for normal couch play or puzzle mode
+  if (screen.value === 'puzzle') return null;
+  if (screen.value === 'couch' && couchMode.value === 'normal') return null;
 
   // Draft timer (countdown)
   if (game.phase === "draft") {
@@ -3567,7 +3572,8 @@ function buildSyncedState(meta = {}) {
       allowFlip: game.allowFlip,
 
       board: deepClone(game.board),
-      draftBoard: deepClone(game.draftBoard),
+      // Only sync draftBoard during draft phase — skip for MW/BD which never draft
+      draftBoard: game.phase === 'draft' ? deepClone(game.draftBoard) : null,
 
       draftTurn: game.draftTurn,
       currentPlayer: game.currentPlayer,
@@ -3645,7 +3651,8 @@ function applySyncedState(state) {
       allowFlip: g.allowFlip,
 
       board: g.board,
-      draftBoard: g.draftBoard,
+      // Only overwrite draftBoard if the remote actually sent one (draft phase only)
+      ...(g.draftBoard !== null && g.draftBoard !== undefined ? { draftBoard: g.draftBoard } : {}),
 
       draftTurn: g.draftTurn,
       currentPlayer: g.currentPlayer,
@@ -4503,24 +4510,19 @@ watch(
 ========================= */
 async function onResetClick() {
   if (!isOnline.value || !online.lobbyId) {
-    game.resetGame();
+    if (couchMode.value === "mirror_war") {
+      startCouchMirrorWar();
+    } else if (couchMode.value === "blind_draft") {
+      startCouchBlindDraft();
+    } else {
+      game.resetGame();
+    }
     return;
   }
 
   // Prefer a single author for round resets to avoid version fights.
-  // Host resets the round; guest simply waits for the new state.
+  // Host resets the round; guest simply waits for the new state to arrive via polling.
   if (online.role !== "host") {
-    const guestKind = String(online.matchKind || "");
-    game.allowFlip = allowFlip.value;
-    if (guestKind === "mirror_war") {
-      game.startPlacementDirect(ALL_PIECE_KEYS, ALL_PIECE_KEYS, 20, 12);
-    } else if (guestKind === "blind_draft") {
-      const seed = makeRoundSeed();
-      const { picks1, picks2 } = randomSplitPieces(ALL_PIECE_KEYS, hashSeedToUint32(seed));
-      game.startPlacementDirect(picks1, picks2, 10, 6);
-    } else {
-      game.resetGame();
-    }
     return;
   }
 
@@ -6401,6 +6403,7 @@ const canUndo = computed(() => Array.isArray(game.history) && game.history.lengt
 function startCouchPlay() {
   stopPolling();
   myPlayer.value = null;
+  couchMode.value = "normal";
   screen.value = "couch";
   game.boardW = 10;
   game.boardH = 6;
@@ -6413,6 +6416,7 @@ function startCouchPlay() {
 function startCouchMirrorWar() {
   stopPolling();
   myPlayer.value = null;
+  couchMode.value = "mirror_war";
   game.boardW = 20;
   game.boardH = 12;
   game.allowFlip = true;
@@ -6427,21 +6431,23 @@ function startCouchMirrorWar() {
 function startCouchBlindDraft() {
   stopPolling();
   myPlayer.value = null;
+  couchMode.value = "blind_draft";
   const seed = Math.floor(Math.random() * 0xFFFFFFFF);
   const { picks1, picks2 } = randomSplitPieces(ALL_PIECE_KEYS, seed);
   game.boardW = 10;
   game.boardH = 6;
   game.allowFlip = true;
   game.startPlacementDirect(picks1, picks2, 10, 6);
-  screen.value = "couch";
   couchPickerOpen.value = false;
-  tryPlayGameBgm();
-  // Inform couch players of their piece assignments
+  // Show piece split BEFORE entering the game screen so both players can read their pieces
   showModal({
     title: "Blind Draft — Piece Split",
     tone: "info",
     message: `P1 gets: ${picks1.join(" ")}  ·  P2 gets: ${picks2.join(" ")}`,
-    actions: [{ label: "LET'S GO", tone: "primary" }],
+    actions: [{ label: "LET'S GO", tone: "primary", onClick: () => {
+      screen.value = "couch";
+      tryPlayGameBgm();
+    }}],
   });
 }
 
@@ -6891,7 +6897,15 @@ onMounted(() => {
         }
       }
     }
-    // Couch mode: no timers, skip all clock logic
+
+    // Couch MW / BD: tick the battle clock (normal couch has no timer)
+    if (screen.value === 'couch' && (couchMode.value === 'mirror_war' || couchMode.value === 'blind_draft')) {
+      if (game.phase === 'place') {
+        game.tickBattleClock(Date.now());
+      }
+    }
+
+    // Couch normal mode: no timers, skip all clock logic
 
     if (!isOnline.value) return;
     if (!myPlayer.value) return;

@@ -399,8 +399,14 @@ export const useGameStore = defineStore("game", {
       this.history = [];
 
       // ✅ rebuild solved draft puzzle (randomized)
-      this.draftBoard = computeDraftTiling(this.boardW, this.boardH, this.allowFlip, true)
-        .map(row => row.map(cell => (cell ? { pieceKey: cell.pieceKey } : null)));
+      // Guard: only run solver when pieces exactly tile the board (normal 10×6 mode).
+      const _resetTotalCells = this.boardW * this.boardH;
+      const _resetPieceCells = (this.picks[1].length + this.picks[2].length) * 5;
+      const _resetCanTile = _resetTotalCells === _resetPieceCells;
+      this.draftBoard = _resetCanTile
+        ? computeDraftTiling(this.boardW, this.boardH, this.allowFlip, true)
+            .map(row => row.map(cell => (cell ? { pieceKey: cell.pieceKey } : null)))
+        : makeEmptyDraftBoard(this.boardW, this.boardH);
 
       // keep announcer consistent during draft
       this.currentPlayer = this.draftTurn;
@@ -725,9 +731,17 @@ export const useGameStore = defineStore("game", {
 
       this.board = makeEmptyBoard(w, h);
 
-      // Rebuild draftBoard for new dimensions (board component still reads it)
-      this.draftBoard = computeDraftTiling(w, h, this.allowFlip, false)
-        .map(row => row.map(cell => (cell ? { pieceKey: cell.pieceKey } : null)));
+      // Rebuild draftBoard for new dimensions (board component still reads it).
+      // Guard: only run the solver when the pieces exactly tile the board.
+      // For Mirror War (20×12 = 240 cells, 24 picks × 5 = 120 ≠ 240) the board
+      // cannot be tiled — calling the backtracker would hang the browser tab.
+      const totalCells = w * h;
+      const totalPieceCells = (picks1.length + picks2.length) * 5;
+      const canTile = totalCells === totalPieceCells;
+      this.draftBoard = canTile
+        ? computeDraftTiling(w, h, this.allowFlip, false)
+            .map(row => row.map(cell => (cell ? { pieceKey: cell.pieceKey } : null)))
+        : makeEmptyDraftBoard(w, h);
 
       // Reset clocks
       const initSec = this.battleClockInitSec || 180;
