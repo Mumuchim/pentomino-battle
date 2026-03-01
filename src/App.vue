@@ -10216,6 +10216,8 @@ onBeforeUnmount(() => {
   align-items: flex-start;
   justify-content: center;
   min-width: 0;
+  padding-top: clamp(12px, 2vh, 32px);
+  padding-bottom: clamp(12px, 2vh, 32px);
 }
 
 /* Buttons container — extends past right edge for bleed effect */
