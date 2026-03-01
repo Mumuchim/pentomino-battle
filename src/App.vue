@@ -9812,7 +9812,7 @@ onBeforeUnmount(() => {
   flex-direction: column;
   gap: 12px;
   margin-right: -60px; /* bleed past viewport right */
-  width: clamp(340px, 55vw, 760px);
+  width: calc(100% + 60px); /* fill parent column + bleed amount, works at any viewport width */
 }
 .hpBtn {
   background: none;
@@ -10224,7 +10224,7 @@ onBeforeUnmount(() => {
   flex-direction: column;
   gap: clamp(8px, 1.2vh, 14px);
   margin-right: -60px;
-  width: clamp(300px, 44vw, 680px);
+  width: calc(100% + 60px); /* fill parent column + bleed amount, works at any viewport width */
 }
 
 .mnBtn {
