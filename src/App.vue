@@ -411,21 +411,88 @@
           <div class="vsStyleHeader">
             <div class="vsStyleHeaderGlow"></div>
             <div class="vsStyleTitle">{{ loggedIn ? '👤 ' + displayName : '🔑 LOGIN' }}</div>
-            <div class="vsStyleSubtitle">{{ loggedIn ? 'Member · Stats · Match History' : 'Sign in or create an account' }}</div>
+            <div class="vsStyleSubtitle">{{ loggedIn ? 'Member · Stats · Ranked' : 'Sign in or create an account' }}</div>
           </div>
           <div class="vsStyleCards">
             <template v-if="loggedIn">
+              <!-- ── Ranked / LP card ─────────────────────────────────────────── -->
+              <div class="vsStyleCard pbRankedCard">
+                <div class="vsStyleCardTitle">RANKED</div>
+
+                <!-- Placing state -->
+                <template v-if="isPlacing">
+                  <div class="pbTierBadge pbTier-unranked">PLACING</div>
+                  <div class="pbPlacementRow">
+                    <span class="pbPlacementLabel">Placement matches</span>
+                    <span class="pbPlacementVal">{{ memberStats.placement_games }} / 5</span>
+                  </div>
+                  <div class="pbLpBarTrack" title="Placement progress">
+                    <div class="pbLpBarFill pbTierFill-placing"
+                         :style="{ width: (memberStats.placement_games / 5 * 100) + '%' }"></div>
+                  </div>
+                  <div class="pbPlacementHint">Complete 5 ranked matches to receive your tier.</div>
+                </template>
+
+                <!-- Fully placed state -->
+                <template v-else>
+                  <div class="pbTierBadge" :class="'pbTier-' + (memberStats.ranked_tier || 'plastic')">
+                    {{ rankedTier }}
+                  </div>
+                  <div class="pbLpRow">
+                    <span class="pbLpLabel">LP</span>
+                    <span class="pbLpValue">{{ memberStats.ranked_lp }}</span>
+                    <span class="pbLpPeak" v-if="memberStats.ranked_peak_lp > 0">
+                      Peak: {{ memberStats.ranked_peak_lp }}
+                    </span>
+                  </div>
+                  <!-- LP progress bar within current tier band -->
+                  <div class="pbLpBarTrack" :title="'Progress to ' + (memberStats.ranked_tier === 'champion' ? 'Champion' : 'next tier')">
+                    <div class="pbLpBarFill"
+                         :class="'pbTierFill-' + (memberStats.ranked_tier || 'plastic')"
+                         :style="{ width: lpBarPercent(memberStats.ranked_lp, memberStats.ranked_tier) + '%' }">
+                    </div>
+                  </div>
+                  <!-- Streak & shield badges -->
+                  <div class="pbBadgeRow">
+                    <span v-if="memberStats.win_streak >= 3" class="pbStreakBadge">
+                      🔥 {{ memberStats.win_streak }}-win streak
+                    </span>
+                    <span v-if="memberStats.demotion_shield > 0" class="pbShieldBadge">
+                      🛡 Shield ({{ memberStats.demotion_shield }})
+                    </span>
+                  </div>
+                  <!-- Ranked record -->
+                  <div class="pbRankedRecord">
+                    <span class="pbRankedW">{{ memberStats.ranked_wins }}W</span>
+                    <span class="pbRankedSep">/</span>
+                    <span class="pbRankedL">{{ memberStats.ranked_losses }}L</span>
+                    <span class="pbRankedWr" v-if="memberStats.ranked_wins + memberStats.ranked_losses > 0">
+                      · {{ Math.round(memberStats.ranked_wins / (memberStats.ranked_wins + memberStats.ranked_losses) * 100) }}% WR
+                    </span>
+                  </div>
+                </template>
+              </div>
+
+              <!-- ── Overall stats card ────────────────────────────────────────── -->
               <div class="vsStyleCard">
                 <div class="vsStyleCardTitle">STATS</div>
                 <div class="vsStyleRow"><span class="vsStyleRowLabel">Username</span><b>{{ displayName }}</b></div>
-                <div class="vsStyleRow"><span class="vsStyleRowLabel">Rank</span><b>{{ rankedTier }}</b></div>
                 <div class="vsStyleRow"><span class="vsStyleRowLabel">Wins</span><b>{{ memberStats.wins }}</b></div>
                 <div class="vsStyleRow"><span class="vsStyleRowLabel">Losses</span><b>{{ memberStats.losses }}</b></div>
                 <div class="vsStyleRow"><span class="vsStyleRowLabel">Draws</span><b>{{ memberStats.draws }}</b></div>
               </div>
-              <div class="vsStyleCard">
+
+              <!-- ── Match history shortcut ─────────────────────────────────────── -->
+              <div class="vsStyleCard mhProfileCard" @click="navTo('match-history')" style="cursor:pointer">
                 <div class="vsStyleCardTitle">MATCH HISTORY</div>
-                <div class="pbFineLine">Match history coming soon.</div>
+                <div class="mhProfileRow">
+                  <div class="mhProfileStat"><span class="mhProfileNum mhWin">{{ memberStats.wins }}</span><span class="mhProfileLbl">W</span></div>
+                  <div class="mhProfileDivider"></div>
+                  <div class="mhProfileStat"><span class="mhProfileNum mhLoss">{{ memberStats.losses }}</span><span class="mhProfileLbl">L</span></div>
+                  <div class="mhProfileDivider"></div>
+                  <div class="mhProfileStat"><span class="mhProfileNum">{{ memberStats.wins + memberStats.losses > 0 ? Math.round(memberStats.wins / (memberStats.wins + memberStats.losses) * 100) : 0 }}%</span><span class="mhProfileLbl">WR</span></div>
+                  <div class="mhProfileArrow">VIEW →</div>
+                </div>
               </div>
             </template>
             <template v-else>
@@ -441,6 +508,132 @@
               </div>
             </template>
           </div>
+        </div>
+      </section>
+
+
+      <!-- ══════════════════════════════════════════════════════════
+           MATCH HISTORY
+      ═══════════════════════════════════════════════════════════ -->
+      <section v-else-if="screen === 'match-history'" class="menuShell pbShell pbShellCentered mhScreen">
+        <div class="vsStylePanel mhPanel">
+          <!-- Header -->
+          <div class="vsStyleHeader">
+            <div class="vsStyleHeaderGlow mhHeaderGlow"></div>
+            <div class="vsStyleTitle">⚔ MATCH HISTORY</div>
+            <div class="vsStyleSubtitle">{{ loggedIn ? displayName + ' · Recent Matches' : 'Sign in to view your matches' }}</div>
+          </div>
+
+          <!-- Not logged in guard -->
+          <template v-if="!loggedIn">
+            <div class="vsStyleCard" style="text-align:center;padding:28px 18px">
+              <div class="vsStyleCardTitle">AUTH REQUIRED</div>
+              <div class="pbFineLine" style="margin-bottom:14px">Log in to access your match history.</div>
+              <button class="pbMiniBtn primary" @click="openAuthModal('login')">LOGIN</button>
+            </div>
+          </template>
+
+          <!-- Logged in -->
+          <template v-else>
+
+            <!-- Filter + summary bar -->
+            <div class="mhFilterBar">
+              <div class="mhFilterTabs">
+                <button
+                  v-for="f in mhFilters" :key="f.key"
+                  class="mhFilterTab"
+                  :class="{ active: mh.filter === f.key }"
+                  @click="mhSetFilter(f.key)"
+                >{{ f.label }}</button>
+              </div>
+              <div class="mhPageInfo" v-if="!mh.loading && mh.total > 0">
+                {{ mh.page * mhPageSize + 1 }}–{{ Math.min((mh.page + 1) * mhPageSize, mh.total) }} of {{ mh.total }}
+              </div>
+            </div>
+
+            <!-- Loading skeleton -->
+            <div v-if="mh.loading" class="mhSkeletonList">
+              <div v-for="n in 5" :key="n" class="mhSkeleton"></div>
+            </div>
+
+            <!-- Empty state -->
+            <div v-else-if="mh.items.length === 0" class="vsStyleCard mhEmpty">
+              <div class="mhEmptyIcon">🎮</div>
+              <div class="mhEmptyTitle">NO MATCHES YET</div>
+              <div class="pbFineLine">{{ mh.filter === 'all' ? 'Play an online match to see your history here.' : 'No ' + mh.filter + ' matches to show.' }}</div>
+            </div>
+
+            <!-- Match list -->
+            <div v-else class="mhList">
+              <div
+                v-for="m in mh.items"
+                :key="m.id"
+                class="mhCard"
+                :class="{ win: m.result === 'W', loss: m.result === 'L', draw: m.result === 'D', expanded: mh.expandedId === m.id }"
+                @click="mhToggleExpand(m.id)"
+              >
+                <!-- Main row -->
+                <div class="mhCardMain">
+                  <div class="mhResultBadge" :class="m.result.toLowerCase()">{{ m.result }}</div>
+                  <div class="mhCardBody">
+                    <div class="mhCardOpponent">vs <span class="mhOppName">{{ m.opponentName }}</span></div>
+                    <div class="mhCardMeta">
+                      <span class="mhMetaTag" :class="'er-' + m.end_reason">{{ mhEndReasonLabel(m.end_reason) }}</span>
+                      <span class="mhMetaDot">·</span>
+                      <span>{{ mhFormatDuration(m.duration_sec) }}</span>
+                      <span class="mhMetaDot">·</span>
+                      <span>{{ mhFormatDate(m.created_at) }}</span>
+                    </div>
+                  </div>
+                  <div class="mhCardChevron" :class="{ open: mh.expandedId === m.id }">›</div>
+                </div>
+
+                <!-- Expanded detail -->
+                <div v-if="mh.expandedId === m.id" class="mhExpandedBody" @click.stop>
+                  <div class="mhExpandGrid">
+                    <div class="mhExpandCell">
+                      <div class="mhExpandLabel">MODE</div>
+                      <div class="mhExpandVal">{{ (m.mode || 'online').toUpperCase() }}</div>
+                    </div>
+                    <div class="mhExpandCell">
+                      <div class="mhExpandLabel">ROUND</div>
+                      <div class="mhExpandVal">{{ m.round_number || 1 }}</div>
+                    </div>
+                    <div class="mhExpandCell">
+                      <div class="mhExpandLabel">OUTCOME</div>
+                      <div class="mhExpandVal" :class="m.result === 'W' ? 'mhWinTxt' : m.result === 'L' ? 'mhLossTxt' : ''">
+                        {{ m.result === 'W' ? 'VICTORY' : m.result === 'L' ? 'DEFEAT' : 'DRAW' }}
+                      </div>
+                    </div>
+                    <div class="mhExpandCell">
+                      <div class="mhExpandLabel">DURATION</div>
+                      <div class="mhExpandVal">{{ mhFormatDuration(m.duration_sec) }}</div>
+                    </div>
+                  </div>
+                  <div v-if="m.replay_id" class="mhExpandReplayRow">
+                    <div class="mhReplayTag">● REPLAY SAVED</div>
+                    <button class="mhViewReplayBtn" @click.stop="openReplayFromDb(m.id)">▶ WATCH REPLAY</button>
+                  </div>
+                </div>
+
+              </div>
+            </div>
+
+            <!-- Pagination -->
+            <div v-if="mh.total > mhPageSize" class="mhPagination">
+              <button class="mhPageBtn" :disabled="mh.page === 0" @click="mhChangePage(mh.page - 1)">‹ PREV</button>
+              <div class="mhPageDots">
+                <span
+                  v-for="pg in mhPageCount" :key="pg"
+                  class="mhPageDot"
+                  :class="{ active: mh.page === pg - 1 }"
+                  @click="mhChangePage(pg - 1)"
+                ></span>
+              </div>
+              <button class="mhPageBtn" :disabled="mh.page >= mhPageCount - 1" @click="mhChangePage(mh.page + 1)">NEXT ›</button>
+            </div>
+
+          </template>
         </div>
       </section>
 
@@ -802,6 +995,22 @@
 
         </section>
       </section>
+
+    <!-- ══════════════════════════════════════════════════════════
+         REPLAY VIEWER
+    ═══════════════════════════════════════════════════════════ -->
+    <ReplayViewer
+      :visible="replay.visible"
+      :events="replay.events"
+      :finalBoard="replay.finalBoard"
+      :finalPicks="replay.finalPicks"
+      :metadata="replay.metadata"
+      :p1Name="replay.p1Name"
+      :p2Name="replay.p2Name"
+      :winnerId="replay.winnerId"
+      :player1Id="replay.player1Id"
+      @close="replay.visible = false"
+    />
 
     <!-- ══════════════════════════════════════════════════════════
          AUTH MODAL — Login / Create Account
@@ -1275,8 +1484,16 @@ import { getPieceStyle } from "./lib/pieceStyles";
 import { boundsOf, transformCells } from "./lib/geom";
 import { PENTOMINOES } from "./lib/pentominoes";
 import { createAiEngine } from "./lib/aiEngine.js";
+import * as replayLogger from "./lib/replayLogger.js";
+// Re-export the version string so the poll loop can embed it in state.meta
+// and detect when two clients are running different builds.
+const CLIENT_VERSION = replayLogger.CLIENT_VERSION;
+// Track whether we've already shown the version-mismatch warning this session
+// so it only fires once, not on every poll tick.
+let _versionMismatchWarned = false;
 
 import Board from "./components/Board.vue";
+import ReplayViewer from "./components/ReplayViewer.vue";
 import DraftPanel from "./components/DraftPanel.vue";
 import PiecePicker from "./components/PiecePicker.vue";
 import Controls from "./components/Controls.vue";
@@ -1918,23 +2135,325 @@ const quick = reactive({
   joinCode: "",
 });
 
-const rankedTier = computed(() => (loggedIn.value ? "Wood" : "—"));
+const rankedTier = computed(() => {
+  if (!loggedIn.value) return "—";
+  const t = memberStats.ranked_tier || "unranked";
+  if (t === "unranked") return "Placing…";
+  return t.charAt(0).toUpperCase() + t.slice(1);
+});
+
+// Tier thresholds — lower LP bound of each tier.
+// Must mirror pb_lp_to_tier() in the SQL trigger.
+const TIER_THRESHOLDS = {
+  plastic:  0,
+  wood:     100,
+  bronze:   250,
+  silver:   450,
+  gold:     700,
+  platinum: 1000,
+  diamond:  1350,
+  master:   1750,
+  champion: 2200,
+};
+
+/** Progress (0-100) within the current tier band for the LP bar. */
+function lpBarPercent(lp, tier) {
+  if (!tier || tier === "unranked") return 0;
+  const floor = TIER_THRESHOLDS[tier] ?? 0;
+  const tiers = Object.keys(TIER_THRESHOLDS);
+  const idx   = tiers.indexOf(tier);
+  if (idx === -1 || idx === tiers.length - 1) return 100; // Champion = full bar
+  const ceil = TIER_THRESHOLDS[tiers[idx + 1]];
+  return Math.min(100, Math.max(0, Math.round((lp - floor) / (ceil - floor) * 100)));
+}
+
+/** Is this player still in placement (< 5 ranked games)? */
+const isPlacing = computed(() => memberStats.placement_games < 5);
 
 // Member stats (loaded from pb_profiles when logged in)
-const memberStats = reactive({ wins: 0, losses: 0, draws: 0 });
+const memberStats = reactive({
+  wins: 0, losses: 0, draws: 0,
+  ranked_lp: 0, ranked_tier: "unranked",
+  ranked_wins: 0, ranked_losses: 0, ranked_peak_lp: 0,
+  placement_games: 0, win_streak: 0, demotion_shield: 0,
+});
 watch(loggedIn, async (isIn) => {
-  if (!isIn) { memberStats.wins = 0; memberStats.losses = 0; memberStats.draws = 0; return; }
+  if (!isIn) {
+    Object.assign(memberStats, {
+      wins: 0, losses: 0, draws: 0,
+      ranked_lp: 0, ranked_tier: "unranked",
+      ranked_wins: 0, ranked_losses: 0, ranked_peak_lp: 0,
+      placement_games: 0, win_streak: 0, demotion_shield: 0,
+    });
+    return;
+  }
   try {
     const { supabase } = await import("./lib/supabase.js");
     const { getUser } = await import("./lib/auth.js");
     const user = await getUser();
     if (!user || !supabase) return;
-    const { data } = await supabase.from("pb_profiles").select("wins,losses,draws").eq("id", user.id).single();
-    if (data) { memberStats.wins = data.wins; memberStats.losses = data.losses; memberStats.draws = data.draws; }
+    const { data } = await supabase
+      .from("pb_profiles")
+      .select("wins,losses,draws,ranked_lp,ranked_tier,ranked_wins,ranked_losses,ranked_peak_lp,placement_games,win_streak,demotion_shield")
+      .eq("id", user.id)
+      .single();
+    if (data) {
+      memberStats.wins            = data.wins             ?? 0;
+      memberStats.losses          = data.losses           ?? 0;
+      memberStats.draws           = data.draws            ?? 0;
+      memberStats.ranked_lp       = data.ranked_lp        ?? 0;
+      memberStats.ranked_tier     = data.ranked_tier      ?? "unranked";
+      memberStats.ranked_wins     = data.ranked_wins      ?? 0;
+      memberStats.ranked_losses   = data.ranked_losses    ?? 0;
+      memberStats.ranked_peak_lp  = data.ranked_peak_lp  ?? 0;
+      memberStats.placement_games = data.placement_games  ?? 0;
+      memberStats.win_streak      = data.win_streak       ?? 0;
+      memberStats.demotion_shield = data.demotion_shield  ?? 0;
+    }
   } catch {}
 }, { immediate: true });
 
 const isInGame = computed(() => screen.value === "couch" || screen.value === "ai" || screen.value === "online");
+
+/* ============================================================
+   REPLAY VIEWER — reactive state + open helpers
+============================================================ */
+const replay = reactive({
+  visible:    false,
+  events:     [],
+  finalBoard: null,
+  finalPicks: null,
+  metadata:   null,
+  p1Name:     "Player 1",
+  p2Name:     "Player 2",
+  winnerId:   null,
+  player1Id:  null,
+});
+
+// Snapshot of the last LOCAL match replay (stored before clearReplay() is called)
+// so the gameover "View Replay" button works without a DB round-trip.
+const localReplaySnapshot = ref(null);
+
+/**
+ * Open the replay viewer from a pb_replay_logs DB row.
+ * Called from the match history screen.
+ */
+async function openReplayFromDb(matchId) {
+  try {
+    const { requireSupabase } = await import("./lib/supabase.js");
+    const sb = requireSupabase();
+    const { data, error } = await sb
+      .from("pb_replay_logs")
+      .select("*")
+      .eq("match_id", matchId)
+      .maybeSingle();
+    if (error || !data) {
+      showModal({ title: "Replay Not Found", tone: "bad", message: "No replay data found for this match." });
+      return;
+    }
+    await _openReplayData(data);
+  } catch (e) {
+    console.warn("[replay] openReplayFromDb failed:", e?.message ?? e);
+    showModal({ title: "Replay Error", tone: "bad", message: "Could not load replay." });
+  }
+}
+
+/**
+ * Open the replay viewer from the local in-memory snapshot (gameover screen).
+ */
+function openLocalReplay() {
+  const snap = localReplaySnapshot.value;
+  if (!snap) return;
+  _openReplayData(snap);
+}
+
+async function _openReplayData(data) {
+  // Resolve player display names
+  let p1Name = "Player 1";
+  let p2Name = "Player 2";
+  try {
+    const { requireSupabase } = await import("./lib/supabase.js");
+    const sb = requireSupabase();
+    const ids = [data.player1_id, data.player2_id].filter(Boolean);
+    if (ids.length > 0) {
+      const { data: profiles } = await sb
+        .from("pb_profiles")
+        .select("id, username, display_name")
+        .in("id", ids);
+      for (const p of profiles || []) {
+        const name = p.display_name || p.username || "Unknown";
+        if (p.id === data.player1_id) p1Name = name;
+        if (p.id === data.player2_id) p2Name = name;
+      }
+    }
+  } catch { /* non-fatal, use defaults */ }
+
+  replay.events     = data.events || [];
+  replay.finalBoard = data.final_board || [];
+  replay.finalPicks = data.final_picks || {};
+  replay.metadata   = data.metadata || {};
+  replay.p1Name     = p1Name;
+  replay.p2Name     = p2Name;
+  replay.winnerId   = data.winner_id || null;
+  replay.player1Id  = data.player1_id || null;
+  replay.visible    = true;
+}
+
+/* ============================================================
+   MATCH HISTORY
+============================================================ */
+const mhPageSize = 10;
+
+const mh = reactive({
+  items:      [],
+  loading:    false,
+  page:       0,
+  filter:     "all",   // "all" | "wins" | "losses"
+  expandedId: null,
+  total:      0,
+});
+
+const mhFilters = [
+  { key: "all",    label: "ALL" },
+  { key: "casual", label: "CASUAL" },
+  { key: "ranked", label: "RANKED" },
+];
+
+const mhPageCount = computed(() => Math.ceil(mh.total / mhPageSize));
+
+async function loadMatchHistory() {
+  if (!loggedIn.value) return;
+  mh.loading = true;
+  mh.items   = [];
+  try {
+    const { supabase }  = await import("./lib/supabase.js");
+    const { getUser }   = await import("./lib/auth.js");
+    const user = await getUser();
+    if (!user || !supabase) return;
+
+    const userId = user.id;
+    const from   = mh.page * mhPageSize;
+    const to     = from + mhPageSize - 1;
+
+    let query = supabase
+      .from("pb_matches")
+      .select(
+        "id, lobby_id, round_number, player1_id, player2_id, winner_id, loser_id, end_reason, duration_sec, mode, created_at, replay_id",
+        { count: "exact" }
+      )
+      .or(`player1_id.eq.${userId},player2_id.eq.${userId}`)
+      .order("created_at", { ascending: false })
+      .range(from, to);
+
+    if (mh.filter === "casual") query = query.in("mode", ["online","quick","custom"]);
+    if (mh.filter === "ranked") query = query.eq("mode", "ranked");
+
+    const { data: matches, count, error } = await query;
+    if (error) throw error;
+
+    mh.total = count || 0;
+
+    // Batch-resolve opponent usernames
+    const opponentIds = [
+      ...new Set(
+        (matches || [])
+          .map(m => m.player1_id === userId ? m.player2_id : m.player1_id)
+          .filter(Boolean)
+      ),
+    ];
+
+    let profileMap = {};
+    if (opponentIds.length > 0) {
+      const { data: profiles } = await supabase
+        .from("pb_profiles")
+        .select("id, username, display_name")
+        .in("id", opponentIds);
+      for (const p of profiles || []) profileMap[p.id] = p;
+    }
+
+    mh.items = (matches || []).map(m => {
+      const oppId = m.player1_id === userId ? m.player2_id : m.player1_id;
+      const opp   = profileMap[oppId];
+      return {
+        ...m,
+        result:       m.winner_id === userId ? "W" : m.loser_id === userId ? "L" : "D",
+        opponentName: opp?.display_name || opp?.username || "Unknown",
+        opponentId:   oppId,
+      };
+    });
+  } catch (e) {
+    console.warn("[matchHistory] load failed:", e?.message ?? e);
+  } finally {
+    mh.loading = false;
+  }
+}
+
+function mhSetFilter(f) {
+  if (mh.filter === f) return;
+  mh.filter     = f;
+  mh.page       = 0;
+  mh.expandedId = null;
+  loadMatchHistory();
+}
+
+function mhChangePage(pg) {
+  if (pg < 0 || pg >= mhPageCount.value) return;
+  mh.page       = pg;
+  mh.expandedId = null;
+  loadMatchHistory();
+}
+
+function mhToggleExpand(id) {
+  mh.expandedId = mh.expandedId === id ? null : id;
+}
+
+function mhFormatDuration(sec) {
+  if (!sec && sec !== 0) return "—";
+  const m = Math.floor(sec / 60);
+  const s = sec % 60;
+  return `${m}:${String(s).padStart(2, "0")}`;
+}
+
+function mhFormatDate(iso) {
+  if (!iso) return "—";
+  try {
+    const d = new Date(iso);
+    const now = new Date();
+    const diffMs = now - d;
+    const diffMin = Math.floor(diffMs / 60000);
+    if (diffMin < 1)   return "just now";
+    if (diffMin < 60)  return `${diffMin}m ago`;
+    const diffH = Math.floor(diffMin / 60);
+    if (diffH < 24)    return `${diffH}h ago`;
+    const diffD = Math.floor(diffH / 24);
+    if (diffD < 7)     return `${diffD}d ago`;
+    return d.toLocaleDateString(undefined, { month: "short", day: "numeric" });
+  } catch { return "—"; }
+}
+
+function mhEndReasonLabel(reason) {
+  switch (reason) {
+    case "normal":    return "Normal";
+    case "timeout":   return "Timeout";
+    case "surrender": return "Surrender";
+    case "dodged":    return "Dodge";
+    case "abandoned": return "Abandoned";
+    default:          return reason || "Normal";
+  }
+}
+
+// Load when navigating to match-history
+watch(
+  () => screen.value,
+  (s) => {
+    if (s === "match-history") {
+      mh.page       = 0;
+      mh.filter     = "all";
+      mh.expandedId = null;
+      loadMatchHistory();
+    }
+  }
+);
 
 // Page transition key (unused now but kept for reference)
 const pageTransitionKey = computed(() => screen.value);
@@ -2005,7 +2524,7 @@ const phaseSub = computed(() => {
 
 const canGoBack = computed(() =>
   ["mode", "multiplayer", "solo", "channel", "lobby", "ranked",
-   "leaderboards", "shop", "profile", "puzzle", "settings", "credits"].includes(screen.value)
+   "leaderboards", "shop", "profile", "match-history", "puzzle", "settings", "credits"].includes(screen.value)
 );
 
 
@@ -2491,6 +3010,7 @@ function stopPolling() {
   onlineSyncing.value = false;
   if (online.pollTimer) clearTimeout(online.pollTimer);
   online.pollTimer = null;
+  _versionMismatchWarned = false; // reset so next match can warn again
   teardownRealtimeLobby();
 }
 
@@ -2939,7 +3459,7 @@ function buildSyncedState(meta = {}) {
   // Heartbeat lives in state.meta so we can detect silent tab closes.
   const hb = { ...(meta.heartbeat || {}) };
   if (online?.role) hb[online.role] = Date.now();
-  const metaWithHb = { ...meta, heartbeat: hb };
+  const metaWithHb = { ...meta, heartbeat: hb, clientVersion: CLIENT_VERSION };
 
   return {
     meta: metaWithHb,
@@ -3585,6 +4105,35 @@ async function startPollingLobby(lobbyId, role) {
         return;
       }
 
+      // ── Version mismatch guard ──────────────────────────────────────────────
+      // If the opponent was initialised on a different client build, warn once.
+      // We don't hard-terminate because minor version bumps are usually safe;
+      // the operator can decide to force a reload if needed.
+      if (!_versionMismatchWarned) {
+        const remoteVersion = lobby?.state?.meta?.clientVersion;
+        if (remoteVersion && remoteVersion !== CLIENT_VERSION) {
+          _versionMismatchWarned = true;
+          console.warn(
+            `[version] mismatch — local: ${CLIENT_VERSION}, remote: ${remoteVersion}`
+          );
+          showModal({
+            title: "Version Mismatch",
+            tone: "bad",
+            message:
+              `Your client (v${CLIENT_VERSION}) differs from your opponent's (v${remoteVersion}).\n` +
+              "This may cause sync issues. Refresh the page to get the latest version.",
+            actions: [
+              {
+                label: "Refresh Now",
+                tone: "primary",
+                onClick: () => { window.location.reload(); },
+              },
+              { label: "Continue Anyway", tone: "soft" },
+            ],
+          });
+        }
+      }
+
 	      // ✅ Presence heartbeat: handle silent tab closes.
 	      // IMPORTANT: only use heartbeat-based disconnect detection while WAITING or on GAME OVER.
 	      // During active gameplay there can be long stretches with no state pushes (thinking / lag),
@@ -3601,7 +4150,7 @@ async function startPollingLobby(lobbyId, role) {
 	        const staleOnGameOver = checkPresence && bothPresent && game.phase === "gameover" && staleMs > 25_000;
 
         if ((staleHard || staleOnGameOver) && oppRole === "host") {
-          // If the host disappeared, end the match and leave.
+          // Guest detected that the HOST vanished — terminate and leave.
           try {
             await sbCloseAndNukeLobby(lobbyId, { terminateReason: "host_timeout", reason: "heartbeat" });
           } catch {
@@ -3614,6 +4163,25 @@ async function startPollingLobby(lobbyId, role) {
             title: "Match Terminated",
             tone: "bad",
             message: "Lobby creator disconnected — terminating the game.\nReturning to main menu.",
+          });
+          return;
+        }
+
+        if ((staleHard || staleOnGameOver) && oppRole === "guest" && online.role === "host") {
+          // Host detected that the GUEST vanished on game-over / waiting screen.
+          // During active play we intentionally skip this (heartbeats are paused mid-game).
+          try {
+            await sbCloseAndNukeLobby(lobbyId, { terminateReason: "guest_timeout", reason: "heartbeat" });
+          } catch {
+            // ignore
+          }
+          stopPolling();
+          myPlayer.value = null;
+          screen.value = "mode";
+          showModal({
+            title: "Opponent Disconnected",
+            tone: "bad",
+            message: "Your opponent disappeared and did not return.\nReturning to main menu.",
           });
           return;
         }
@@ -4216,8 +4784,9 @@ watch(
       tone,
       actions: isOnline.value
         ? [
-            { label: "Play Again", tone: "primary", onClick: requestPlayAgain },
-            { label: "Main Menu", tone: "soft", onClick: () => stopAndExitToMenu("") },
+            { label: "Play Again",  tone: "primary", onClick: requestPlayAgain },
+            { label: "View Replay", tone: "soft",    onClick: () => { closeModal(); openLocalReplay(); } },
+            { label: "Main Menu",   tone: "soft",    onClick: () => stopAndExitToMenu("") },
           ]
         : [{ label: "Play Again", tone: "primary", onClick: onResetClick }],
     });
@@ -4258,6 +4827,108 @@ watch(
             endReason,
             durationSec,
           });
+
+          // ── Fetch LP delta for ranked matches and update modal message ────
+          if (meta?.mode === "ranked" || lobby?.mode === "ranked") {
+            try {
+              const { requireSupabase } = await import("./lib/supabase.js");
+              const sb = requireSupabase();
+              const myId = myPlayer.value === 1 ? p1Id : p2Id;
+              const { data: lpResult } = await sb.rpc("pb_get_match_lp_result", {
+                p_lobby_id:  online.lobbyId,
+                p_round:     Number(meta?.round || 1),
+                p_player_id: myId,
+              });
+              if (lpResult?.found) {
+                const delta    = lpResult.lp_delta ?? 0;
+                const newLp    = lpResult.ranked_lp ?? 0;
+                const newTier  = lpResult.ranked_tier ?? "";
+                const streak   = lpResult.win_streak ?? 0;
+                const shield   = lpResult.demotion_shield ?? 0;
+                const sign     = delta >= 0 ? "+" : "";
+                const streakLine = streak >= 3 ? `\n🔥 ${streak}-win streak!` : "";
+                const shieldLine = shield > 0 && delta < 0 ? "\n🛡 Demotion shield absorbed this loss." : "";
+
+                // Patch the already-shown modal message to append LP info
+                if (modal.open) {
+                  modal.message =
+                    (modal.message || "") +
+                    `\n\n${sign}${delta} LP  →  ${newLp} LP  [${newTier.charAt(0).toUpperCase() + newTier.slice(1)}]` +
+                    streakLine + shieldLine;
+                }
+
+                // Refresh profile stats reactively
+                memberStats.ranked_lp       = newLp;
+                memberStats.ranked_tier     = newTier;
+                memberStats.ranked_peak_lp  = lpResult.ranked_peak_lp ?? memberStats.ranked_peak_lp;
+                memberStats.win_streak      = streak;
+                memberStats.demotion_shield = shield;
+                memberStats.placement_games = lpResult.placement_games ?? memberStats.placement_games;
+              }
+            } catch { /* non-fatal — LP display is cosmetic */ }
+          }
+
+          // ✅ Save replay log — host only (deduplicates naturally since only
+          // the host calls saveReplay; guest only records events but never writes).
+          // Non-fatal: a failed replay write never affects match result UX.
+          if (online.role === "host" && replayLogger.isRecording()) {
+            try {
+              // Snapshot board/picks before any rematch resets them.
+              const boardSnapshot = game.board ? JSON.parse(JSON.stringify(game.board)) : null;
+              const picksSnapshot = game.picks ? JSON.parse(JSON.stringify(game.picks)) : null;
+
+              // ✅ Store local snapshot for instant "View Replay" on gameover screen.
+              const rlSnap = replayLogger.getSnapshot();
+              localReplaySnapshot.value = {
+                events:      rlSnap?.events || [],
+                final_board: boardSnapshot,
+                final_picks: picksSnapshot,
+                metadata: {
+                  boardW:    game.boardW,
+                  boardH:    game.boardH,
+                  mode:      "online",
+                  round:     Number(meta?.round || 1),
+                  allowFlip: game.allowFlip,
+                  startedAt: meta?.started_at || null,
+                },
+                player1_id: p1Id,
+                player2_id: p2Id,
+                winner_id:  winnerId,
+              };
+
+              // Fetch the newly-inserted match id (record_match_result writes it).
+              // We query by lobby_id + round because the RPC doesn’t return the row id.
+              let matchId = null;
+              try {
+                const { requireSupabase } = await import("./lib/supabase.js");
+                const sb = requireSupabase();
+                const { data: mRow } = await sb
+                  .from("pb_matches")
+                  .select("id")
+                  .eq("lobby_id",     online.lobbyId)
+                  .eq("round_number", Number(meta?.round || 1))
+                  .maybeSingle();
+                matchId = mRow?.id ?? null;
+              } catch { /* non-fatal */ }
+
+              const replayId = await replayLogger.saveReplay({
+                matchId,
+                winnerId,
+                endReason,
+                finalBoard: boardSnapshot,
+                finalPicks: picksSnapshot,
+              });
+
+              // Back-link pb_matches.replay_id → pb_replay_logs.id
+              if (replayId && matchId) {
+                await replayLogger.linkReplayToMatch(matchId, replayId);
+              }
+            } catch (replayErr) {
+              console.warn("[replayLogger] gameover save failed:", replayErr?.message ?? replayErr);
+            } finally {
+              replayLogger.clearReplay();
+            }
+          }
         } catch (e) {
           console.warn("[pbMatch] gameover record failed:", e?.message ?? e);
         }
@@ -4304,6 +4975,74 @@ watch(
     if (game.rematch?.[1] && game.rematch?.[2]) {
       closeModal();
       onResetClick();
+    }
+  }
+);
+
+/* =========================
+   REPLAY RECORDING
+========================= */
+
+// ✅ Start replay when the online match begins (meta.players populated = round is live).
+// We watch the canonical "both players known" signal rather than a phase change
+// because the host writes meta.players + started_at in a single DB write.
+watch(
+  () => isOnline.value && online.lobbyId,
+  (active) => {
+    if (!active) {
+      replayLogger.clearReplay();
+    }
+  }
+);
+
+// ✅ Forward every authoritative move to the replay logger.
+// The logger deduplicates by seq so reactive re-fires are harmless.
+watch(
+  () => game.lastMove,
+  (mv) => {
+    if (!isOnline.value || !mv) return;
+    replayLogger.recordEvent(mv);
+  }
+);
+
+// ✅ Start a replay session when myPlayer becomes known (= match initialised and
+// meta.players written to DB). We watch the composite signal [myPlayer, waitingForOpponent]
+// so the handler fires as soon as both players are assigned. We then fetch the lobby
+// once (non-blocking) to extract the canonical p1Id / p2Id.
+watch(
+  () => [myPlayer.value, online.waitingForOpponent, online.lobbyId],
+  async ([mp, waiting, lobbyId]) => {
+    if (!isOnline.value || !mp || waiting || !lobbyId) return;
+    if (replayLogger.isRecording()) return; // already started for this round
+
+    try {
+      // Fetch once to get authoritative player map from meta.
+      const { requireSupabase } = await import("./lib/supabase.js");
+      const sb = requireSupabase();
+      const { data: lobby } = await sb
+        .from("pb_lobbies")
+        .select("state, version")
+        .eq("id", lobbyId)
+        .maybeSingle();
+
+      const meta    = lobby?.state?.meta || {};
+      const players = meta.players || {};
+      const p1Id    = String(players["1"] || players[1] || "");
+      const p2Id    = String(players["2"] || players[2] || "");
+      if (!p1Id || !p2Id) return;
+
+      replayLogger.startReplay({
+        lobbyId,
+        player1Id: p1Id,
+        player2Id: p2Id,
+        boardW:    game.boardW,
+        boardH:    game.boardH,
+        mode:      "online",
+        round:     Number(meta.round || 1),
+        allowFlip: game.allowFlip,
+      });
+    } catch (e) {
+      console.warn("[replayLogger] startReplay fetch failed:", e?.message ?? e);
     }
   }
 );
@@ -10586,6 +11325,491 @@ onBeforeUnmount(() => {
   .tetRow{ min-height: 70px; }
   .tetRowGlyph{ min-height: 70px; }
   .tetShell{ padding-bottom: 50px; }
+}
+
+/* ============================================================
+   MATCH HISTORY
+============================================================ */
+
+.mhPanel {
+  width: min(640px, 100%);
+}
+
+.mhHeaderGlow {
+  background: radial-gradient(ellipse 60% 80% at 50% 0%, rgba(255,100,80,0.20), rgba(0,229,255,0.10) 50%, transparent 70%) !important;
+}
+
+/* Profile card shortcut */
+.mhProfileCard {
+  transition: border-color .2s, transform .15s !important;
+}
+.mhProfileCard:hover {
+  border-color: rgba(255,255,255,0.22) !important;
+  transform: translateY(-1px);
+}
+.mhProfileRow {
+  display: flex;
+  align-items: center;
+  gap: 0;
+  padding: 6px 0 4px;
+}
+.mhProfileStat {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+  flex: 1;
+}
+.mhProfileNum {
+  font-size: 22px;
+  font-weight: 900;
+  letter-spacing: 1px;
+  line-height: 1;
+}
+.mhProfileNum.mhWin   { color: #3dffa0; }
+.mhProfileNum.mhLoss  { color: #ff5f5f; }
+.mhProfileLbl {
+  font-size: 9px;
+  letter-spacing: 2px;
+  font-weight: 900;
+  opacity: .40;
+  text-transform: uppercase;
+}
+.mhProfileDivider {
+  width: 1px;
+  height: 32px;
+  background: rgba(255,255,255,0.10);
+}
+.mhProfileArrow {
+  font-size: 9px;
+  letter-spacing: 2px;
+  font-weight: 900;
+  opacity: .35;
+  margin-left: 8px;
+  align-self: center;
+}
+
+/* ── Ranked profile card ─────────────────────────────────────────────────── */
+.pbRankedCard { display: flex; flex-direction: column; gap: 8px; }
+
+.pbTierBadge {
+  display: inline-block;
+  align-self: flex-start;
+  padding: 3px 12px;
+  border-radius: 20px;
+  font-family: 'Orbitron', sans-serif;
+  font-size: 13px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  background: #333;
+  color: #ccc;
+  border: 1.5px solid #555;
+}
+
+/* ── Tier badge colours ── */
+.pbTier-unranked  { background: #1a1a1a; color: #555;    border-color: #2a2a2a; }
+.pbTier-plastic   { background: #1a1a2e; color: #7b8cbf; border-color: #3a3f6e; }
+.pbTier-wood      { background: #2b1d0e; color: #b8864a; border-color: #6b4420; }
+.pbTier-bronze    { background: #2a1206; color: #d4824a; border-color: #8c4418; }
+.pbTier-silver    { background: #181820; color: #b8c4d8; border-color: #6878a0; }
+.pbTier-gold      { background: #221900; color: #f0c830; border-color: #b88a00; }
+.pbTier-platinum  { background: #091c1c; color: #38d8c8; border-color: #187870; }
+.pbTier-diamond   { background: #0c0c24; color: #80b8ff; border-color: #4068c8; }
+.pbTier-master    { background: #1a0824; color: #d080ff; border-color: #8030c0; }
+.pbTier-champion  {
+  background: linear-gradient(135deg, #1a0808 0%, #280a00 50%, #1a1200 100%);
+  color: #ffd700;
+  border-color: #cc8800;
+  box-shadow: 0 0 8px 1px rgba(255,200,0,0.25);
+}
+
+/* ── LP row ── */
+.pbLpRow {
+  display: flex; align-items: baseline; gap: 6px;
+  font-family: 'Orbitron', sans-serif;
+}
+.pbLpLabel { font-size: 10px; color: #888; text-transform: uppercase; letter-spacing: 0.1em; }
+.pbLpValue { font-size: 22px; font-weight: 800; color: #e8e8e8; }
+.pbLpPeak  { font-size: 10px; color: #666; margin-left: auto; }
+
+/* ── LP bar ── */
+.pbLpBarTrack {
+  width: 100%; height: 6px;
+  background: #1e1e1e; border-radius: 4px; overflow: hidden;
+}
+.pbLpBarFill {
+  height: 100%; border-radius: 4px;
+  transition: width 0.6s cubic-bezier(0.22, 1, 0.36, 1);
+  background: #444;
+}
+.pbTierFill-placing   { background: linear-gradient(90deg, #3a3f6e, #7b8cbf); }
+.pbTierFill-plastic   { background: linear-gradient(90deg, #3a3f6e, #7b8cbf); }
+.pbTierFill-wood      { background: linear-gradient(90deg, #6b4420, #b8864a); }
+.pbTierFill-bronze    { background: linear-gradient(90deg, #8c4418, #d4824a); }
+.pbTierFill-silver    { background: linear-gradient(90deg, #6878a0, #b8c4d8); }
+.pbTierFill-gold      { background: linear-gradient(90deg, #b88a00, #f0c830); }
+.pbTierFill-platinum  { background: linear-gradient(90deg, #187870, #38d8c8); }
+.pbTierFill-diamond   { background: linear-gradient(90deg, #4068c8, #80b8ff); }
+.pbTierFill-master    { background: linear-gradient(90deg, #8030c0, #d080ff); }
+.pbTierFill-champion  { background: linear-gradient(90deg, #cc8800, #ffd700, #ffec80); }
+
+/* ── Streak / shield badges ── */
+.pbBadgeRow { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 2px; }
+.pbStreakBadge,
+.pbShieldBadge {
+  font-size: 11px;
+  font-family: 'Orbitron', sans-serif;
+  padding: 2px 8px;
+  border-radius: 10px;
+  letter-spacing: 0.04em;
+}
+.pbStreakBadge { background: rgba(255,120,0,0.15); color: #ff9040; border: 1px solid rgba(255,120,0,0.3); }
+.pbShieldBadge { background: rgba(80,180,255,0.12); color: #70c0ff; border: 1px solid rgba(80,180,255,0.3); }
+
+/* ── Placement state ── */
+.pbPlacementRow {
+  display: flex; justify-content: space-between; align-items: center;
+  font-family: 'Orbitron', sans-serif; font-size: 11px; color: #888;
+}
+.pbPlacementVal { color: #ccc; font-weight: 700; }
+.pbPlacementHint { font-size: 10px; color: #555; line-height: 1.4; }
+
+/* ── Ranked record line ── */
+.pbRankedRecord {
+  font-size: 12px; color: #888;
+  font-family: 'Orbitron', sans-serif;
+  letter-spacing: 0.04em;
+  display: flex; gap: 4px; align-items: center;
+}
+.pbRankedW   { color: #3dffa0; }
+.pbRankedL   { color: #ff5f5f; }
+.pbRankedWr  { color: #aaa; }
+
+/* Filter bar */
+.mhFilterBar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  margin-bottom: 8px;
+}
+.mhFilterTabs {
+  display: flex;
+  gap: 4px;
+}
+.mhFilterTab {
+  padding: 7px 14px;
+  border-radius: 8px;
+  border: 1px solid rgba(255,255,255,0.10);
+  background: rgba(255,255,255,0.03);
+  color: rgba(255,255,255,0.45);
+  font-size: 10px;
+  font-weight: 900;
+  letter-spacing: 2px;
+  text-transform: uppercase;
+  cursor: pointer;
+  transition: background .15s, border-color .15s, color .15s;
+}
+.mhFilterTab:hover {
+  background: rgba(255,255,255,0.07);
+  color: rgba(255,255,255,0.75);
+  border-color: rgba(255,255,255,0.18);
+}
+.mhFilterTab.active {
+  background: rgba(255,255,255,0.10);
+  border-color: rgba(255,255,255,0.25);
+  color: #fff;
+}
+.mhPageInfo {
+  font-size: 10px;
+  letter-spacing: 1.5px;
+  opacity: .35;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+
+/* Skeleton loading */
+.mhSkeletonList {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.mhSkeleton {
+  height: 62px;
+  border-radius: 12px;
+  background: linear-gradient(90deg,
+    rgba(255,255,255,0.04) 0%,
+    rgba(255,255,255,0.08) 50%,
+    rgba(255,255,255,0.04) 100%
+  );
+  background-size: 200% 100%;
+  animation: mhShimmer 1.4s ease-in-out infinite;
+}
+@keyframes mhShimmer {
+  0%   { background-position: -200% 0; }
+  100% { background-position:  200% 0; }
+}
+
+/* Empty state */
+.mhEmpty {
+  text-align: center;
+  padding: 36px 18px !important;
+}
+.mhEmptyIcon {
+  font-size: 36px;
+  margin-bottom: 10px;
+}
+.mhEmptyTitle {
+  font-size: 11px;
+  letter-spacing: 3px;
+  font-weight: 900;
+  opacity: .5;
+  margin-bottom: 4px;
+}
+
+/* Match list */
+.mhList {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+}
+
+.mhCard {
+  border-radius: 12px;
+  border: 1px solid rgba(255,255,255,0.08);
+  background: rgba(255,255,255,0.03);
+  overflow: hidden;
+  cursor: pointer;
+  transition: border-color .18s, background .18s, transform .12s;
+}
+.mhCard:hover {
+  border-color: rgba(255,255,255,0.15);
+  background: rgba(255,255,255,0.05);
+  transform: translateX(2px);
+}
+.mhCard.win  { border-left: 3px solid rgba(61,255,160,0.50); }
+.mhCard.loss { border-left: 3px solid rgba(255,95,95,0.50); }
+.mhCard.draw { border-left: 3px solid rgba(255,255,255,0.20); }
+.mhCard.expanded {
+  border-color: rgba(255,255,255,0.18);
+  background: rgba(255,255,255,0.05);
+}
+
+.mhCardMain {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 14px;
+}
+
+/* W/L/D badge */
+.mhResultBadge {
+  width: 34px;
+  height: 34px;
+  border-radius: 8px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 13px;
+  font-weight: 1000;
+  letter-spacing: 1px;
+  flex-shrink: 0;
+}
+.mhResultBadge.w {
+  background: rgba(61,255,160,0.14);
+  color: #3dffa0;
+  border: 1px solid rgba(61,255,160,0.25);
+}
+.mhResultBadge.l {
+  background: rgba(255,95,95,0.12);
+  color: #ff6b6b;
+  border: 1px solid rgba(255,95,95,0.22);
+}
+.mhResultBadge.d {
+  background: rgba(255,255,255,0.07);
+  color: rgba(255,255,255,0.55);
+  border: 1px solid rgba(255,255,255,0.12);
+}
+
+.mhCardBody {
+  flex: 1;
+  min-width: 0;
+}
+.mhCardOpponent {
+  font-size: 13px;
+  font-weight: 700;
+  letter-spacing: .5px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  color: rgba(255,255,255,0.85);
+}
+.mhOppName {
+  color: #fff;
+}
+.mhCardMeta {
+  font-size: 10px;
+  letter-spacing: .8px;
+  color: rgba(255,255,255,0.35);
+  margin-top: 3px;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  flex-wrap: wrap;
+}
+.mhMetaDot { opacity: .25; }
+.mhMetaTag {
+  padding: 1px 6px;
+  border-radius: 4px;
+  background: rgba(255,255,255,0.06);
+  font-size: 9px;
+  font-weight: 900;
+  letter-spacing: 1.5px;
+  text-transform: uppercase;
+}
+.mhMetaTag.er-timeout   { color: #ffb347; }
+.mhMetaTag.er-surrender { color: #aaa; }
+.mhMetaTag.er-abandoned { color: #888; }
+.mhMetaTag.er-normal    { color: rgba(255,255,255,0.45); }
+
+.mhCardChevron {
+  font-size: 20px;
+  opacity: .25;
+  transition: transform .2s, opacity .2s;
+  flex-shrink: 0;
+}
+.mhCardChevron.open {
+  transform: rotate(90deg);
+  opacity: .6;
+}
+
+/* Expanded detail */
+.mhExpandedBody {
+  padding: 0 14px 14px;
+  border-top: 1px solid rgba(255,255,255,0.06);
+  animation: mhExpandIn .18s cubic-bezier(.22,1,.36,1);
+}
+@keyframes mhExpandIn {
+  from { opacity: 0; transform: translateY(-4px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+.mhExpandGrid {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 8px;
+  padding-top: 12px;
+}
+.mhExpandCell {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+.mhExpandLabel {
+  font-size: 9px;
+  letter-spacing: 2px;
+  font-weight: 900;
+  opacity: .35;
+  text-transform: uppercase;
+}
+.mhExpandVal {
+  font-size: 13px;
+  font-weight: 700;
+  letter-spacing: .5px;
+  color: rgba(255,255,255,0.80);
+}
+.mhWinTxt  { color: #3dffa0 !important; }
+.mhLossTxt { color: #ff6b6b !important; }
+
+.mhExpandReplayRow {
+  margin-top: 10px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+.mhReplayTag {
+  font-size: 9px;
+  letter-spacing: 2px;
+  font-weight: 900;
+  color: rgba(0,229,255,0.55);
+  text-transform: uppercase;
+}
+.mhViewReplayBtn {
+  padding: 5px 12px;
+  border-radius: 7px;
+  border: 1px solid rgba(0,229,255,0.30);
+  background: rgba(0,229,255,0.08);
+  color: rgba(0,229,255,0.85);
+  font-size: 9px;
+  font-weight: 900;
+  letter-spacing: 2px;
+  text-transform: uppercase;
+  cursor: pointer;
+  transition: background .15s, border-color .15s, color .15s;
+}
+.mhViewReplayBtn:hover {
+  background: rgba(0,229,255,0.15);
+  border-color: rgba(0,229,255,0.50);
+  color: rgba(0,229,255,1);
+}
+
+/* Pagination */
+.mhPagination {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding-top: 10px;
+}
+.mhPageBtn {
+  padding: 8px 16px;
+  border-radius: 8px;
+  border: 1px solid rgba(255,255,255,0.12);
+  background: rgba(255,255,255,0.04);
+  color: rgba(255,255,255,0.60);
+  font-size: 10px;
+  font-weight: 900;
+  letter-spacing: 2px;
+  text-transform: uppercase;
+  cursor: pointer;
+  transition: background .15s, border-color .15s, color .15s, opacity .15s;
+}
+.mhPageBtn:hover:not(:disabled) {
+  background: rgba(255,255,255,0.08);
+  border-color: rgba(255,255,255,0.22);
+  color: #fff;
+}
+.mhPageBtn:disabled {
+  opacity: .25;
+  cursor: default;
+}
+.mhPageDots {
+  display: flex;
+  gap: 5px;
+  align-items: center;
+}
+.mhPageDot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: rgba(255,255,255,0.18);
+  cursor: pointer;
+  transition: background .15s, transform .15s;
+}
+.mhPageDot.active {
+  background: rgba(255,255,255,0.75);
+  transform: scale(1.25);
+}
+.mhPageDot:hover:not(.active) {
+  background: rgba(255,255,255,0.38);
+}
+
+/* Mobile tweaks */
+@media (max-width: 480px) {
+  .mhExpandGrid { grid-template-columns: repeat(2, 1fr); }
+  .mhFilterTab  { padding: 7px 10px; font-size: 9px; }
+  .mhCardMeta   { font-size: 9px; }
 }
 
 </style>
