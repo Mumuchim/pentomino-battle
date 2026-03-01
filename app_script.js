@@ -308,13 +308,16 @@ function onViewportChange() {
 const logoUrl = new URL("./assets/logo.png", import.meta.url).href;
 const guestAvatarUrl = new URL("./assets/guest_avatar.png", import.meta.url).href;
 // Split brand assets (replaceable):
-// - ./assets/logo.png  (icon)
+// - ./assets/logo.png  (icon)  ← ✅ CSS size increased: 26px → 42px to match title height (44px)
 // - ./assets/title.png (PENTO BATTLE text)
 const titleUrl = new URL("./assets/title.png", import.meta.url).href;
 const useSplitBrandPng = ref(true); // toggle off to fall back to text title
 
 // Replaceable button PNGs (safe placeholders included in /assets)
 const backBtnUrl = new URL("./assets/back.png", import.meta.url).href;
+// ✅ UNDO BUTTON — only shown in Couch Play (screen.value === "couch").
+//    The top-bar template condition: s.value==="couch" ? <UndoBtn/> : null
+//    Hidden in Practice vs AI and Online Match modes.
 const undoBtnUrl = new URL("./assets/undo.png", import.meta.url).href;
 const applyBtnUrl = new URL("./assets/apply.png", import.meta.url).href;
 const refreshBtnUrl = new URL("./assets/refresh.png", import.meta.url).href;
