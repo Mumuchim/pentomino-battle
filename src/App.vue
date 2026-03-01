@@ -10179,9 +10179,6 @@ onBeforeUnmount(() => {
   padding-left: clamp(28px, 5vw, 72px);
 }
 
-/* Allow the right column to scroll on mobile when buttons overflow */
-
-
 /* ── Left column: empty space, brand anchored to bottom ── */
 .mnLeft {
   flex: 0 0 clamp(260px, 56vw, 840px);
@@ -10219,14 +10216,7 @@ onBeforeUnmount(() => {
   align-items: flex-start;
   justify-content: center;
   min-width: 0;
-  padding-top: clamp(12px, 2vh, 32px);
-  padding-bottom: clamp(12px, 2vh, 32px);
-  overflow-y: auto;
-  overflow-x: hidden;
-  -webkit-overflow-scrolling: touch;
-  scrollbar-width: none;
 }
-.mnRight::-webkit-scrollbar { display: none; }
 
 /* Buttons container — extends past right edge for bleed effect */
 .mnBtns {
