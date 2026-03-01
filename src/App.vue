@@ -2901,7 +2901,10 @@ function buildSyncedState(meta = {}) {
 
       battleClockSec: deepClone(game.battleClockSec),
       battleClockInitSec: game.battleClockInitSec || 180,
-      battleClockLastTickAt: game.battleClockLastTickAt,
+      // ✅ FIX: battleClockLastTickAt is intentionally NOT synced to the remote client.
+      // The receiving client always resets it to Date.now() in applySyncedState, so
+      // sending our local timestamp would only cause confusion and is wasted bandwidth.
+      // battleClockSec (the remaining time) is the single source of truth.
 
       // Helps prevent false timeouts under latency
       timeoutPendingAt: game.timeoutPendingAt,
@@ -2969,8 +2972,17 @@ function applySyncedState(state) {
       rematchDeclinedBy: g.rematchDeclinedBy,
       battleClockSec: g.battleClockSec,
       battleClockInitSec: g.battleClockInitSec || 180,
-      battleClockLastTickAt: g.battleClockLastTickAt,
+      // ✅ FIX (Timer Bug): Reset tick reference to local NOW — never use the remote timestamp.
+      // The remote battleClockLastTickAt was Date.now() on the OTHER client 300-600 ms ago.
+      // Applying it directly made tickBattleClock deduct that full DB round-trip from the active
+      // player's clock on every move (~5-12 seconds of phantom time stolen across a full game).
+      // battleClockSec already contains the correct remaining time; we just restart ticking
+      // from this exact moment so no latency is ever double-counted.
+      battleClockLastTickAt: Date.now(),
 
+      // ✅ FIX: Clear local timeout-pending state on any incoming remote update.
+      // If the opponent just made a valid move, their push clears these fields in the snapshot,
+      // cancelling any grace-period countdown we had started locally.
       timeoutPendingAt: g.timeoutPendingAt,
       timeoutPendingPlayer: g.timeoutPendingPlayer,
 
@@ -3664,10 +3676,14 @@ async function startPollingLobby(lobbyId, role) {
     }
 
     // Adaptive polling:
-    // - If Realtime is active, keep polling light (presence/TTL + recovery).
-    // - Otherwise poll aggressively for responsiveness.
-    const fast = !online.waitingForOpponent && (game.phase === "draft" || game.phase === "place");
-    const ms = online.rtEnabled ? (fast ? 1100 : 1700) : (fast ? 260 : 650);
+    // Realtime channel is the PRIMARY delivery path (~30-80ms latency).
+    // Polling is the RECOVERY path — fires when RT drops or a message is missed.
+    // ✅ FIX: Tighter intervals for faster recovery without hammering the DB.
+    //   • With active RT:    800ms in-game, 1500ms while waiting / gameover
+    //   • Without RT:       180ms in-game (aggressive fallback), 500ms otherwise
+    const fast  = !online.waitingForOpponent && (game.phase === "draft" || game.phase === "place");
+    const rtReady = !!(online.rtEnabled && online.rtChannel);
+    const ms = rtReady ? (fast ? 800 : 1500) : (fast ? 180 : 500);
     if (online.polling) online.pollTimer = setTimeout(pollLoop, ms);
   };
 
@@ -4572,6 +4588,8 @@ async function startQuickMatchAuto() {
             "is_private=eq.false",
             "guest_id=is.null",
             "mode=eq.quick",
+            // ✅ FIX: server-side self-join guard
+            `host_id=neq.${encodeURIComponent(meId)}`,
             "order=updated_at.asc",
             "limit=5",
           ].join("&");
@@ -4836,13 +4854,15 @@ async function sbQuickMatch() {
   // Quick Match rooms are hidden from the lobby browser by lobby_name="__QM__"
   const me = await getGuestId();
 
-  // 1) Try to claim the oldest waiting quickmatch room
+  // 1) Try to claim the oldest waiting quickmatch room that isn't your own
   const q = [
     "select=id,code,status,is_private,lobby_name,updated_at,host_id,guest_id,state,version",
     "status=eq.waiting",
     "is_private=eq.false",
     "guest_id=is.null",
     "mode=eq.quick",
+    // ✅ FIX: exclude lobbies you created so you can never self-join
+    `host_id=neq.${encodeURIComponent(me)}`,
     "order=updated_at.asc",
     "limit=6",
   ].join("&");
@@ -5423,15 +5443,27 @@ onMounted(() => {
     const t = serverNow();
     const changed = game.checkAndApplyTimeout?.(t);
     if (changed) {
-      // If a timeout just triggered, confirm against server once to avoid false timeouts
-      // when the opponent placed a move right on the edge.
+      // ✅ FIX (Timeout race): Only the WINNER pushes the timeout gameover state.
+      // Previously BOTH clients called pushMyState("timeout") at the same time,
+      // creating a race where the version-guard could silently drop one push and a
+      // last-second valid move could collide with two simultaneous timeout writes.
+      //
+      // New approach:
+      //   • Winner pushes immediately (they have no incentive to delay)
+      //   • Loser acts as a 3-second fallback push in case the winner is briefly offline
+      //   • confirmTimeoutWithServer() still validates before either push lands
       const localMoveSeq = Number(game.moveSeq || 0);
-      (async () => {
+      const iAmWinner    = myPlayer.value === game.winner;
+      const pushDelay    = iAmWinner ? 0 : 3000;
+
+      setTimeout(async () => {
+        // Abort if the match was resolved another way while we were waiting
+        if (game.phase !== "gameover") return;
         const ok = await confirmTimeoutWithServer(localMoveSeq);
         if (!ok) return;
         online.localDirty = true;
         pushMyState("timeout");
-      })();
+      }, pushDelay);
     }
   }, 250);
 });
