@@ -142,7 +142,16 @@
       ═══════════════════════════════════════════════════════════ -->
       <section v-if="screen === 'auth'" class="hpAuth">
 
-        <!-- Left column: YouTube video -->
+        <!-- Mobile landscape hint: zoom out + hide URL bar for best experience -->
+        <Transition name="mobileHintFade">
+          <div v-if="mobileAuthLandscapeHint" class="mobileAuthHint" role="status">
+            <span class="mobileAuthHintIcon">📱</span>
+            <span class="mobileAuthHintText">
+              <strong>Tip:</strong> Pinch to zoom out &amp; swipe up to hide the URL bar for the best experience.
+            </span>
+            <button class="mobileAuthHintClose" @click="mobileAuthLandscapeHintDismissed = true" aria-label="Dismiss">✕</button>
+          </div>
+        </Transition>
         <div class="hpLeft">
           <div class="hpVideoWrap">
             <iframe
@@ -1451,6 +1460,21 @@ function computeIsPortrait() {
 }
 const landscapeLockActive = computed(() => isInGame.value && !!game.ui?.lockLandscape && isPortrait.value);
 
+// Mobile landscape hint on the auth screen: nudge users to zoom out + hide the
+// URL bar so the full 1920px layout fits comfortably without manual fiddling.
+const mobileAuthLandscapeHintDismissed = ref(false);
+const mobileAuthLandscapeHint = computed(() => {
+  if (screen.value !== 'auth') return false;
+  if (mobileAuthLandscapeHintDismissed.value) return false;
+  if (isPortrait.value) return false; // only in landscape
+  try {
+    if (window.matchMedia?.('(pointer: coarse)').matches) return true;
+    const small = Math.min(window.innerWidth || 0, window.innerHeight || 0) <= 820;
+    if (small && (navigator?.maxTouchPoints || 0) > 0) return true;
+  } catch {}
+  return false;
+});
+
 // Soft portrait suggestion (non-blocking, dismissable, shown once per session)
 const portraitHintDismissed = ref(false);
 function dismissPortraitHint() { portraitHintDismissed.value = true; }
@@ -1928,7 +1952,7 @@ function getCurtainColors(targetScreen) {
   if (targetScreen === 'credits')    return ['#E5E5E5', '#CFCCCC'];
   if (targetScreen === 'solo')       return ['#9B5FE3', '#6D40A3'];
   if (targetScreen === 'auth')       return ['#50c9ee', '#ee4b72'];
-  return ['#ee4b72', '#50c9ee']; // default / mode
+  return ['#50c9ee', '#ee4b72']; // default / mode
 }
 
 function navTo(newScreen) {
@@ -9688,6 +9712,58 @@ onBeforeUnmount(() => {
 }
 
 /* Auth screen: fixed between topbar and bottombar — totally independent of document flow */
+/* ── Mobile landscape hint banner (auth screen only) ── */
+.mobileAuthHint {
+  position: fixed;
+  bottom: 6.5vw; /* sit just above the bottom bar */
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 200;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 12px 18px 12px 14px;
+  border-radius: 40px;
+  background: rgba(10, 10, 20, 0.88);
+  border: 1px solid rgba(80, 201, 238, 0.45);
+  box-shadow: 0 4px 24px rgba(0,0,0,0.55), 0 0 12px rgba(80,201,238,0.15);
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+  white-space: nowrap;
+  pointer-events: all;
+  max-width: 90vw;
+}
+.mobileAuthHintIcon {
+  font-size: 20px;
+  flex-shrink: 0;
+}
+.mobileAuthHintText {
+  font-size: 18px;
+  color: #d0eaf8;
+  line-height: 1.3;
+  white-space: normal;
+}
+.mobileAuthHintText strong {
+  color: #50c9ee;
+}
+.mobileAuthHintClose {
+  flex-shrink: 0;
+  background: none;
+  border: none;
+  color: #7ab8cc;
+  font-size: 22px;
+  cursor: pointer;
+  padding: 0 2px;
+  line-height: 1;
+  transition: color 0.15s;
+  -webkit-tap-highlight-color: transparent;
+}
+.mobileAuthHintClose:hover { color: #fff; }
+.mobileHintFade-enter-active { transition: opacity 0.3s ease, transform 0.3s cubic-bezier(.22,1,.36,1); }
+.mobileHintFade-leave-active { transition: opacity 0.2s ease, transform 0.2s ease; }
+.mobileHintFade-enter-from  { opacity: 0; transform: translateX(-50%) translateY(10px); }
+.mobileHintFade-leave-to    { opacity: 0; transform: translateX(-50%) translateY(6px); }
+
 .hpAuth {
   position: fixed;
   top: 5.208vw;      /* topbar bottom edge */
