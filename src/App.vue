@@ -4900,6 +4900,9 @@ watch(
         if (humanWon) { aiScore.p1++; newStageUnlocked = tryUnlockNextDifficulty(humanPlayer.value, humanPlayer.value); }
         else if (aiWon) aiScore.p2++;
 
+        // ✅ Save draft picks to history so Legendary can learn human preferences
+        saveAiDraftHistory(game.picks[humanPlayer.value], !!aiWon);
+
         // If a new stage was just unlocked, skip the victory modal entirely.
         // The unlock animation overlay (shown after 1.2 s) acts as the result screen
         // and already provides Main Menu / Play Again / Next Battle actions.
@@ -6521,6 +6524,34 @@ const humanPlayer = computed(() => aiPlayer.value === 2 ? 1 : 2);
 const UNLOCK_KEY = 'pb_ai_unlocks_v2';
 const AI_RANK_ORDER = ['dumbie', 'elite', 'tactician', 'grandmaster', 'legendary'];
 
+/* ── AI Draft History (localStorage) ───────────────────────────────
+   Tracks the human player's draft picks across the last 10 VS AI games
+   so Legendary can identify favourite pieces and prioritise denying them.
+   Stored client-side only — no DB needed, no auth required.
+──────────────────────────────────────────────────────────────────── */
+const AI_DRAFT_HISTORY_KEY = 'pb_ai_draft_history';
+
+function getAiDraftHistory() {
+  try {
+    const raw = localStorage.getItem(AI_DRAFT_HISTORY_KEY);
+    return raw ? JSON.parse(raw) : [];
+  } catch { return []; }
+}
+
+function saveAiDraftHistory(humanPicks, aiWon) {
+  try {
+    const history = getAiDraftHistory();
+    history.unshift({
+      humanPicks: [...(humanPicks || [])],
+      aiWon: !!aiWon,
+      diff: aiDifficulty.value,
+      timestamp: Date.now(),
+    });
+    if (history.length > 10) history.length = 10;
+    localStorage.setItem(AI_DRAFT_HISTORY_KEY, JSON.stringify(history));
+  } catch {}
+}
+
 function loadUnlocks() {
   try {
     const raw = localStorage.getItem(UNLOCK_KEY);
@@ -6686,7 +6717,7 @@ function nextAiRound() {
 ========================= */
 
 // Instantiate engine — passes reactive refs so the engine reads live state
-const _ai = createAiEngine({ game, aiPlayer, humanPlayer, aiDifficulty, PENTOMINOES, transformCells });
+const _ai = createAiEngine({ game, aiPlayer, humanPlayer, aiDifficulty, PENTOMINOES, transformCells, getDraftHistory: getAiDraftHistory });
 
 let _aiTimer = null;
 function _cancelAiTimer() {

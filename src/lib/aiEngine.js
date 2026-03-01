@@ -432,7 +432,9 @@ function openTerritoryBonus(abs, simBoard, W, H, ap) {
 //  FACTORY
 // ─────────────────────────────────────────────────────────────────────
 
-export function createAiEngine({ game, aiPlayer, humanPlayer, aiDifficulty, PENTOMINOES, transformCells }) {
+export function createAiEngine({ game, aiPlayer, humanPlayer, aiDifficulty, PENTOMINOES, transformCells, getDraftHistory }) {
+  // Fallback if not provided (e.g. tests)
+  const _getDraftHistory = typeof getDraftHistory === 'function' ? getDraftHistory : () => [];
   // ── Caches (speed + stronger search) ─────────────────────────────
   const _moveCache = new Map();
   const _moveCountCache = new Map();
@@ -972,7 +974,8 @@ function movesLegendary(moves) {
   const { board, boardW, boardH, remaining, placedCount, allowFlip } = game;
   const ap = aiPlayer.value, hp = humanPlayer.value;
 
-  if ((remaining[ap]?.length||0) <= 4 || (remaining[hp]?.length||0) <= 4)
+  // ✅ Expanded endgame threshold (was ≤4, now ≤5) — precise solver kicks in sooner
+  if ((remaining[ap]?.length||0) <= 5 || (remaining[hp]?.length||0) <= 5)
     return endgameSolve(moves);
 
   const oppMobilityBefore = countTotalMoves(board, boardW, boardH, hp, remaining, placedCount, allowFlip);
@@ -1017,6 +1020,10 @@ function movesLegendary(moves) {
     const ownFeasible = countFeasiblePieces(sim, boardW, boardH, ap, remAfter, placedCount+1, allowFlip);
     const oppFeasible = countFeasiblePieces(sim, boardW, boardH, hp, remAfter, placedCount+1, allowFlip);
     const feasibleReduction = oppFeasibleBefore - oppFeasible;
+
+    // ✅ BLUNDER PROTECTION: if this move leaves AI with ≤2 feasible moves, heavily penalise.
+    // Prevents situations where a high-territory move accidentally self-traps the AI.
+    const blunderPenalty = ownFeasible <= 2 ? -120.0 : ownFeasible <= 4 ? -30.0 : 0;
 
     // Depth-2 minimax, trap-aware (beam pruned)
     const oppMoves = movesOnBoard(hp, sim, boardW, boardH, remAfter, placedCount+1, allowFlip);
@@ -1081,13 +1088,20 @@ function movesLegendary(moves) {
       + ownFeasible        * 10.0
       - oppFeasible        * 16.0
       + openTerritoryBonus(m.abs, sim, boardW, boardH, ap)
-      + aiClusterPenalty(sim, boardW, boardH, ap);
+      + aiClusterPenalty(sim, boardW, boardH, ap)
+      + blunderPenalty;
 
-    // Early-game: claim center / reduce symmetry (prevents easy human steering)
-    if (placedCount < 4) {
+    // ✅ OPENING THEORY: first 2 placements weight the center seam much more aggressively.
+    // This prevents the human from claiming the middle division on turn 1 and forces
+    // a more contested opening. Weight tapers off after the board has structure.
+    if (placedCount < 2) {
       let cd = 0;
       for (const [x,y] of m.abs) cd += (Math.abs(x - (boardW-1)/2) + Math.abs(y - (boardH-1)/2));
-      score -= cd * 0.12;
+      score -= cd * 0.55; // was 0.12 — much stronger center pull early
+    } else if (placedCount < 4) {
+      let cd = 0;
+      for (const [x,y] of m.abs) cd += (Math.abs(x - (boardW-1)/2) + Math.abs(y - (boardH-1)/2));
+      score -= cd * 0.18; // light taper for moves 3-4
     }
 
     if (score > bestScore) { bestScore = score; best = m; }
@@ -1166,12 +1180,24 @@ function movesLegendary(moves) {
       return pool.reduce((b,k) => grandmasterDraftScore(k,aiPicks) > grandmasterDraftScore(b,aiPicks) ? k : b);
     }
 
-// Legendary (deterministic counter-draft)
+// Legendary (deterministic counter-draft + history-aware pick denial)
 // 1) If small pool, brute the last picks.
 const smallPick = legendarySmallPoolPick(pool, aiPicks, humanPicks);
 if (smallPick) return smallPick;
 
-// 2) Score every option by: deny human synergy, improve AI role coverage, and avoid giving yourself too many blockers.
+// 2) Load pick history — last 10 AI games — to know human's favourite pieces.
+//    Pieces taken in more games → higher denial priority.
+const draftHistory = _getDraftHistory();
+const pickFreq = {}; // pieceKey → count of games it was picked in
+for (const entry of draftHistory) {
+  for (const pk of (entry.humanPicks || [])) {
+    pickFreq[pk] = (pickFreq[pk] || 0) + 1;
+  }
+}
+const maxFreq = Math.max(1, ...Object.values(pickFreq));
+
+// 3) Score every option by: deny human synergy, improve AI role coverage,
+//    counter historical favourites, and avoid giving yourself too many blockers.
 const humanTargetsBefore = getSynergyTargets(humanPicks, pool).length;
 
 function legendaryDraftScore(pick) {
@@ -1186,6 +1212,13 @@ function legendaryDraftScore(pick) {
   const poolAfter = pool.filter(k => k !== pick);
   const targetsAfter = getSynergyTargets(humanPicks, poolAfter).length;
   s += (humanTargetsBefore - targetsAfter) * 3.0;
+
+  // ✅ HISTORY DENIAL: boost score for pieces the human frequently picks.
+  //    Normalised so a piece grabbed in every recorded game gets +12 bonus.
+  //    Weight increases with more history samples (reliable signal).
+  const historyWeight = Math.min(1.0, draftHistory.length / 5); // ramps up over 5 games
+  const freq = pickFreq[pick] || 0;
+  s += (freq / maxFreq) * 12.0 * historyWeight;
 
   // role coverage (AI wants a balanced kit)
   if (!aiPicks.some(p=>PIECE_ROLES.FLEXIBLE.has(p)) && PIECE_ROLES.FLEXIBLE.has(pick)) s += 5.0;
@@ -1228,7 +1261,22 @@ return pool.reduce((best, k) => legendaryDraftScore(k) > legendaryDraftScore(bes
     if (diff === 'elite')       return 550  + Math.random() * 600;
     if (diff === 'tactician')   return 700  + Math.random() * 500;
     if (diff === 'grandmaster') return 900  + Math.random() * 600;
-    /* legendary */             return 1100 + Math.random() * 400;
+
+    // ✅ LEGENDARY — adaptive delay based on game state.
+    //    Early game (high impact): slower and more deliberate.
+    //    Mid game: standard thoughtful pause.
+    //    Endgame (≤5 pieces left): faster — the solver is deterministic, no need to fake thinking.
+    const placed = game.placedCount || 0;
+    const remaining = Math.min(
+      (game.remaining?.[aiPlayer.value]?.length || 6),
+      (game.remaining?.[humanPlayer.value]?.length || 6)
+    );
+    if (game.phase === 'draft') return 900 + Math.random() * 400;
+    if (remaining <= 3)  return 400  + Math.random() * 300;  // endgame: fast
+    if (remaining <= 5)  return 700  + Math.random() * 400;  // late: moderate
+    if (placed   <= 2)   return 1400 + Math.random() * 500;  // opening: very deliberate
+    if (placed   <= 5)   return 1100 + Math.random() * 400;  // early mid: deliberate
+    return               1000 + Math.random() * 400;         // mid game: standard
   }
 
   return { getAllValidMoves, pickDraftPiece, choosePlacement, thinkDelay };
