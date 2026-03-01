@@ -2379,6 +2379,10 @@ const online = reactive({
   // Supabase Realtime (near-instant sync)
   rtEnabled: false,
   rtChannel: null,
+
+  // ✅ FIX (Bug 4): Prevents concurrent ensureOnlineInitialized calls from each poll
+  // cycle calling game.resetGame() and reshuffling the draft board repeatedly.
+  initializingGame: false,
 });
 
 const publicLobbies = ref([]);
@@ -2665,6 +2669,21 @@ async function sbJoinLobby(lobbyId) {
 
   // ✅ Guard join so you can't join closed/full/expired lobbies.
   // This PATCH will only succeed if the lobby is still waiting and has no guest.
+  // ✅ FIX (Bug 2): Also clear the game state (state.game) when joining.
+  // A QM lobby reused from a stale session could have old state.game.phase="gameover"
+  // or old state.meta.players. Clearing the game sub-state ensures ensureOnlineInitialized
+  // runs a fresh init instead of bailing out due to stale meta.players.
+  // NOTE: We preserve state.meta (host config like timerMinutes, kind, heartbeat).
+  let clearStateBody;
+  try {
+    // Fetch current state to preserve meta while clearing game
+    const existing = await sbSelectLobbyById(lobbyId);
+    const existingMeta = existing?.state?.meta || {};
+    clearStateBody = { state: { meta: existingMeta, game: {} } };
+  } catch {
+    clearStateBody = { state: { meta: {}, game: {} } };
+  }
+
   const res = await fetch(sbRestUrl(`pb_lobbies?id=eq.${encodeURIComponent(lobbyId)}&guest_id=is.null&status=eq.waiting`), {
     method: "PATCH",
     headers: { ...(await sbHeaders()), Prefer: "return=representation" },
@@ -2674,6 +2693,7 @@ async function sbJoinLobby(lobbyId) {
       // This avoids edge cases where clients treat unknown statuses differently.
       status: "waiting",
       updated_at: new Date().toISOString(),
+      ...clearStateBody,
     }),
   });
 
@@ -3130,8 +3150,25 @@ async function ensureOnlineInitialized(lobby) {
   if (!lobby) return;
 
   const hasPlayers = !!lobby?.state?.meta?.players;
-  if (hasPlayers) return;
+  const gamePhase = lobby?.state?.game?.phase;
+
+  // ✅ FIX (Bug 2 & 4): Allow re-initialization when a stale/completed game is detected.
+  // Previously: ANY lobby with meta.players caused an early return, even one with
+  // phase="gameover" from a previous session. This caused:
+  //   - Guest sees old GAME OVER state (Bug 2)
+  //   - Host repeatedly calls game.resetGame() since applySyncedState keeps getting
+  //     the old gameover state every poll cycle (Bug 4 — draft board reshuffling)
+  // Fix: only skip init if game is CURRENTLY ACTIVE (not ended).
+  if (hasPlayers && gamePhase && gamePhase !== "gameover") return;
+
   if (!lobby.host_id || !lobby.guest_id) return;
+
+  // ✅ FIX (Bug 4): Prevent concurrent init calls from re-running game.resetGame()
+  // every 850ms poll cycle. Without this flag, each poll loop iteration calls
+  // ensureOnlineInitialized, which calls game.resetGame() generating a new random
+  // draftBoard — causing the draft board to reshuffle constantly while waiting.
+  if (online.initializingGame) return;
+  online.initializingGame = true;
 
   // ✅ FIX: Only the HOST writes the initial game state.
   // If the guest also tried to init, we had a race where:
@@ -3140,7 +3177,7 @@ async function ensureOnlineInitialized(lobby) {
   //   3. Guest does: lastAppliedVersion = null?.version || nextVersion  → sets a phantom version
   //   4. All future DB versions are lower than phantom → guest rejects every sync forever
   // Solution: guest simply waits for host's state to arrive via polling.
-  if (online.role !== "host") return;
+  if (online.role !== "host") { online.initializingGame = false; return; }
 
   // ✅ FIX: Re-fetch from DB before writing. The lobby passed in might be stale
   // (e.g., a heartbeat write already overwrote state, or another poll beat us here).
@@ -3201,6 +3238,9 @@ async function ensureOnlineInitialized(lobby) {
     }
   } catch {
     // If it failed, the guest will still apply state when the next poll reads DB.
+  } finally {
+    // ✅ FIX (Bug 4): Release the init lock so a future rematch can re-init.
+    online.initializingGame = false;
   }
 }
 
@@ -3323,6 +3363,7 @@ async function startPollingLobby(lobbyId, role) {
   online.pingMs = null;
   online.localDirty = false;
   online.hostWaitStartedAt = role === "host" ? Date.now() : null;
+  online.initializingGame = false; // ✅ FIX (Bug 4): reset init lock for new session
   myPlayer.value = null;
 
   // Near-instant sync via Supabase Realtime (polling remains as fallback + presence/TTL logic)
@@ -4067,6 +4108,26 @@ watch(
           ]
         : [{ label: "Play Again", tone: "primary", onClick: onResetClick }],
     });
+
+    // ✅ FIX (Bug 3): Schedule background lobby cleanup after game over.
+    // Without this, if neither player clicks "Main Menu" or "Play Again", the lobby
+    // stays in the DB indefinitely with status="playing" & phase="gameover".
+    // Although status="playing" lobbies aren't reused by Quick Match, this clutter
+    // can accumulate and cause confusion. Delete it after 10 minutes of inactivity.
+    if (isOnline.value && online.lobbyId) {
+      const lobbyIdSnapshot = online.lobbyId;
+      setTimeout(async () => {
+        // Only delete if the game is STILL over and we're still in this match
+        // (not already cleaned up by leave/rematch).
+        if (online.lobbyId !== lobbyIdSnapshot) return;
+        if (game.phase !== "gameover") return;
+        try {
+          await sbDeleteLobby(lobbyIdSnapshot);
+        } catch {
+          try { await sbCloseAndNukeLobby(lobbyIdSnapshot, { terminateReason: "ended", reason: "gameover_timeout" }); } catch {}
+        }
+      }, 10 * 60 * 1000); // 10 minutes
+    }
   }
 );
 
@@ -4791,10 +4852,16 @@ async function sbQuickMatch() {
       continue;
     }
 
-    // ✅ If a previous quick match already ended/terminated, don't ever reuse it.
+    // ✅ FIX (Bug 1 & 2): If a previous quick match already ended/terminated,
+    // or if ANY prior game data exists (meta.players set = match was played there),
+    // don't ever reuse the lobby. Delete it immediately.
+    // Previously only "gameover" phase was checked, but a lobby interrupted mid-game
+    // (host tab closed) would have meta.players set without phase="gameover".
+    // That stale state caused the new guest to see the old GAME OVER / mid-game board.
     const phase = lobby?.state?.game?.phase;
     const term = lobby?.state?.meta?.terminateReason;
-    if (phase === "gameover" || term) {
+    const hadPriorGame = !!lobby?.state?.meta?.players; // any prior game session
+    if (phase === "gameover" || term || hadPriorGame) {
       try {
         const ok = await sbDeleteLobby(lobby.id);
         if (!ok) await sbCloseAndNukeLobby(lobby.id, { terminateReason: phase === "gameover" ? "ended" : "terminated", reason: "qm_stale" });
@@ -4810,11 +4877,16 @@ async function sbQuickMatch() {
   }
 
   // 2) Otherwise, create a new hidden quick match room and wait as host
+  const now = Date.now();
   const created = await sbCreateLobby({
     isPrivate: false,
     lobbyName: "__QM__",
     mode: "quick",
-    extraStateMeta: { kind: "quickmatch", hidden: true },
+    // ✅ FIX (Bug 1): Include an initial heartbeat timestamp in the state.
+    // Without this, a host that crashes immediately has no heartbeat, so
+    // isLobbyExpired() doesn't flag it as stale for up to 5 minutes (LOBBY_WAITING_TTL_MS).
+    // With an upfront heartbeat, the 90s staleness check kicks in quickly if the host vanishes.
+    extraStateMeta: { kind: "quickmatch", hidden: true, heartbeat: { host: now } },
   });
 
   if (!created?.id) throw new Error("Failed to create quick match lobby.");
