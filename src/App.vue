@@ -3142,12 +3142,26 @@ async function ensureOnlineInitialized(lobby) {
   // Solution: guest simply waits for host's state to arrive via polling.
   if (online.role !== "host") return;
 
+  // ✅ FIX: Re-fetch from DB before writing. The lobby passed in might be stale
+  // (e.g., a heartbeat write already overwrote state, or another poll beat us here).
+  // Avoid a redundant re-init if players were already written by a previous poll.
+  let freshLobby;
+  try {
+    freshLobby = await sbSelectLobbyById(lobby.id);
+  } catch {
+    freshLobby = lobby;
+  }
+  if (freshLobby?.state?.meta?.players) return; // already initialized — nothing to do
+
+  // Use the freshest version to avoid write conflicts
+  const lobbyToInit = freshLobby || lobby;
+
   // ── prevMeta MUST be declared before any usage below ──────────────
-  const prevMeta = lobby.state?.meta ? lobby.state.meta : {};
+  const prevMeta = lobbyToInit.state?.meta ? lobbyToInit.state.meta : {};
   const nextRound = Number(prevMeta.round || 0) + 1;
 
   // Randomize player numbers for THIS round, then write it once into meta.
-  const { players } = makeRandomPlayers(lobby.host_id, lobby.guest_id);
+  const { players } = makeRandomPlayers(lobbyToInit.host_id, lobbyToInit.guest_id);
 
   game.boardW = 10;
   game.boardH = 6;
@@ -3168,11 +3182,11 @@ async function ensureOnlineInitialized(lobby) {
     started_at: new Date().toISOString(),
   });
 
-  const nextVersion = Number(lobby.version || 0) + 1;
+  const nextVersion = Number(lobbyToInit.version || 0) + 1;
 
   try {
     // Host is the sole author — use force-patch so transient version drift never blocks init.
-    const updated = await sbForcePatchState(lobby.id, {
+    const updated = await sbForcePatchState(lobbyToInit.id, {
       state: initState,
       version: nextVersion,
       status: "playing",
@@ -3347,7 +3361,14 @@ async function startPollingLobby(lobbyId, role) {
 
       // ✅ Lightweight presence heartbeat (even while waiting) so stale rooms can be cleaned up.
       // Throttled to avoid spamming the DB.
-      if (online.role && (online.waitingForOpponent || game.phase === "gameover")) {
+      // ✅ FIX: Skip heartbeat entirely during the initialization window —
+      // when BOTH players are present but `players` assignment hasn't been written yet.
+      // The heartbeat uses the stale pre-init lobby.state (no `players`), and
+      // sbForcePatchState can OVERWRITE the host's init write, wiping the players field.
+      // This caused a loop: host inits → heartbeat erases players → host inits again → ...
+      // and the guest eventually sees a gameover from a stale/empty state.
+      const inInitWindow = !!(lobby.host_id && lobby.guest_id && !lobby?.state?.meta?.players);
+      if (!inInitWindow && online.role && (online.waitingForOpponent || game.phase === "gameover")) {
         const now = Date.now();
         if (!online.lastHbSentAt || now - online.lastHbSentAt > 15_000) {
           online.lastHbSentAt = now;
@@ -3386,7 +3407,10 @@ async function startPollingLobby(lobbyId, role) {
       }
 
       // Keep / show the waiting modal (host only) — but don't interrupt other modals.
-      if (online.role === "host" && online.waitingForOpponent && online.code) {
+      // ✅ FIX: Only show while truly waiting for a guest to JOIN (guest_id is null).
+      // Removed the old condition that checked `waitingForOpponent` alone, which could
+      // re-trigger this modal during the init window when the guest is already present.
+      if (online.role === "host" && online.waitingForOpponent && online.code && !lobby.guest_id) {
         if (!modal.open) {
           showWaitingForOpponentModal(online.code);
         } else if (modal.title === "Waiting for Opponent") {
@@ -3524,7 +3548,19 @@ async function startPollingLobby(lobbyId, role) {
         });
       }
 
-      online.waitingForOpponent = !(lobby.host_id && lobby.guest_id && lobby?.state?.meta?.players);
+      // ✅ FIX: Never oscillate waitingForOpponent once the game is initialized.
+      // Previously: every poll re-evaluated this from DB state, so a heartbeat-overwritten
+      // state (temporarily missing `players`) would flip back to true mid-game, causing
+      // the host to re-show "Waiting for Opponent" and re-run ensureOnlineInitialized.
+      // Now: only update when there's a clear signal (guest left, or players confirmed).
+      if (!lobby.guest_id) {
+        // Guest left — genuinely waiting again
+        online.waitingForOpponent = true;
+      } else if (lobby?.state?.meta?.players) {
+        // Both players present AND game properly initialized
+        online.waitingForOpponent = false;
+      }
+      // else: both present but players not yet written — keep current value (don't re-trigger init loop)
 
       // If the match is ready, ensure the waiting modal is gone.
       if (!online.waitingForOpponent && modal.open && modal.title === "Waiting for Opponent") {
@@ -4394,6 +4430,13 @@ async function startQuickMatchAuto() {
     Promise.race([p, new Promise((_, rej) => setTimeout(() => rej(new Error("Quick Match timed out")), ms))]);
 
   try {
+    // ✅ FIX: Small random jitter (0–600ms) before the first search.
+    // When two players click Quick Match at the exact same time, they both query
+    // the empty queue simultaneously and both create host lobbies. The jitter
+    // staggers their searches so one is likely to find the other's lobby first.
+    await new Promise(r => setTimeout(r, Math.random() * 600));
+    if (cancelled) return;
+
     let result;
     try {
       result = await withTimeout(sbQuickMatch(), 9000);
