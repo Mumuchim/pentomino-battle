@@ -709,6 +709,61 @@ export const useGameStore = defineStore("game", {
 
 
     
+    // ----- DIRECT PLACEMENT START (skips draft) -----
+    startPlacementDirect(picks1, picks2, boardW, boardH) {
+      const w = boardW != null ? boardW : this.boardW;
+      const h = boardH != null ? boardH : this.boardH;
+
+      this.boardW = w;
+      this.boardH = h;
+
+      this.phase = "place";
+
+      this.picks = { 1: picks1, 2: picks2 };
+      this.remaining = { 1: [...picks1], 2: [...picks2] };
+      this.pool = [];
+
+      this.board = makeEmptyBoard(w, h);
+
+      // Rebuild draftBoard for new dimensions (board component still reads it)
+      this.draftBoard = computeDraftTiling(w, h, this.allowFlip, false)
+        .map(row => row.map(cell => (cell ? { pieceKey: cell.pieceKey } : null)));
+
+      // Reset clocks
+      const initSec = this.battleClockInitSec || 180;
+      this.battleClockSec = { 1: initSec, 2: initSec };
+      this.battleClockLastTickAt = null;
+      this.turnStartedAt = Date.now();
+
+      this.currentPlayer = 1;
+
+      // Reset selection / placement state
+      this.selectedPieceKey = null;
+      this.rotation = 0;
+      this.flipped = false;
+      this.placedCount = 0;
+      this.winner = null;
+      this.matchInvalid = false;
+      this.matchInvalidReason = null;
+
+      this.rematch = { 1: false, 2: false };
+      this.rematchDeclinedBy = null;
+      this.history = [];
+      this.moveSeq = Number(this.moveSeq || 0) + 1;
+      this.lastMove = { type: "start_placement", player: 0, seq: this.moveSeq, at: Date.now() };
+
+      this.timeoutPendingAt = null;
+      this.timeoutPendingPlayer = null;
+      this.draftTimeoutPendingAt = null;
+
+      if (this.drag) {
+        this.drag.active = false;
+        this.drag.pieceKey = null;
+        this.drag.target = null;
+      }
+      this.pendingPlace = null;
+    },
+
     // ----- BATTLE CLOCK (PLACE PHASE) -----
     tickBattleClock(now = Date.now()) {
       if (this.phase !== "place") return false;
@@ -849,3 +904,33 @@ export const useGameStore = defineStore("game", {
     },
   },
 });
+/**
+ * Splits allKeys into two roughly equal halves for the two players.
+ * An optional integer seed can be provided for deterministic shuffles.
+ * Player 1 gets the extra piece when allKeys.length is odd.
+ */
+export function randomSplitPieces(allKeys, seed) {
+  // Copy so we never mutate the original
+  const copy = [...allKeys];
+
+  if (seed != null) {
+    // Simple seeded shuffle using a linear-congruential PRNG
+    let s = seed >>> 0; // coerce to uint32
+    const rand = () => {
+      s = (Math.imul(1664525, s) + 1013904223) >>> 0;
+      return s / 0x100000000;
+    };
+    for (let i = copy.length - 1; i > 0; i--) {
+      const j = Math.floor(rand() * (i + 1));
+      [copy[i], copy[j]] = [copy[j], copy[i]];
+    }
+  } else {
+    shuffleArray(copy);
+  }
+
+  const half = Math.ceil(copy.length / 2);
+  return {
+    picks1: copy.slice(0, half),
+    picks2: copy.slice(half),
+  };
+}

@@ -275,6 +275,16 @@
             <button class="mnBtn" @mouseenter="uiHover" @click="uiClick(); navTo('lobby')">
               <img :src="mpLobbyBtnUrl" class="mnBtnImg" alt="LOBBY" />
             </button>
+            <!-- MIRROR WAR -->
+            <button class="mnBtnText" @mouseenter="uiHover" @click="uiClick(); startMirrorWarMode()">
+              <span class="mnBtnTextLabel">MIRROR WAR</span>
+              <span class="mnBtnTextSub">Full Arsenal · Double Board · No Draft</span>
+            </button>
+            <!-- BLIND DRAFT -->
+            <button class="mnBtnText" @mouseenter="uiHover" @click="uiClick(); startBlindDraftMode()">
+              <span class="mnBtnTextLabel">BLIND DRAFT</span>
+              <span class="mnBtnTextSub">Random Loadout · No Draft · Pure Placement</span>
+            </button>
           </div>
         </div>
 
@@ -1478,7 +1488,7 @@
 
 <script setup>
 import { computed, onBeforeUnmount, onMounted, reactive, ref, watch } from "vue";
-import { useGameStore } from "./store/game";
+import { useGameStore, randomSplitPieces } from "./store/game";
 import { supabase as sbRealtime } from "./lib/supabase";
 import { getPieceStyle } from "./lib/pieceStyles";
 import { boundsOf, transformCells } from "./lib/geom";
@@ -1491,6 +1501,9 @@ const CLIENT_VERSION = replayLogger.CLIENT_VERSION;
 // Track whether we've already shown the version-mismatch warning this session
 // so it only fires once, not on every poll tick.
 let _versionMismatchWarned = false;
+
+// All 12 pentomino piece keys — used by Mirror War and Blind Draft modes
+const ALL_PIECE_KEYS = ["F","I","L","P","N","T","U","V","W","X","Y","Z"];
 
 import Board from "./components/Board.vue";
 import ReplayViewer from "./components/ReplayViewer.vue";
@@ -2496,7 +2509,12 @@ const modeLabel = computed(() => {
     const roundStr = aiRound.value > 1 ? ` · R${aiRound.value}` : '';
     return `VS AI · ${labels[aiDifficulty.value] || "Dumbie"}${roundStr}`;
   }
-  return screen.value === "couch" ? "Couch Play" : screen.value === "online" ? "Online Match" : "—";
+  return screen.value === "couch" ? "Couch Play"
+       : screen.value === "online"
+           ? online.matchKind === "mirror_war"  ? "MIRROR WAR — Full Arsenal"
+           : online.matchKind === "blind_draft" ? "BLIND DRAFT — Random Loadout"
+           : "Online Match"
+       : "—";
 });
 
 const phaseTitle = computed(() => {
@@ -2925,6 +2943,7 @@ const online = reactive({
   waitingForOpponent: true,
   hostWaitStartedAt: null,
   lastHbSentAt: 0,
+  matchKind: null, // "quickmatch" | "mirror_war" | "blind_draft" | null
 
   // Clock sync: offset between local Date.now() and server epoch (ms).
   // server_time = Date.now() + serverTimeOffset
@@ -3394,6 +3413,7 @@ async function sbRecordMatchResult({
   loserId    = null,
   endReason  = "normal",
   durationSec = null,
+  matchMode  = "online",
 }) {
   if (!lobbyId || !player1Id || !player2Id) return;
   try {
@@ -3408,7 +3428,7 @@ async function sbRecordMatchResult({
       p_loser_id:     loserId,
       p_end_reason:   endReason,
       p_duration_sec: durationSec,
-      p_mode:         "online",
+      p_mode:         matchMode,
     });
   } catch (e) {
     // Non-fatal — stats can be backfilled later. Never break the UX.
@@ -3436,6 +3456,15 @@ function makeRoundSeed() {
   } catch {
     return `${Math.random().toString(16).slice(2)}_${Date.now().toString(16)}`;
   }
+}
+
+function hashSeedToUint32(seed) {
+  // Simple djb2-style hash of a string seed → uint32
+  let h = 5381;
+  for (let i = 0; i < (seed || "").length; i++) {
+    h = (Math.imul(h, 33) ^ seed.charCodeAt(i)) >>> 0;
+  }
+  return h;
 }
 
 function getMyPlayerFromPlayers(players, myId) {
@@ -3840,11 +3869,24 @@ async function ensureOnlineInitialized(lobby) {
   game.battleClockInitSec = timerSecs;
   game.battleClockSec = { 1: timerSecs, 2: timerSecs };
 
+  // ── Detect new no-draft modes and skip straight to placement ────────
+  const lobbyKind = String(prevMeta?.kind || "");
+  const roundSeed = makeRoundSeed();
+
+  if (lobbyKind === "mirror_war") {
+    // 20×12 board, both players get all 12 pieces
+    game.startPlacementDirect(ALL_PIECE_KEYS, ALL_PIECE_KEYS, 20, 12);
+  } else if (lobbyKind === "blind_draft") {
+    // 10×6 board, pieces split randomly by seed
+    const { picks1, picks2 } = randomSplitPieces(ALL_PIECE_KEYS, hashSeedToUint32(roundSeed));
+    game.startPlacementDirect(picks1, picks2, 10, 6);
+  }
+
   const initState = buildSyncedState({
     ...prevMeta,
     players,
     round: nextRound,
-    roundSeed: makeRoundSeed(),
+    roundSeed,
     started_at: new Date().toISOString(),
   });
 
@@ -3993,6 +4035,7 @@ async function startPollingLobby(lobbyId, role) {
   online.localDirty = false;
   online.hostWaitStartedAt = role === "host" ? Date.now() : null;
   online.initializingGame = false; // ✅ FIX (Bug 4): reset init lock for new session
+  online.matchKind = null;
   myPlayer.value = null;
 
   // Near-instant sync via Supabase Realtime (polling remains as fallback + presence/TTL logic)
@@ -4028,6 +4071,9 @@ async function startPollingLobby(lobbyId, role) {
       }
 
       online.code = lobby.code || online.code;
+
+      // Track match kind reactively for UI labels
+      if (lobby?.state?.meta?.kind) online.matchKind = lobby.state.meta.kind;
 
       // ✅ Lightweight presence heartbeat (even while waiting) so stale rooms can be cleaned up.
       // Throttled to avoid spamming the DB.
@@ -4826,6 +4872,10 @@ watch(
             loserId,
             endReason,
             durationSec,
+            matchMode:   meta?.kind === "mirror_war" ? "mirror_war"
+                       : meta?.kind === "blind_draft" ? "blind_draft"
+                       : meta?.mode === "ranked" || lobby?.mode === "ranked" ? "ranked"
+                       : "online",
           });
 
           // ── Fetch LP delta for ranked matches and update modal message ────
@@ -5789,6 +5839,224 @@ async function sbQuickMatch() {
 
   if (!created?.id) throw new Error("Failed to create quick match lobby.");
   return { lobby: created, role: "host" };
+}
+
+// All 12 pentomino piece keys used by Mirror War and Blind Draft modes
+
+/* ─── MIRROR WAR ─────────────────────────────────────────────────── */
+async function startMirrorWarMode() {
+  if (!(await ensureSupabaseReadyOrExplain())) return;
+
+  const t0 = Date.now();
+  let hostLobbyId = null;
+  let cancelled = false;
+  let uiTimer = null;
+
+  const fmt = (s) => {
+    const ss = Math.max(0, Math.floor(s));
+    return `${String(Math.floor(ss/60)).padStart(2,"0")}:${String(ss%60).padStart(2,"0")}`;
+  };
+
+  showModal({
+    title: "Mirror War",
+    tone: "info",
+    message: "Finding opponent… 00:00",
+    actions: [{
+      label: "CANCEL",
+      tone: "soft",
+      onClick: async () => {
+        cancelled = true;
+        try { if (hostLobbyId) await sbDeleteLobby(hostLobbyId); } catch {}
+        if (uiTimer) window.clearInterval(uiTimer);
+        closeModal();
+      },
+    }],
+  });
+
+  uiTimer = window.setInterval(() => {
+    if (!modal.open) return;
+    modal.message = `Finding opponent… ${fmt((Date.now()-t0)/1000)}`;
+  }, 250);
+
+  try {
+    await new Promise(r => setTimeout(r, Math.random() * 600));
+    if (cancelled) return;
+
+    const me = await getGuestId();
+    const mwQ = [
+      "select=id,code,status,is_private,lobby_name,updated_at,host_id,guest_id,state,version",
+      "status=eq.waiting",
+      "is_private=eq.false",
+      "guest_id=is.null",
+      "mode=eq.mirror_war",
+      `host_id=neq.${encodeURIComponent(me)}`,
+      "order=updated_at.asc",
+      "limit=6",
+    ].join("&");
+    const res = await fetch(sbRestUrl(`pb_lobbies?${mwQ}`), { headers: await sbHeaders() });
+    const rows = res.ok ? await res.json() : [];
+    const list = Array.isArray(rows) ? rows : [];
+
+    for (const lobby of list) {
+      if (lobbyPlayerCount(lobby) === 0 || isLobbyExpired(lobby) || lobby?.state?.meta?.players) {
+        cleanupLobbyIfNeeded(lobby, { reason: "mw_stale" });
+        continue;
+      }
+      if (lobby.host_id === me) continue;
+      const joined = await sbJoinLobby(lobby.id);
+      if (joined?.id) {
+        if (uiTimer) window.clearInterval(uiTimer);
+        closeModal();
+        screen.value = "online";
+        startPollingLobby(joined.id, "guest");
+        return;
+      }
+    }
+
+    // Create host lobby
+    const now = Date.now();
+    const created = await sbCreateLobby({
+      isPrivate: false,
+      lobbyName: "__MW__",
+      mode: "mirror_war",
+      extraStateMeta: { kind: "mirror_war", hidden: true, heartbeat: { host: now } },
+    });
+    if (!created?.id) throw new Error("Failed to create Mirror War lobby.");
+    hostLobbyId = created.id;
+
+    const waitUntil = Date.now() + 60_000;
+    while (!cancelled && Date.now() < waitUntil) {
+      const fresh = await sbSelectLobbyById(hostLobbyId);
+      if (fresh?.guest_id) {
+        if (uiTimer) window.clearInterval(uiTimer);
+        closeModal();
+        screen.value = "online";
+        startPollingLobby(hostLobbyId, "host");
+        return;
+      }
+      await new Promise(r => setTimeout(r, 850));
+    }
+
+    if (!cancelled) {
+      if (uiTimer) window.clearInterval(uiTimer);
+      try { await sbDeleteLobby(hostLobbyId); } catch {}
+      closeModal();
+      showModal({ title: "No Opponent", tone: "bad", message: "No one is playing right now.",
+        actions: [{ label: "OK", tone: "primary", onClick: () => (screen.value = "mode") }] });
+    }
+  } catch (e) {
+    if (uiTimer) window.clearInterval(uiTimer);
+    closeModal();
+    showModal({ title: "Mirror War Error", tone: "bad", message: String(e?.message || e || "Something went wrong.") });
+  }
+}
+
+/* ─── BLIND DRAFT ────────────────────────────────────────────────── */
+async function startBlindDraftMode() {
+  if (!(await ensureSupabaseReadyOrExplain())) return;
+
+  const t0 = Date.now();
+  let hostLobbyId = null;
+  let cancelled = false;
+  let uiTimer = null;
+
+  const fmt = (s) => {
+    const ss = Math.max(0, Math.floor(s));
+    return `${String(Math.floor(ss/60)).padStart(2,"0")}:${String(ss%60).padStart(2,"0")}`;
+  };
+
+  showModal({
+    title: "Blind Draft",
+    tone: "info",
+    message: "Finding opponent… 00:00",
+    actions: [{
+      label: "CANCEL",
+      tone: "soft",
+      onClick: async () => {
+        cancelled = true;
+        try { if (hostLobbyId) await sbDeleteLobby(hostLobbyId); } catch {}
+        if (uiTimer) window.clearInterval(uiTimer);
+        closeModal();
+      },
+    }],
+  });
+
+  uiTimer = window.setInterval(() => {
+    if (!modal.open) return;
+    modal.message = `Finding opponent… ${fmt((Date.now()-t0)/1000)}`;
+  }, 250);
+
+  try {
+    await new Promise(r => setTimeout(r, Math.random() * 600));
+    if (cancelled) return;
+
+    const me = await getGuestId();
+    const bdQ = [
+      "select=id,code,status,is_private,lobby_name,updated_at,host_id,guest_id,state,version",
+      "status=eq.waiting",
+      "is_private=eq.false",
+      "guest_id=is.null",
+      "mode=eq.blind_draft",
+      `host_id=neq.${encodeURIComponent(me)}`,
+      "order=updated_at.asc",
+      "limit=6",
+    ].join("&");
+    const res = await fetch(sbRestUrl(`pb_lobbies?${bdQ}`), { headers: await sbHeaders() });
+    const rows = res.ok ? await res.json() : [];
+    const list = Array.isArray(rows) ? rows : [];
+
+    for (const lobby of list) {
+      if (lobbyPlayerCount(lobby) === 0 || isLobbyExpired(lobby) || lobby?.state?.meta?.players) {
+        cleanupLobbyIfNeeded(lobby, { reason: "bd_stale" });
+        continue;
+      }
+      if (lobby.host_id === me) continue;
+      const joined = await sbJoinLobby(lobby.id);
+      if (joined?.id) {
+        if (uiTimer) window.clearInterval(uiTimer);
+        closeModal();
+        screen.value = "online";
+        startPollingLobby(joined.id, "guest");
+        return;
+      }
+    }
+
+    // Create host lobby
+    const now = Date.now();
+    const created = await sbCreateLobby({
+      isPrivate: false,
+      lobbyName: "__BD__",
+      mode: "blind_draft",
+      extraStateMeta: { kind: "blind_draft", hidden: true, heartbeat: { host: now } },
+    });
+    if (!created?.id) throw new Error("Failed to create Blind Draft lobby.");
+    hostLobbyId = created.id;
+
+    const waitUntil = Date.now() + 60_000;
+    while (!cancelled && Date.now() < waitUntil) {
+      const fresh = await sbSelectLobbyById(hostLobbyId);
+      if (fresh?.guest_id) {
+        if (uiTimer) window.clearInterval(uiTimer);
+        closeModal();
+        screen.value = "online";
+        startPollingLobby(hostLobbyId, "host");
+        return;
+      }
+      await new Promise(r => setTimeout(r, 850));
+    }
+
+    if (!cancelled) {
+      if (uiTimer) window.clearInterval(uiTimer);
+      try { await sbDeleteLobby(hostLobbyId); } catch {}
+      closeModal();
+      showModal({ title: "No Opponent", tone: "bad", message: "No one is playing right now.",
+        actions: [{ label: "OK", tone: "primary", onClick: () => (screen.value = "mode") }] });
+    }
+  } catch (e) {
+    if (uiTimer) window.clearInterval(uiTimer);
+    closeModal();
+    showModal({ title: "Blind Draft Error", tone: "bad", message: String(e?.message || e || "Something went wrong.") });
+  }
 }
 
 
@@ -11097,6 +11365,57 @@ onBeforeUnmount(() => {
   object-fit: contain;
   border-radius: 6px 0 0 6px;
   box-shadow: -6px 0 28px rgba(0, 0, 0, 0.25);
+}
+
+/* Text-only variant of mnBtn — no image asset required */
+.mnBtnText {
+  background: rgba(255,255,255,0.04);
+  border: 1px solid rgba(255,255,255,0.10);
+  border-right: none;
+  padding: 0 22px;
+  cursor: pointer;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  align-items: flex-start;
+  width: 100%;
+  height: 64px;
+  border-radius: 6px 0 0 6px;
+  box-shadow: -6px 0 28px rgba(0,0,0,0.22);
+  transform-origin: left center;
+  transition: transform 0.18s cubic-bezier(0.25,0.8,0.25,1),
+              filter 0.18s ease,
+              background 0.18s ease,
+              border-color 0.18s ease;
+}
+.mnBtnText:hover {
+  transform: translateX(-20px);
+  filter: brightness(1.12) saturate(1.1);
+  background: rgba(255,255,255,0.08);
+  border-color: rgba(255,255,255,0.20);
+}
+.mnBtnText:active {
+  transform: translateX(-10px) scale(0.997);
+  filter: brightness(1.05);
+}
+.mnBtnTextLabel {
+  font-family: "Orbitron", sans-serif;
+  font-size: 15px;
+  font-weight: 900;
+  letter-spacing: 2px;
+  text-transform: uppercase;
+  color: rgba(255,255,255,0.90);
+  line-height: 1;
+}
+.mnBtnTextSub {
+  font-family: "Orbitron", sans-serif;
+  font-size: 9px;
+  font-weight: 600;
+  letter-spacing: 1.5px;
+  text-transform: uppercase;
+  color: rgba(255,255,255,0.38);
+  margin-top: 5px;
+  line-height: 1;
 }
 
 
