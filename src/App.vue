@@ -68,14 +68,17 @@
       </div>
     </Transition>
 
-    <header class="topbar" :class="{ tetBar: showMenuChrome }">
+    <header class="topbar" :class="{ tetBar: showMenuChrome, hpTopbar: screen === 'auth', mnTopbar: ['mode','multiplayer','solo'].includes(screen), stTopbar: ['settings','credits'].includes(screen), lbTopbar: screen === 'lobby' }" :style="screen === 'auth' ? { '--hp-topbar-img': `url(${hpAuthTopbarUrl})` } : screen === 'mode' ? { '--mn-topbar-img': `url(${menuTopbarUrl})` } : screen === 'multiplayer' ? { '--mn-topbar-img': `url(${mpTopbarUrl})` } : screen === 'solo' ? { '--mn-topbar-img': `url(${soloTopbarUrl})` } : screen === 'settings' ? { '--st-topbar-img': `url(${settingsTopbarUrl})` } : screen === 'credits' ? { '--st-topbar-img': `url(${creditsTopbarUrl})` } : screen === 'lobby' ? { '--lb-topbar-img': `url(${lobbyTopbarNewUrl})` } : {}">
       <!-- TETR.IO-style menu top bar -->
       <template v-if="showMenuChrome">
         <div class="tetBarLeft">
           <!-- Back button (text style like TETR.IO) -->
-          <button v-if="canGoBack" class="tetBackBtn" @click="goBack" aria-label="Back">BACK</button>
-          <!-- Page title -->
-          <div class="tetBarTitle">{{ topPageTitle }}</div>
+          <button v-if="canGoBack && !['settings','credits','lobby'].includes(screen)" class="tetBackBtn" @click="goBack" aria-label="Back">BACK</button>
+          <!-- Page title: PNG asset for screens that have title images -->
+          <img v-if="screen === 'settings'" :src="settingsTextUrl" class="tetBarTitlePng" alt="SETTINGS" />
+          <img v-else-if="screen === 'credits'" :src="creditsTextUrl" class="tetBarTitlePng" alt="CREDITS" />
+          <img v-else-if="screen === 'lobby'" :src="lobbyTextUrl" class="tetBarTitlePng" alt="LOBBY" />
+          <div v-else class="tetBarTitle">{{ topPageTitle }}</div>
         </div>
 
         <div class="tetBarRight" v-if="screen !== 'auth'">
@@ -107,52 +110,26 @@
           <img :src="guestAvatarUrl" class="topAvatar" alt="Profile" />
           <!-- In-game settings (Esc) -->
           <button
-            class="btn ghost imgBtn"
+            class="btn ghost"
             v-if="isInGame"
             @click="openInGameSettings"
             aria-label="Settings"
             title="Settings (Esc)"
-          >
-            <img :src="stIconUrl" class="btnPng floatingLogo" alt="Settings" />
-          </button>
+          >⚙</button>
 
-          <button class="btn ghost imgBtn" v-if="canGoBack" @click="goBack" aria-label="Back">
-            <img :src="backBtnUrl" class="btnPng floatingLogo" alt="Back" />
-          </button>
-          <button class="btn ghost imgBtn" v-if="screen !== 'auth'" @click="goAuth" aria-label="Main Menu">
-            <img :src="mainBtnUrl" class="btnPng floatingLogo" alt="Main Menu" />
-          </button>
+          <button class="btn ghost" v-if="canGoBack" @click="goBack" aria-label="Back">BACK</button>
+          <button class="btn ghost" v-if="screen !== 'auth'" @click="goAuth" aria-label="Main Menu">MENU</button>
 
           <!-- Couch Play / AI Mode: Undo last placement (local only) -->
           <button
-            class="btn ghost imgBtn"
+            class="btn ghost"
             v-if="screen === 'couch' || screen === 'ai'"
             :disabled="(game.history?.length || 0) === 0"
             @click="(game.history?.length || 0) > 0 && (uiClick(), game.undoLastMove())"
             aria-label="Undo"
             title="Undo"
-          >
-            <img :src="undoBtnUrl" class="btnPng floatingLogo" alt="Undo" />
-          </button>
-          <button class="btn" v-if="isInGame" @click="onPrimaryMatchAction">
-            <!-- SURRENDER -->
-            <template v-if="String(primaryMatchActionLabel).toLowerCase() === 'surrender'">
-              <img :src="surrenderBtnUrl" class="btnPng floatingLogo" alt="Surrender" />
-            </template>
-
-            <!-- RESET MATCH -->
-            <template v-else-if="String(primaryMatchActionLabel).toLowerCase() === 'reset match'">
-              <img :src="resetBtnUrl" class="btnPng floatingLogo" alt="Reset Match" />
-            </template>
-
-            <!-- PLAY AGAIN -->
-            <template v-else-if="String(primaryMatchActionLabel).toLowerCase() === 'play again'">
-              <img :src="playAgainBtnUrl" class="btnPng floatingLogo" alt="Play Again" />
-            </template>
-
-            <!-- FALLBACK TEXT -->
-            <template v-else>{{ primaryMatchActionLabel }}</template>
-          </button>
+          >UNDO</button>
+          <button class="btn" v-if="isInGame" @click="onPrimaryMatchAction">{{ primaryMatchActionLabel }}</button>
         </div>
       </template>
     </header>
@@ -160,284 +137,172 @@
     <main class="main">
 
       <!-- ══════════════════════════════════════════════════════════
-           WELCOME / AUTH
+           WELCOME / AUTH  (Figma HOMEPAGE redesign)
       ═══════════════════════════════════════════════════════════ -->
-      <section v-if="screen === 'auth'" class="tetShell tetShellRight tetShellAuth">
-        <div class="tetWelcome">
-          <div class="tetBrand">
-            <template v-if="useSplitBrandPng">
-              <img :src="logoUrl" class="tetBrandLogo floatingLogo" alt="" />
-              <img :src="titleUrl" class="tetBrandTitle floatingLogo" alt="Pento Battle" />
+      <section v-if="screen === 'auth'" class="hpAuth">
+
+        <!-- Left column: YouTube video -->
+        <div class="hpLeft">
+          <div class="hpVideoWrap">
+            <iframe
+              ref="ytIframe"
+              class="hpVideoFrame"
+              :src="ytFullscreen
+                ? 'https://www.youtube.com/embed/Iqr3XIhSnUQ?autoplay=1&mute=0&controls=1&modestbranding=1&rel=0&enablejsapi=1'
+                : 'https://www.youtube.com/embed/Iqr3XIhSnUQ?autoplay=1&mute=1&loop=1&playlist=Iqr3XIhSnUQ&controls=0&modestbranding=1&rel=0&enablejsapi=1'"
+              title="PENTObattle trailer"
+              frameborder="0"
+              allow="autoplay; encrypted-media; fullscreen"
+              allowfullscreen
+            ></iframe>
+            <!-- Overlay: blocks YouTube hover UI, hidden in fullscreen so native controls work -->
+            <div v-show="!ytFullscreen" class="hpVideoOverlay" @click="openYtFullscreen">
+              <div class="hpVideoPlayBtn">
+                <img :src="playBtnUrl" class="hpVideoPlayImg" alt="Play" />
+              </div>
+            </div>
+          </div>
+          <img :src="hpWatchTutorialUrl" class="hpWatchLabel" alt="WATCH TUTORIAL" />
+        </div>
+
+        <!-- Right column: brand + buttons -->
+        <div class="hpRight">
+          <div class="hpBrand">
+            <img :src="hpLogoUrl" class="hpBrandLogo" alt="" />
+            <div class="hpBrandText">
+              <img :src="hpTitleUrl" class="hpBrandTitle" alt="PENTObattle" />
+              <img :src="hpTaglineUrl" class="hpBrandTagline" alt="FLIP ROTATE DOMINATE" />
+            </div>
+          </div>
+
+          <div class="hpBtns">
+            <template v-if="loggedIn">
+              <button class="hpBtn hpBtnContinue" @mouseenter="uiHover" @click="uiClick(); screen = 'mode'">
+                <img :src="hpContinueBtnUrl" class="hpBtnImg" alt="" />
+                <div class="hpContinueOverlay">
+                  <span class="hpContinueLabel">CONTINUE</span>
+                  <span class="hpContinueName">{{ displayName }}</span>
+                </div>
+              </button>
             </template>
             <template v-else>
-              <img :src="logoUrl" class="tetBrandLogo" alt="" />
-              <span class="tetBrandWord">PENTO<span class="tetBrandStrong">BATTLE</span></span>
+              <button class="hpBtn" @mouseenter="uiHover" @click="uiHover(); openAuthModal('login')">
+                <img :src="hpLoginBtnUrl" class="hpBtnImg" alt="LOGIN" />
+              </button>
+              <button class="hpBtn" @mouseenter="uiHover" @click="uiClick(); playAsGuest()">
+                <img :src="hpGuestBtnUrl" class="hpBtnImg" alt="GUEST" />
+              </button>
             </template>
           </div>
-          <div class="tetWelcomeSub">FLIP · ROTATE · DOMINATE</div>
         </div>
 
-        <div class="tetRows">
-          <!-- Logged in → single big CONTINUE row -->
-          <template v-if="loggedIn">
-            <button class="tetRow tetRowGreen" @mouseenter="uiHover" @click="uiClick(); screen = 'mode'">
-              <div class="tetRowGlyph"><span class="tetOnlineDot"></span></div>
-              <div class="tetRowBody">
-                <div class="tetRowTitle">CONTINUE</div>
-                <div class="tetRowSub">WELCOME BACK, <span class="tetMemberName">{{ displayName }}</span></div>
-              </div>
-            </button>
-          </template>
-
-          <!-- Guest → login + play as guest -->
-          <template v-else>
-            <button class="tetRow tetRowBlue" @mouseenter="uiHover" @click="uiHover(); openAuthModal('login')">
-              <div class="tetRowGlyph">
-                <img v-if="useMenuPngs" :src="loginIconUrl" class="tetGlyphPng floatingLogo" alt="" />
-                <span v-else class="tetGlyphText">LG</span>
-              </div>
-              <div class="tetRowBody">
-                <div class="tetRowTitle">
-                  <img v-if="useMenuPngs" :src="loginTitleUrl" class="tetTextPng" alt="LOGIN" />
-                  <template v-else>LOGIN</template>
-                </div>
-                <div class="tetRowSub">SIGN IN · CREATE ACCOUNT · UNLOCK RANKED</div>
-              </div>
-            </button>
-
-            <button class="tetRow tetRowMuted" @mouseenter="uiHover" @click="uiClick(); playAsGuest()">
-              <div class="tetRowGlyph">
-                <img v-if="useMenuPngs" :src="playGuestIconUrl" class="tetGlyphPng floatingLogo" alt="" />
-                <span v-else class="tetGlyphText">GS</span>
-              </div>
-              <div class="tetRowBody">
-                <div class="tetRowTitle">
-                  <img v-if="useMenuPngs" :src="playGuestTitleUrl" class="tetTextPng" alt="PLAY AS GUEST" />
-                  <template v-else>PLAY AS GUEST</template>
-                </div>
-                <div class="tetRowSub">PLAY ANONYMOUS · NO ACCOUNT NEEDED</div>
-              </div>
-            </button>
-          </template>
+        <!-- Bottom bar: decorative strip fixed at very bottom, author inside bottom-left -->
+        <div class="hpBottomBar" :style="{ '--hp-bottombar-img': `url(${hpAuthBottombarUrl})` }">
+          <img :src="hpAuthorUrl" class="hpAuthor" alt="Developed by MUMUCHXM" />
         </div>
+
       </section>
 
 
       <!-- ══════════════════════════════════════════════════════════
-           MAIN MENU  (TETR.IO inspired full-width rows)
+           MAIN MENU  (Figma MENU redesign)
       ═══════════════════════════════════════════════════════════ -->
-      <section v-else-if="screen === 'mode'" class="tetShell tetShellRight">
-        <div class="tetRows">
+      <section v-else-if="screen === 'mode'" class="mnMenu">
+        <!-- Back to auth if playing as guest -->
+        <button v-if="!loggedIn" class="subScreenBackBtn" @click="screen = 'auth'">← BACK</button>
 
-          <!-- MULTIPLAYER -->
-          <button class="tetRow tetRowRed" @mouseenter="uiHover" @click="uiClick(); screen = 'multiplayer'">
-            <div class="tetRowGlyph">
-              <img v-if="useMenuPngs" :src="qmIconUrl" class="tetGlyphPng floatingLogo" alt="" />
-              <span v-else class="tetGlyphText tetGlyphBig">MP</span>
-            </div>
-            <div class="tetRowBody">
-              <div class="tetRowTitle">MULTIPLAYER</div>
-              <div class="tetRowSub">PLAY ONLINE WITH FRIENDS AND FOES</div>
-            </div>
-            <div class="tetRowBadge" v-if="publicLobbies.length > 0">
-              <span class="tetBadgeNum">{{ publicLobbies.length }}</span>
-              <span class="tetBadgeLabel">ROOMS</span>
-            </div>
-          </button>
-
-          <!-- SOLO -->
-          <button class="tetRow tetRowPurple" @mouseenter="uiHover" @click="uiClick(); screen = 'solo'">
-            <div class="tetRowGlyph">
-              <img v-if="useMenuPngs" :src="onePIconUrl" class="tetGlyphPng floatingLogo" alt="" />
-              <span v-else class="tetGlyphText tetGlyphBig">1P</span>
-            </div>
-            <div class="tetRowBody">
-              <div class="tetRowTitle">SOLO</div>
-              <div class="tetRowSub">VS AI · COUCH PLAY · PUZZLE MODE</div>
-            </div>
-          </button>
-
-          <!-- CHANNEL (member) / LOGIN PROMPT (guest) -->
-          <button
-            class="tetRow tetRowGreen"
-            @mouseenter="uiHover"
-            @click="uiClick(); loggedIn ? screen = 'channel' : showLoginRequired('Channel')">
-            <div class="tetRowGlyph">
-              <img v-if="useMenuPngs" :src="rkIconUrl" class="tetGlyphPng floatingLogo" alt="" />
-              <span v-else class="tetGlyphText tetGlyphBig">CH</span>
-            </div>
-            <div class="tetRowBody">
-              <div class="tetRowTitle">CHANNEL</div>
-              <div class="tetRowSub">{{ loggedIn ? 'LEADERBOARDS · PROFILE · STATS' : '🔒 LOGIN TO ACCESS CHANNEL' }}</div>
-            </div>
-            <div v-if="!loggedIn" class="tetRowLock">🔒</div>
-          </button>
-
-          <!-- SHOP -->
-          <button
-            class="tetRow tetRowCyan"
-            @mouseenter="uiHover"
-            @click="uiClick(); loggedIn ? screen = 'shop' : showLoginRequired('Shop')">
-            <div class="tetRowGlyph">🛒</div>
-            <div class="tetRowBody">
-              <div class="tetRowTitle">SHOP</div>
-              <div class="tetRowSub">{{ loggedIn ? 'COSMETICS · THEMES · COMING SOON' : '🔒 LOGIN REQUIRED' }}</div>
-            </div>
-            <div v-if="!loggedIn" class="tetRowLock">🔒</div>
-          </button>
-
-          <!-- CONFIG -->
-          <button class="tetRow tetRowBlue" @mouseenter="uiHover" @click="uiClick(); screen = 'settings'">
-            <div class="tetRowGlyph">
-              <img v-if="useMenuPngs" :src="stIconUrl" class="tetGlyphPng floatingLogo" alt="" />
-              <span v-else class="tetGlyphText tetGlyphBig">CFG</span>
-            </div>
-            <div class="tetRowBody">
-              <div class="tetRowTitle">
-                <img v-if="useMenuPngs" :src="settingsTitleUrl" class="tetTextPng" alt="CONFIG" />
-                <template v-else>CONFIG</template>
-              </div>
-              <div class="tetRowSub">GAMEPLAY · AUDIO · CONTROLS</div>
-            </div>
-          </button>
-
-          <!-- ABOUT -->
-          <button class="tetRow tetRowMuted" @mouseenter="uiHover" @click="uiClick(); screen = 'credits'">
-            <div class="tetRowGlyph">
-              <img v-if="useMenuPngs" :src="crIconUrl" class="tetGlyphPng floatingLogo" alt="" />
-              <span v-else class="tetGlyphText tetGlyphBig">ABT</span>
-            </div>
-            <div class="tetRowBody">
-              <div class="tetRowTitle">
-                <img v-if="useMenuPngs" :src="creditsTitleUrl" class="tetTextPng" alt="ABOUT" />
-                <template v-else>ABOUT</template>
-              </div>
-              <div class="tetRowSub">CREDITS · MADE BY MUMUCHXM</div>
-            </div>
-          </button>
-
+        <!-- Left column: empty space, brand anchored to bottom-left -->
+        <div class="mnLeft">
+          <div class="mnBrand">
+            <img :src="menuLogoUrl" class="mnBrandLogo" alt="" />
+            <img :src="menuTitleUrl" class="mnBrandTitle" alt="PENTObattle" />
+          </div>
         </div>
+
+        <!-- Right column: button stack bleeding off right edge -->
+        <div class="mnRight">
+          <div class="mnBtns">
+            <button class="mnBtn" @mouseenter="uiHover" @click="uiClick(); screen = 'multiplayer'">
+              <img :src="menuDuonlineBtnUrl" class="mnBtnImg" alt="DUOnline" />
+            </button>
+            <button class="mnBtn" @mouseenter="uiHover" @click="uiClick(); screen = 'solo'">
+              <img :src="menuSolonlineBtnUrl" class="mnBtnImg" alt="SOLOnline" />
+            </button>
+            <button class="mnBtn" @mouseenter="uiHover" @click="uiClick(); screen = 'settings'">
+              <img :src="menuSettingsBtnUrl" class="mnBtnImg" alt="SETTINGS" />
+            </button>
+            <button class="mnBtn" @mouseenter="uiHover" @click="uiClick(); screen = 'credits'">
+              <img :src="menuCreditsBtnUrl" class="mnBtnImg" alt="CREDITS" />
+            </button>
+          </div>
+        </div>
+
       </section>
 
 
       <!-- ══════════════════════════════════════════════════════════
-           MULTIPLAYER MENU
+           MULTIPLAYER MENU  (Figma DUOnline redesign)
       ═══════════════════════════════════════════════════════════ -->
-      <section v-else-if="screen === 'multiplayer'" class="tetShell tetShellRight">
-        <div class="tetRows">
+      <section v-else-if="screen === 'multiplayer'" class="mnMenu">
+        <button class="subScreenBackBtn" @click="goBack">← BACK</button>
 
-          <!-- QUICK PLAY -->
-          <button class="tetRow tetRowOrange" @mouseenter="uiHover" @click="uiClick(); startQuickMatchAuto()">
-            <div class="tetRowGlyph">
-              <img v-if="useMenuPngs" :src="qmIconUrl" class="tetGlyphPng floatingLogo" alt="" />
-              <span v-else class="tetGlyphText tetGlyphBig">QP</span>
-            </div>
-            <div class="tetRowBody">
-              <div class="tetRowTitle">
-                <img v-if="useMenuPngs" :src="quickMatchTitleUrl" class="tetTextPng" alt="QUICK PLAY" />
-                <template v-else>QUICK PLAY</template>
-              </div>
-              <div class="tetRowSub">INSTANT MATCH · AUTO FIND OPPONENT</div>
-            </div>
-            <div class="tetRowBadge" v-if="publicLobbies.length > 0">
-              <span class="tetBadgeNum">{{ publicLobbies.length }}</span>
-              <span class="tetBadgeLabel">ONLINE</span>
-            </div>
-          </button>
-
-          <!-- RANKED -->
-          <button
-            class="tetRow tetRowYellow"
-            :class="{ tetRowLocked: !loggedIn }"
-            @mouseenter="uiHover"
-            @click="uiClick(); loggedIn ? goRanked() : showLoginRequired('Ranked')">
-            <div class="tetRowGlyph">
-              <img v-if="useMenuPngs" :src="rkIconUrl" class="tetGlyphPng floatingLogo" alt="" />
-              <span v-else class="tetGlyphText tetGlyphBig">RK</span>
-            </div>
-            <div class="tetRowBody">
-              <div class="tetRowTitle">
-                <img v-if="useMenuPngs" :src="rankedTitleUrl" class="tetTextPng" alt="RANKED" />
-                <template v-else>RANKED</template>
-              </div>
-              <div class="tetRowSub">{{ loggedIn ? 'FIGHT PLAYERS OF YOUR SKILL IN RANKED DUELS' : '🔒 LOGIN REQUIRED' }}</div>
-            </div>
-            <div v-if="!loggedIn" class="tetRowLock">🔒</div>
-            <div v-else-if="loggedIn" class="tetRowBadge tetRowBadgeTier">
-              <span class="tetBadgeNum">{{ rankedTier }}</span>
-            </div>
-          </button>
-
-          <!-- CUSTOM GAME / LOBBY -->
-          <button class="tetRow tetRowMuted" @mouseenter="uiHover" @click="uiClick(); goLobby()">
-            <div class="tetRowGlyph">
-              <img v-if="useMenuPngs" :src="lbIconUrl" class="tetGlyphPng floatingLogo" alt="" />
-              <span v-else class="tetGlyphText tetGlyphBig">LB</span>
-            </div>
-            <div class="tetRowBody">
-              <div class="tetRowTitle">
-                <img v-if="useMenuPngs" :src="goLobbyTitleUrl" class="tetTextPng" alt="CUSTOM GAME" />
-                <template v-else>CUSTOM GAME</template>
-              </div>
-              <div class="tetRowSub">CREATE PUBLIC AND PRIVATE ROOMS · JOIN BY CODE</div>
-            </div>
-          </button>
-
+        <div class="mnLeft">
+          <div class="mnBrand">
+            <img :src="mpLogoUrl" class="mnBrandLogo" alt="" />
+            <img :src="mpTitleUrl" class="mnBrandTitle" alt="PENTObattle" />
+          </div>
         </div>
+
+        <div class="mnRight">
+          <div class="mnBtns">
+            <!-- QUICK PLAY -->
+            <button class="mnBtn" @mouseenter="uiHover" @click="uiClick(); startQuickMatchAuto()">
+              <img :src="mpQuickBtnUrl" class="mnBtnImg" alt="QUICK PLAY" />
+            </button>
+            <!-- RANKED -->
+            <button class="mnBtn" @mouseenter="uiHover" @click="uiClick(); loggedIn ? goRanked() : showLoginRequired('Ranked')">
+              <img :src="mpRankedBtnUrl" class="mnBtnImg" :style="!loggedIn ? 'opacity:0.45;filter:grayscale(0.5)' : ''" alt="RANKED" />
+            </button>
+            <!-- LOBBY -->
+            <button class="mnBtn" @mouseenter="uiHover" @click="uiClick(); goLobby()">
+              <img :src="mpLobbyBtnUrl" class="mnBtnImg" alt="LOBBY" />
+            </button>
+          </div>
+        </div>
+
       </section>
 
 
       <!-- ══════════════════════════════════════════════════════════
-           SOLO MENU
+           SOLO MENU  (Figma SOLOnline redesign)
       ═══════════════════════════════════════════════════════════ -->
-      <section v-else-if="screen === 'solo'" class="tetShell tetShellRight">
-        <div class="tetRows">
+      <section v-else-if="screen === 'solo'" class="mnMenu">
+        <button class="subScreenBackBtn" @click="goBack">← BACK</button>
 
-          <!-- VS AI -->
-          <button class="tetRow tetRowBlue" @mouseenter="uiHover" @click="uiClick(); startPracticeAi()">
-            <div class="tetRowGlyph">
-              <img v-if="useMenuPngs" :src="aiIconUrl" class="tetGlyphPng floatingLogo" alt="" />
-              <span v-else class="tetGlyphText tetGlyphBig">AI</span>
-            </div>
-            <div class="tetRowBody">
-              <div class="tetRowTitle">
-                <img v-if="useMenuPngs" :src="practiceAiTitleUrl" class="tetTextPng" alt="VS AI" />
-                <template v-else>VS AI</template>
-              </div>
-              <div class="tetRowSub">PRACTICE AGAINST THE COMPUTER · CHOOSE DIFFICULTY</div>
-            </div>
-          </button>
-
-          <!-- COUCH PLAY -->
-          <button class="tetRow tetRowPeach" @mouseenter="uiHover" @click="uiClick(); startCouchPlay()">
-            <div class="tetRowGlyph">
-              <img v-if="useMenuPngs" :src="onePIconUrl" class="tetGlyphPng floatingLogo" alt="" />
-              <span v-else class="tetGlyphText tetGlyphBig">1P</span>
-            </div>
-            <div class="tetRowBody">
-              <div class="tetRowTitle">
-                <img v-if="useMenuPngs" :src="couchPlayTitleUrl" class="tetTextPng" alt="COUCH PLAY" />
-                <template v-else>COUCH PLAY</template>
-              </div>
-              <div class="tetRowSub">LOCAL 2-PLAYER ON ONE DEVICE · PASS AND PLAY</div>
-            </div>
-          </button>
-
-          <!-- PUZZLE MODE -->
-          <button
-            class="tetRow tetRowOrange"
-            :class="{ tetRowLocked: !loggedIn }"
-            @mouseenter="uiHover"
-            @click="uiClick(); loggedIn ? screen = 'puzzle' : showLoginRequired('Puzzle Mode')">
-            <div class="tetRowGlyph">🧩</div>
-            <div class="tetRowBody">
-              <div class="tetRowTitle">PUZZLE MODE</div>
-              <div class="tetRowSub">{{ loggedIn ? 'TIMED CHALLENGES · COMING SOON' : '🔒 LOGIN REQUIRED' }}</div>
-            </div>
-            <div v-if="!loggedIn" class="tetRowLock">🔒</div>
-          </button>
-
+        <div class="mnLeft">
+          <div class="mnBrand">
+            <img :src="soloLogoUrl" class="mnBrandLogo" alt="" />
+            <img :src="soloTitleUrl" class="mnBrandTitle" alt="PENTObattle" />
+          </div>
         </div>
+
+        <div class="mnRight">
+          <div class="mnBtns">
+            <!-- VERSUS AI -->
+            <button class="mnBtn" @mouseenter="uiHover" @click="uiClick(); startPracticeAi()">
+              <img :src="soloVsAiBtnUrl" class="mnBtnImg" alt="VERSUS AI" />
+            </button>
+            <!-- COUCH PLAY -->
+            <button class="mnBtn" @mouseenter="uiHover" @click="uiClick(); startCouchPlay()">
+              <img :src="soloCouchBtnUrl" class="mnBtnImg" alt="COUCH" />
+            </button>
+            <!-- ZEN PUZZLE -->
+            <button class="mnBtn" @mouseenter="uiHover" @click="uiClick(); loggedIn ? screen = 'puzzle' : showLoginRequired('Puzzle Mode')">
+              <img :src="soloPuzzleBtnUrl" class="mnBtnImg" :style="!loggedIn ? 'opacity:0.45;filter:grayscale(0.5)' : ''" alt="ZEN PUZZLE" />
+            </button>
+          </div>
+        </div>
+
       </section>
 
 
@@ -598,14 +463,9 @@
       <!-- =========================
            LOBBY
       ========================== -->
-      <section v-else-if="screen === 'lobby'" class="menuShell pbShell pbShellCentered">
+      <section v-else-if="screen === 'lobby'" class="menuShell pbShell pbShellCentered lobbyScreen">
+        <button class="subScreenBackBtn" @click="goBack">← BACK</button>
         <div class="vsStylePanel">
-          <div class="vsStyleHeader">
-            <div class="vsStyleHeaderGlow"></div>
-            <div class="vsStyleTitle">⚡ MULTIPLAYER</div>
-            <div class="vsStyleSubtitle">Create session · Browse rooms · Join by code</div>
-          </div>
-
           <div class="vsStyleCards">
             <div class="pbCard">
             <div class="pbTitleRow">
@@ -626,12 +486,8 @@
             </div>
 
             <div class="pbRow">
-              <button class="pbMiniBtn imgBtn" @mouseenter="uiHover" @click="uiClick(); refreshLobby()" aria-label="Refresh">
-                <img :src="refreshBtnUrl" class="btnPng floatingLogo" alt="Refresh" />
-              </button>
-              <button class="pbMiniBtn primary imgBtn" @mouseenter="uiHover" @click="uiClick(); lobbyCreate()" aria-label="Create">
-                <img :src="createBtnUrl" class="btnPng floatingLogo" alt="Create" />
-              </button>
+              <button class="pbMiniBtn" @mouseenter="uiHover" @click="uiClick(); refreshLobby()" aria-label="Refresh">REFRESH</button>
+              <button class="pbMiniBtn primary" @mouseenter="uiHover" @click="uiClick(); lobbyCreate()" aria-label="Create">CREATE</button>
             </div>
 
             <div class="pbDivider"></div>
@@ -654,9 +510,7 @@
             </div>
 
             <div class="pbRow">
-              <button class="pbMiniBtn primary imgBtn" @mouseenter="uiHover" @click="uiClick(); lobbySearchOrJoin()" aria-label="Go">
-                <img :src="goBtnUrl" class="btnPng floatingLogo" alt="Go" />
-              </button>
+              <button class="pbMiniBtn primary" @mouseenter="uiHover" @click="uiClick(); lobbySearchOrJoin()" aria-label="Go">GO</button>
             </div>
 
             <div class="pbDivider"></div>
@@ -747,14 +601,9 @@
       <!-- =========================
            SETTINGS
       ========================== -->
-      <section v-else-if="screen === 'settings'" class="menuShell pbShell pbShellCentered">
+      <section v-else-if="screen === 'settings'" class="menuShell pbShell pbShellCentered settingsScreen">
+        <button class="subScreenBackBtn" @click="goBack">← BACK</button>
         <div class="vsStylePanel">
-          <div class="vsStyleHeader">
-            <div class="vsStyleHeaderGlow"></div>
-            <div class="vsStyleTitle">⚙ SETTINGS</div>
-            <div class="vsStyleSubtitle">Controls · Preferences</div>
-          </div>
-
           <div class="vsStyleCards">
             <div class="vsStyleCard">
               <div class="vsStyleCardTitle">GAMEPLAY</div>
@@ -802,13 +651,9 @@
       <!-- =========================
            CREDITS
       ========================== -->
-      <section v-else-if="screen === 'credits'" class="menuShell pbShell pbShellCentered">
+      <section v-else-if="screen === 'credits'" class="menuShell pbShell pbShellCentered creditsScreen">
+        <button class="subScreenBackBtn" @click="goBack">← BACK</button>
         <div class="vsStylePanel">
-          <div class="vsStyleHeader">
-            <div class="vsStyleHeaderGlow"></div>
-            <div class="vsStyleTitle">✦ CREDITS</div>
-            <div class="vsStyleSubtitle">About the game</div>
-          </div>
           <div class="vsStyleCards">
             <div class="vsStyleCard creditCard">
               <div class="creditLine"><span class="creditLabel">GAME</span><span class="creditValue">PentoBattle</span></div>
@@ -1076,12 +921,31 @@
 
 <!-- Menu-style bottom bar (menus) -->
 <!-- TETR.IO-style contextual status bar -->
-<footer v-if="showBottomBar" class="tetBottomBar">
-  <span class="tetBottomText">{{ bottomStatusText }}</span>
+<footer v-if="showBottomBar" class="tetBottomBar" :class="{ mnBottomBar: ['mode','multiplayer','solo'].includes(screen), stBottomBar: ['settings','credits'].includes(screen), lbBottomBar: screen === 'lobby' }" :style="screen === 'mode' ? { '--mn-bottombar-img': `url(${menuBottombarUrl})` } : screen === 'multiplayer' ? { '--mn-bottombar-img': `url(${mpBottombarUrl})` } : screen === 'solo' ? { '--mn-bottombar-img': `url(${soloBottombarUrl})` } : screen === 'settings' ? { '--st-bottombar-img': `url(${settingsBottombarUrl})` } : screen === 'credits' ? { '--st-bottombar-img': `url(${creditsBottombarUrl})` } : screen === 'lobby' ? { '--lb-bottombar-img': `url(${lobbyBottombarNewUrl})` } : {}">
+
+  <!-- LEFT side -->
+  <template v-if="['settings','credits','lobby'].includes(screen)">
+    <div class="scBottomLeft">
+      <img :src="menuLogoUrl" class="scBottomLogo" alt="" />
+      <img :src="menuTitleUrl" class="scBottomTitle" alt="PENTObattle" />
+    </div>
+  </template>
+  <template v-else>
+    <span class="tetBottomText">{{ bottomStatusText }}</span>
+  </template>
+
+  <!-- RIGHT side -->
   <div class="tetBottomRight">
-    <img :src="logoUrl" alt="" class="tetBottomLogo" />
-    <img v-if="useMenuPngs" :src="madeByUrl" class="tetBottomMadeBy" alt="MADE BY MUMUCHXM" />
-    <span v-else class="tetBottomMadeByText">MADE BY MUMUCHXM</span>
+    <template v-if="['mode','multiplayer','solo'].includes(screen)">
+      <img :src="menuAuthorUrl" class="mnBottomAuthor" alt="MUMUCHXM" />
+    </template>
+    <template v-else-if="['settings','credits','lobby'].includes(screen)">
+      <span class="tetBottomText scBottomText">{{ bottomStatusText }}</span>
+    </template>
+    <template v-else>
+      <img :src="logoUrl" alt="" class="tetBottomLogo" />
+      <span class="tetBottomMadeByText">MADE BY MUMUCHXM</span>
+    </template>
   </div>
 </footer>
 
@@ -1141,30 +1005,22 @@
             @mouseenter="uiHover"
             @click="uiClick(); onModalAction(a)"
           >
-            <img v-if="actionPngUrl(a)" :src="actionPngUrl(a)" class="btnPng floatingLogo" :alt="a.label || 'Action'" />
-            <span v-else>{{ a.label }}</span>
+            {{ a.label }}
           </button>
         </div>
       </div>
 
       <!-- ══ STANDARD MODAL ══ -->
       <div v-else class="modalCard" :class="modalCardClass" role="dialog" aria-modal="true">
-        <!-- Accent stripe -->
         <div class="modalStripe" :class="modalDotClass" aria-hidden="true"></div>
-
         <div class="modalInner">
-          <!-- Header -->
           <div class="modalHead">
             <div class="modalIconDot" :class="modalDotClass" aria-hidden="true"></div>
             <div class="modalTitle2">{{ modal.title }}</div>
           </div>
-
-          <!-- Body -->
           <div class="modalBody">
             <p class="modalMsg" v-for="(line, i) in modalLines" :key="i">{{ line }}</p>
           </div>
-
-          <!-- Actions -->
           <div class="modalActions">
             <button
               v-for="(a, i) in modal.actions"
@@ -1173,10 +1029,7 @@
               :class="{ primary: a.tone === 'primary', soft: a.tone === 'soft', ghost: a.tone === 'ghost' }"
               @mouseenter="uiHover"
               @click="uiClick(); onModalAction(a)"
-            >
-              <img v-if="actionPngUrl(a)" :src="actionPngUrl(a)" class="btnPng floatingLogo" :alt="a.label || 'Action'" />
-              <span v-else>{{ a.label }}</span>
-            </button>
+            >{{ a.label }}</button>
           </div>
         </div>
       </div>
@@ -1214,12 +1067,8 @@
           </div>
 
           <div class="modalActions">
-            <button class="btn soft imgBtn" @mouseenter="uiHover" @click="uiClick(); qmDecline()" aria-label="Decline">
-              <img :src="declineBtnUrl" class="btnPng floatingLogo" alt="Decline" />
-            </button>
-            <button class="btn primary imgBtn" @mouseenter="uiHover" @click="uiClick(); qmAcceptClick()" :disabled="qmAccept.myAccepted" aria-label="Accept">
-              <img :src="acceptBtnUrl" class="btnPng floatingLogo" alt="Accept" />
-            </button>
+            <button class="btn soft" @mouseenter="uiHover" @click="uiClick(); qmDecline()" aria-label="Decline">DECLINE</button>
+            <button class="btn primary" @mouseenter="uiHover" @click="uiClick(); qmAcceptClick()" :disabled="qmAccept.myAccepted" aria-label="Accept">ACCEPT</button>
           </div>
         </div>
       </div>
@@ -1735,39 +1584,108 @@ function onViewportChange() {
 
 const logoUrl = new URL("./assets/logo.png", import.meta.url).href;
 const guestAvatarUrl = new URL("./assets/guest_avatar.png", import.meta.url).href;
+
+// ── Homepage / Auth screen assets (Figma HOMEPAGE kit) ─────────────────────
+const hpLogoUrl         = new URL("./assets/hp_logo.png",          import.meta.url).href;
+const hpTitleUrl        = new URL("./assets/hp_title.png",         import.meta.url).href;
+const hpTaglineUrl      = new URL("./assets/hp_tagline.png",       import.meta.url).href;
+const hpRectangle1Url   = new URL("./assets/hp_rectangle1.png",    import.meta.url).href;
+const hpWatchTutorialUrl= new URL("./assets/hp_watch_tutorial.png",import.meta.url).href;
+const playBtnUrl        = new URL("./assets/play_btn.png",          import.meta.url).href;
+
+// YouTube iframe ref for fullscreen
+const ytIframe = ref(null);
+const ytFullscreen = ref(false);
+
+function openYtFullscreen() {
+  const el = ytIframe.value;
+  if (!el) return;
+  // Swap to controls=1 src first, then request fullscreen after iframe reloads
+  ytFullscreen.value = true;
+  setTimeout(() => {
+    const fn = el.requestFullscreen || el.webkitRequestFullscreen || el.mozRequestFullScreen || el.msRequestFullscreen;
+    if (fn) fn.call(el).catch(() => { ytFullscreen.value = false; });
+  }, 300);
+}
+
+// Track fullscreen state to hide overlay when fullscreen
+function onFullscreenChange() {
+  const fsEl = document.fullscreenElement || document.webkitFullscreenElement || document.mozFullScreenElement || document.msFullscreenElement;
+  if (!fsEl) {
+    // Exited fullscreen — restore ambient muted loop
+    ytFullscreen.value = false;
+  }
+}
+
+onMounted(() => {
+  document.addEventListener('fullscreenchange', onFullscreenChange);
+  document.addEventListener('webkitfullscreenchange', onFullscreenChange);
+  document.addEventListener('mozfullscreenchange', onFullscreenChange);
+  document.addEventListener('MSFullscreenChange', onFullscreenChange);
+});
+
+onBeforeUnmount(() => {
+  document.removeEventListener('fullscreenchange', onFullscreenChange);
+  document.removeEventListener('webkitfullscreenchange', onFullscreenChange);
+  document.removeEventListener('mozfullscreenchange', onFullscreenChange);
+  document.removeEventListener('MSFullscreenChange', onFullscreenChange);
+});
+const hpAuthorUrl       = new URL("./assets/hp_author.png",        import.meta.url).href;
+const hpGuestBtnUrl     = new URL("./assets/hp_guest_btn.png",     import.meta.url).href;
+const hpLoginBtnUrl     = new URL("./assets/hp_login_btn.png",     import.meta.url).href;
+const hpAuthTopbarUrl   = new URL("./assets/hp_auth_topbar.png",   import.meta.url).href;
+const hpAuthBottombarUrl= new URL("./assets/hp_auth_bottombar.png",import.meta.url).href;
+const hpContinueBtnUrl  = new URL("./assets/hp_continue_btn.png",  import.meta.url).href;
+const menuTopbarUrl     = new URL("./assets/menu_topbar.png",      import.meta.url).href;
+const menuBottombarUrl  = new URL("./assets/menu_bottombar.png",   import.meta.url).href;
+const menuDuonlineBtnUrl  = new URL("./assets/menu_duonline_btn.png",  import.meta.url).href;
+const menuSolonlineBtnUrl = new URL("./assets/menu_solonline_btn.png", import.meta.url).href;
+const menuSettingsBtnUrl  = new URL("./assets/menu_settings_btn.png",  import.meta.url).href;
+const menuCreditsBtnUrl   = new URL("./assets/menu_credits_btn.png",   import.meta.url).href;
+const menuLogoUrl         = new URL("./assets/menu_logo.png",          import.meta.url).href;
+const menuTitleUrl        = new URL("./assets/menu_title.png",         import.meta.url).href;
+const menuAuthorUrl       = new URL("./assets/menu_author.png",        import.meta.url).href;
+
+// ── Settings screen assets ────────────────────────────────────────────────
+const settingsTopbarUrl   = new URL("./assets/settings_topbar.png",   import.meta.url).href;
+const settingsBottombarUrl= new URL("./assets/settings_bottombar.png",import.meta.url).href;
+const settingsTextUrl     = new URL("./assets/settings_text.png",     import.meta.url).href;
+
+// ── Credits screen assets ─────────────────────────────────────────────────
+const creditsTopbarUrl    = new URL("./assets/credits_topbar.png",    import.meta.url).href;
+const creditsBottombarUrl = new URL("./assets/credits_bottombar.png", import.meta.url).href;
+const creditsTextUrl      = new URL("./assets/credits_text.png",      import.meta.url).href;
+
+// ── Lobby screen assets ───────────────────────────────────────────────────
+const lobbyTopbarNewUrl   = new URL("./assets/lobby_topbar_new.png",  import.meta.url).href;
+const lobbyBottombarNewUrl= new URL("./assets/lobby_bottombar_new.png",import.meta.url).href;
+const lobbyTextUrl        = new URL("./assets/lobby_text.png",        import.meta.url).href;
+
+// ── Multiplayer (DUOnline) screen assets ──────────────────────────────────
+const mpTopbarUrl       = new URL("./assets/mp_topbar.png",       import.meta.url).href;
+const mpBottombarUrl    = new URL("./assets/mp_bottombar.png",    import.meta.url).href;
+const mpQuickBtnUrl     = new URL("./assets/mp_quick_btn.png",    import.meta.url).href;
+const mpRankedBtnUrl    = new URL("./assets/mp_ranked_btn.png",   import.meta.url).href;
+const mpLobbyBtnUrl     = new URL("./assets/mp_lobby_btn.png",    import.meta.url).href;
+const mpLogoUrl         = new URL("./assets/mp_logo.png",         import.meta.url).href;
+const mpTitleUrl        = new URL("./assets/mp_title.png",        import.meta.url).href;
+
+// ── Solo (SOLOnline) screen assets ────────────────────────────────────────
+const soloTopbarUrl     = new URL("./assets/solo_topbar.png",     import.meta.url).href;
+const soloBottombarUrl  = new URL("./assets/solo_bottombar.png",  import.meta.url).href;
+const soloVsAiBtnUrl    = new URL("./assets/solo_versus_ai_btn.png", import.meta.url).href;
+const soloCouchBtnUrl   = new URL("./assets/solo_couch_btn.png",  import.meta.url).href;
+const soloPuzzleBtnUrl  = new URL("./assets/solo_puzzle_btn.png", import.meta.url).href;
+const soloLogoUrl       = new URL("./assets/solo_logo.png",       import.meta.url).href;
+const soloTitleUrl      = new URL("./assets/solo_title.png",      import.meta.url).href;
 // Split brand assets (replaceable):
 // - ./assets/logo.png  (icon)
 // - ./assets/title.png (PENTO BATTLE text)
 const titleUrl = new URL("./assets/title.png", import.meta.url).href;
 const useSplitBrandPng = ref(true); // toggle off to fall back to text title
 
-// Replaceable button PNGs (safe placeholders included in /assets)
-const backBtnUrl = new URL("./assets/back.png", import.meta.url).href;
-const undoBtnUrl = new URL("./assets/undo.png", import.meta.url).href;
-const applyBtnUrl = new URL("./assets/apply.png", import.meta.url).href;
-const refreshBtnUrl = new URL("./assets/refresh.png", import.meta.url).href;
-const goBtnUrl = new URL("./assets/go.png", import.meta.url).href;
-const createBtnUrl = new URL("./assets/create.png", import.meta.url).href;
-const mainBtnUrl = new URL("./assets/main.png", import.meta.url).href;
-const surrenderBtnUrl = new URL("./assets/surrender.png", import.meta.url).href;
-// Modal / action button PNGs (safe placeholders included in /assets)
-const okBtnUrl = new URL("./assets/ok.png", import.meta.url).href;
-const closeBtnUrl = new URL("./assets/close.png", import.meta.url).href;
-const cancelBtnUrl = new URL("./assets/cancel.png", import.meta.url).href;
-const cancelWaitingBtnUrl = new URL("./assets/cancel_waiting.png", import.meta.url).href;
-const confirmBtnUrl = new URL("./assets/confirm.png", import.meta.url).href;
-const acceptBtnUrl = new URL("./assets/accept.png", import.meta.url).href;
-const declineBtnUrl = new URL("./assets/decline.png", import.meta.url).href;
-const joinBtnUrl = new URL("./assets/join.png", import.meta.url).href;
-const copyBtnUrl = new URL("./assets/copy.png", import.meta.url).href;
-const playAgainBtnUrl = new URL("./assets/play_again.png", import.meta.url).href;
-const resetBtnUrl = new URL("./assets/reset.png", import.meta.url).href;
-
-
 // Extra replaceable menu PNG assets (safe placeholders included in /assets)
 const welcomeUrl = new URL("./assets/welcome.png", import.meta.url).href;
-const menuTitleUrl = new URL("./assets/menu.png", import.meta.url).href;
-const madeByUrl = new URL("./assets/madeby.png", import.meta.url).href;
 
 // Top bar titles (replaceable)
 const lobbyTopTitleUrl = new URL("./assets/lobby.png", import.meta.url).href;
@@ -1956,14 +1874,8 @@ const couchPlayTitleUrl = new URL("./assets/couch_play.png", import.meta.url).hr
 const aiIconUrl = new URL("./assets/ai_icon.png", import.meta.url).href;
 const practiceAiTitleUrl = new URL("./assets/practice_ai.png", import.meta.url).href;
 
-const stIconUrl = new URL("./assets/st_icon.png", import.meta.url).href;
-const settingsTitleUrl = new URL("./assets/settings.png", import.meta.url).href;
-
-const crIconUrl = new URL("./assets/cr_icon.png", import.meta.url).href;
-const creditsTitleUrl = new URL("./assets/credits.png", import.meta.url).href;
-
-// Toggle: replace specific menu texts with PNGs (falls back to text if turned off)
-const useMenuPngs = ref(true);
+// Toggle: replace specific menu texts with PNGs — disabled, using Orbitron text
+// const useMenuPngs = ref(true);
 
 
 const quick = reactive({
@@ -2067,12 +1979,12 @@ const topPageTitle = computed(() => {
   if (screen.value === "shop")          return "SHOP";
   if (screen.value === "profile")       return "PROFILE";
   if (screen.value === "puzzle")        return "PUZZLE";
-  if (screen.value === "settings")      return "CONFIG";
-  if (screen.value === "credits")       return "ABOUT";
+  if (screen.value === "settings")      return "SETTINGS";
+  if (screen.value === "credits")       return "CREDITS";
   return "HOME";
 });
 const showMenuChrome = computed(() => isMenuScreen.value && ["auth","mode","multiplayer","solo","channel","lobby","ranked","leaderboards","shop","profile","puzzle","settings","credits"].includes(screen.value));
-const showBottomBar = computed(() => showMenuChrome.value);
+const showBottomBar = computed(() => showMenuChrome.value && screen.value !== 'auth');
 
 // TETR.IO-style contextual status line at the bottom
 const bottomStatusText = computed(() => {
@@ -2373,28 +2285,6 @@ function closeModal() {
   modal.locked = false;
 }
 
-
-function actionPngUrl(action) {
-  const lab = String(action?.label || "").trim().toLowerCase();
-  if (!lab) return "";
-  // Normalize some common labels
-  const norm = lab
-    .replace(/\s+/g, " ")
-    .replace(/…/g, "...")
-    .replace(/\u2013|\u2014/g, "-");
-  if (norm === "ok") return okBtnUrl;
-  if (norm === "close") return closeBtnUrl;
-  if (norm === "cancel") return cancelBtnUrl;
-  if (norm === "cancel waiting") return cancelWaitingBtnUrl;
-  if (norm === "confirm") return confirmBtnUrl;
-  if (norm === "accept") return acceptBtnUrl;
-  if (norm === "decline") return declineBtnUrl;
-  if (norm === "join") return joinBtnUrl;
-  if (norm === "copy code" || norm === "copy") return copyBtnUrl;
-  if (norm === "play again") return playAgainBtnUrl;
-  if (norm === "reset" || norm === "reset match") return resetBtnUrl;
-  return "";
-}
 
 function onModalAction(a) {
   try {
@@ -5333,9 +5223,12 @@ onBeforeUnmount(() => {
 /* When the fixed bottom bar is visible, keep layout at exactly 100vh (no extra scroll).
    Padding is compensated by reducing min-height. */
 .app.hasBottomBar{
-  /* Bottom bar is fixed; we only need extra padding so content never hides behind it.
-     Avoid min-height hacks that can cause scrollbars to "pulse" on some browsers. */
-  padding-bottom: 62px;
+  /* Bottom bar is fixed at 5.208vw for image bars; use that as padding so content never hides behind it. */
+  padding-bottom: 5.208vw;
+}
+/* Auth screen handles its own full-height layout — no padding needed */
+.app.hasBottomBar:has(.hpAuth){
+  padding-bottom: 0;
 }
 
 /* Ensure form controls inherit theme fonts */
@@ -5544,6 +5437,7 @@ onBeforeUnmount(() => {
   inset: 0;
   z-index: 0;
   pointer-events: none;
+  display: none;
 }
 
 .bgGradient {
@@ -5711,6 +5605,8 @@ onBeforeUnmount(() => {
 
 /* In-game: lock the canvas; UI already fits the viewport. */
 .app.inGame .main{ overflow: hidden; }
+/* Auth screen: lock scroll so hpAuth fills exactly */
+.app:has(.hpAuth) .main{ overflow: hidden; }
 
 /* Mobile: allow panning so the desktop-style 2-panel layout stays visible */
 @media (max-width: 980px){
@@ -6521,8 +6417,8 @@ onBeforeUnmount(() => {
 .vsAiOverlay{
   position: fixed; inset: 0; z-index: 60;
   background:
-    radial-gradient(ellipse 120% 80% at 50% 0%, rgba(0,229,255,0.08), transparent 60%),
-    radial-gradient(ellipse 80% 120% at 80% 100%, rgba(180,50,255,0.10), transparent 60%),
+    radial-gradient(ellipse 120% 80% at 50% 0%, rgba(0,160,255,0.10), transparent 60%),
+    radial-gradient(ellipse 80% 120% at 80% 100%, rgba(0,80,180,0.12), transparent 60%),
     rgba(4,4,14,0.88);
   backdrop-filter: blur(16px);
   display: flex;
@@ -6552,7 +6448,7 @@ onBeforeUnmount(() => {
 .vsAiHeaderGlow{
   position: absolute;
   inset: -40px;
-  background: radial-gradient(ellipse 60% 80% at 50% 0%, rgba(0,229,255,0.18), transparent 70%);
+  background: radial-gradient(ellipse 60% 80% at 50% 0%, rgba(0,160,255,0.22), transparent 70%);
   filter: blur(20px);
   pointer-events: none;
 }
@@ -6561,7 +6457,7 @@ onBeforeUnmount(() => {
   font-weight: 900;
   letter-spacing: 4px;
   text-transform: uppercase;
-  background: linear-gradient(90deg, rgba(0,229,255,1), rgba(180,80,255,1), rgba(255,43,214,1));
+  background: linear-gradient(90deg, rgba(100,200,255,1), rgba(0,140,255,1), rgba(0,80,200,1));
   -webkit-background-clip: text;
   background-clip: text;
   color: transparent;
@@ -9030,11 +8926,14 @@ onBeforeUnmount(() => {
   background: rgba(8,8,16,0.92) !important;
   border-bottom: 1px solid rgba(255,255,255,0.08) !important;
   backdrop-filter: blur(14px) !important;
-  height: 52px !important;
+  height: 5.208vw !important;
+  min-height: 5.208vw !important;
+  max-height: 5.208vw !important;
   padding: 0 18px !important;
   display: flex !important;
   align-items: center !important;
   justify-content: space-between !important;
+  overflow: hidden !important;
 }
 .tetBarLeft{
   display: flex;
@@ -9067,6 +8966,31 @@ onBeforeUnmount(() => {
 .tetBackBtn:hover{
   background: rgba(255,255,255,0.07);
   color: #fff;
+}
+
+/* Back button sitting just below the topbar, left-aligned under the title */
+.subScreenBackBtn {
+  position: fixed;
+  top: calc(5.208vw + 12px);
+  left: clamp(16px, 2.5vw, 40px);
+  background: rgba(255,255,255,0.06);
+  border: 1px solid rgba(255,255,255,0.18);
+  border-radius: 8px;
+  color: rgba(255,255,255,0.7);
+  font-size: 12px;
+  font-weight: 900;
+  letter-spacing: 2px;
+  text-transform: uppercase;
+  padding: 7px 16px;
+  cursor: pointer;
+  font-family: 'Orbitron', 'Rajdhani', Inter, system-ui, sans-serif;
+  transition: background .12s, color .12s, border-color .12s;
+  z-index: 20;
+}
+.subScreenBackBtn:hover {
+  background: rgba(255,255,255,0.12);
+  color: #fff;
+  border-color: rgba(255,255,255,0.32);
 }
 .tetBarRight{
   display: flex;
@@ -9244,8 +9168,609 @@ onBeforeUnmount(() => {
 .tetRows > .tetRow:first-child{ border-radius: 10px 10px 0 0; }
 /* Last row: rounded bottom, no separator line */
 .tetRows > .tetRow:last-child{ border-radius: 0 0 10px 10px; border-bottom: none; }
-/* Single row: fully rounded */
-.tetRows > .tetRow:only-child{ border-radius: 10px; }
+/* ══════════════════════════════════════════════════════════════════════════
+   HOMEPAGE / AUTH SCREEN  (Figma HOMEPAGE kit)
+══════════════════════════════════════════════════════════════════════════ */
+
+/* Topbar override on auth screen: show topbar image, hide all text/brand */
+/* hpTopbar bg image is applied via Vue inline :style binding on the <header> */
+.hpTopbar {
+  border-bottom: none !important;
+  box-shadow: none !important;
+  backdrop-filter: none !important;
+}
+
+/* Auth screen: fixed between topbar and bottombar — totally independent of document flow */
+.hpAuth {
+  position: fixed;
+  top: 5.208vw;      /* topbar bottom edge */
+  bottom: 5.208vw;   /* bottombar top edge */
+  left: 0;
+  right: 0;
+  z-index: 5;
+  overflow: hidden;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding-left: clamp(28px, 5vw, 72px);
+  background: #050508;
+}
+
+/* ── Left column ── */
+.hpLeft {
+  flex-shrink: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 14px;
+  width: clamp(260px, 38vw, 520px);
+}
+.hpVideoWrap {
+  width: 100%;
+  border-radius: 14px;
+  overflow: hidden;
+  box-shadow: 0 8px 40px rgba(0,0,0,0.55);
+  position: relative;
+  aspect-ratio: 16 / 9;
+}
+.hpVideoFrame {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  border: none;
+  border-radius: 14px;
+}
+/* Transparent overlay blocks YouTube hover UI */
+.hpVideoOverlay {
+  position: absolute;
+  inset: 0;
+  z-index: 2;
+  cursor: pointer;
+  border-radius: 14px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: transparent;
+  transition: background 0.2s;
+}
+.hpVideoOverlay:hover {
+  background: rgba(0,0,0,0.18);
+}
+/* Play button: always visible, slowly thumps */
+.hpVideoPlayBtn {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  pointer-events: none;
+}
+.hpVideoPlayImg {
+  width: clamp(48px, 5.5vw, 80px);
+  height: clamp(48px, 5.5vw, 80px);
+  object-fit: contain;
+  filter: drop-shadow(0 4px 16px rgba(0,0,0,0.7));
+  animation: playThump 1.6s ease-in-out infinite;
+}
+@keyframes playThump {
+  0%   { transform: scale(1);    opacity: 0.75; }
+  40%  { transform: scale(1.12); opacity: 1;    }
+  60%  { transform: scale(1.12); opacity: 1;    }
+  100% { transform: scale(1);    opacity: 0.75; }
+}
+.hpVideoOverlay:hover .hpVideoPlayImg {
+  animation: none;
+  transform: scale(1.15);
+  opacity: 1;
+  filter: drop-shadow(0 4px 24px rgba(236,72,128,0.6));
+}
+.hpVideoPlayLabel {
+  font-size: clamp(9px, 0.9vw, 13px);
+  font-weight: 900;
+  letter-spacing: 2.5px;
+  text-transform: uppercase;
+  color: rgba(255,255,255,0.85);
+  text-shadow: 0 1px 6px rgba(0,0,0,0.8);
+  font-family: 'Orbitron', sans-serif;
+}
+.hpVideoPlaceholder {
+  display: block;
+  width: 100%;
+  height: auto;
+  border-radius: 14px;
+}
+.hpWatchLabel {
+  height: clamp(14px, 2vh, 22px);
+  width: auto;
+  object-fit: contain;
+  opacity: 0.85;
+}
+
+/* ── Right column ── */
+.hpRight {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  justify-content: center;
+  padding: 0 0 0 clamp(32px, 4vw, 64px);
+  min-width: 0;
+}
+
+/* Brand block */
+.hpBrand {
+  display: flex;
+  align-items: center;
+  gap: clamp(12px, 2vw, 22px);
+  margin-bottom: clamp(24px, 4vh, 48px);
+}
+.hpBrandLogo {
+  width: clamp(60px, 9vw, 110px);
+  height: auto;
+  object-fit: contain;
+  filter: drop-shadow(0 4px 18px rgba(0,0,0,0.5));
+}
+.hpBrandText {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.hpBrandTitle {
+  height: clamp(32px, 5.5vw, 72px);
+  width: auto;
+  object-fit: contain;
+  filter: drop-shadow(0 2px 12px rgba(0,0,0,0.45));
+}
+.hpBrandTagline {
+  height: clamp(10px, 1.6vw, 18px);
+  width: auto;
+  object-fit: contain;
+  opacity: 0.75;
+}
+
+/* Buttons container — extends past right edge for bleed effect */
+.hpBtns {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  margin-right: -60px; /* bleed past viewport right */
+  width: clamp(340px, 55vw, 760px);
+}
+.hpBtn {
+  background: none;
+  border: none;
+  padding: 0;
+  cursor: pointer;
+  display: block;
+  width: 100%;
+  transition: transform 0.18s cubic-bezier(0.25, 0.8, 0.25, 1),
+              filter 0.18s ease;
+  transform-origin: left center;
+}
+.hpBtn:hover {
+  transform: translateX(-20px);
+  filter: brightness(1.12) saturate(1.1);
+}
+.hpBtn:active {
+  transform: translateX(-10px) scale(0.997);
+  filter: brightness(1.05);
+}
+.hpBtnImg {
+  display: block;
+  width: 100%;
+  height: auto;
+  object-fit: contain;
+  border-radius: 6px 0 0 6px;
+  box-shadow: -6px 0 28px rgba(0, 180, 220, 0.12);
+}
+
+/* ── Continue button: image bg + text overlay ── */
+.hpBtnContinue {
+  position: relative;
+}
+.hpContinueOverlay {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  pointer-events: none;
+}
+.hpContinueLabel {
+  font-size: clamp(18px, 2.8vw, 42px);
+  font-weight: 900;
+  letter-spacing: 4px;
+  text-transform: uppercase;
+  color: #ffffff;
+  line-height: 1;
+  text-shadow: 0 2px 12px rgba(0,0,0,0.4);
+}
+.hpContinueName {
+  font-size: clamp(9px, 1vw, 14px);
+  font-weight: 700;
+  letter-spacing: 3px;
+  text-transform: uppercase;
+  color: rgba(255,255,255,0.65);
+  line-height: 1;
+  margin-top: 5px;
+}
+
+/* ── Bottom bar: fixed strip at bottom with author inside ── */
+.hpBottomBar {
+  position: fixed;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  height: 5.208vw;
+  z-index: 12;
+  background: var(--hp-bottombar-img) center/cover no-repeat;
+  pointer-events: none;
+  display: flex;
+  align-items: center;
+  padding-left: clamp(16px, 2.5vw, 40px);
+}
+/* ── Author: bottom-left inside the bottom bar ── */
+.hpAuthor {
+  height: 60%;
+  width: auto;
+  object-fit: contain;
+  pointer-events: none;
+}
+
+/* ── Topbar: apply auth_topbar.png as bg, hide all text ── */
+/* CSS variable --hp-topbar-img is set via Vue inline :style on the header element */
+.hpTopbar .brand,
+.hpTopbar .tetBarLeft,
+.hpTopbar .tetBarRight,
+.hpTopbar .right {
+  visibility: hidden;
+  pointer-events: none;
+}
+/* Use CSS var so background image works even against .tetBar's !important background shorthand */
+.hpTopbar.tetBar {
+  background: var(--hp-topbar-img, #050508) center/cover no-repeat !important;
+  border-bottom: none !important;
+  backdrop-filter: none !important;
+  box-shadow: none !important;
+  /* Asset is 1920×100px — match exact aspect ratio */
+  height: 5.208vw !important;
+  padding: 0 !important;
+}
+.hpTopbar:not(.tetBar) {
+  background: var(--hp-topbar-img, #050508) center/cover no-repeat !important;
+  border-bottom: none !important;
+  backdrop-filter: none !important;
+  box-shadow: none !important;
+  height: 5.208vw !important;
+  padding: 0 !important;
+}
+
+
+
+/* ══════════════════════════════════════════════════════════════════════════
+   MAIN MENU SCREEN  (Figma MENU kit)
+══════════════════════════════════════════════════════════════════════════ */
+
+/* Topbar override on mode screen: apply menu_topbar.png, hide title text (it's in the image), keep user info */
+.mnTopbar.tetBar {
+  background: var(--mn-topbar-img, #050508) center/cover no-repeat !important;
+  border-bottom: none !important;
+  backdrop-filter: none !important;
+  box-shadow: none !important;
+  height: 5.208vw !important;
+  padding: 0 !important;
+}
+.mnTopbar .tetBarLeft {
+  visibility: hidden;
+  pointer-events: none;
+}
+.mnTopbar .tetBarRight {
+  visibility: visible;
+  pointer-events: auto;
+  padding-right: clamp(12px, 2vw, 32px);
+}
+
+/* Bottombar override on mode screen: apply menu_bottombar.png */
+.mnBottomBar {
+  background: var(--mn-bottombar-img, #1a0a14) center/cover no-repeat !important;
+  border-top: none !important;
+  backdrop-filter: none !important;
+  height: 5.208vw !important;
+}
+.mnBottomBar .tetBottomText {
+  opacity: 1;
+  font-size: clamp(9px, 1vw, 13px);
+  letter-spacing: 2.5px;
+  color: rgba(255,255,255,0.9);
+  padding-left: clamp(12px, 2vw, 32px);
+}
+.mnBottomBar .tetBottomRight {
+  padding-right: clamp(12px, 2vw, 32px);
+}
+.mnBottomAuthor {
+  height: clamp(18px, 3.125vw, 52px); /* ≈ 60% of the 5.208vw bottombar */
+  width: auto;
+  object-fit: contain;
+  opacity: 0.85;
+  pointer-events: none;
+}
+
+/* ══════════════════════════════════════════════════════════════════════════
+   SETTINGS / CREDITS SCREENS  (Figma SETTINGS & CREDITS kit)
+══════════════════════════════════════════════════════════════════════════ */
+.stTopbar.tetBar {
+  background: var(--st-topbar-img, #2a2a2a) center/cover no-repeat !important;
+  border-bottom: none !important;
+  backdrop-filter: none !important;
+  box-shadow: none !important;
+  height: 5.208vw !important;
+  min-height: 5.208vw !important;
+  max-height: 5.208vw !important;
+  padding: 0 !important;
+  display: flex !important;
+  align-items: center !important;
+  justify-content: space-between !important;
+  overflow: hidden !important;
+}
+.stTopbar .tetBarLeft {
+  padding-left: clamp(16px, 2.5vw, 40px);
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+.stBottomBar {
+  background: var(--st-bottombar-img, #111) center/cover no-repeat !important;
+  border-top: none !important;
+  backdrop-filter: none !important;
+  height: 5.208vw !important;
+  display: flex !important;
+  align-items: center !important;
+  justify-content: space-between !important;
+}
+.stBottomBar .tetBottomText {
+  opacity: 1;
+  font-size: clamp(9px, 1vw, 13px);
+  letter-spacing: 2.5px;
+  color: rgba(255,255,255,0.9);
+  padding-left: clamp(16px, 2.5vw, 40px);
+}
+.stBottomBar .tetBottomRight {
+  padding-right: clamp(16px, 2.5vw, 40px);
+}
+
+/* PNG title image inside topbar (settings / credits / lobby) */
+.tetBarTitlePng {
+  height: 2.6vw;
+  max-height: 70%;
+  width: auto;
+  object-fit: contain;
+  pointer-events: none;
+  display: block;
+  flex-shrink: 0;
+}
+.settingsScreen .vsStyleTitle,
+.creditsScreen .vsStyleTitle {
+  background: linear-gradient(90deg, #ffffff 0%, #d0d0d0 50%, #a0a0a0 100%) !important;
+  -webkit-background-clip: text !important;
+  background-clip: text !important;
+  color: transparent !important;
+}
+.settingsScreen .vsStyleHeaderGlow,
+.creditsScreen .vsStyleHeaderGlow {
+  background: radial-gradient(ellipse 60% 80% at 50% 0%, rgba(200,200,200,0.12), transparent 70%);
+}
+.settingsScreen .vsStyleCheck,
+.settingsScreen .vsStyleSlider {
+  accent-color: rgba(180,180,180,0.95);
+}
+.settingsScreen .vsStyleCard::before,
+.creditsScreen .vsStyleCard::before {
+  background: radial-gradient(ellipse 120% 200% at 0% 50%, rgba(160,160,160,0.05), transparent 60%);
+}
+
+/* ══════════════════════════════════════════════════════════════════════════
+   LOBBY SCREEN  (Figma LOBBY kit)
+══════════════════════════════════════════════════════════════════════════ */
+.lbTopbar.tetBar {
+  background: var(--lb-topbar-img, #3d1b6e) center/cover no-repeat !important;
+  border-bottom: none !important;
+  backdrop-filter: none !important;
+  box-shadow: none !important;
+  height: 5.208vw !important;
+  min-height: 5.208vw !important;
+  max-height: 5.208vw !important;
+  padding: 0 !important;
+  display: flex !important;
+  align-items: center !important;
+  justify-content: space-between !important;
+  overflow: hidden !important;
+}
+.lbTopbar .tetBarLeft {
+  padding-left: clamp(16px, 2.5vw, 40px);
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+.lbBottomBar {
+  background: var(--lb-bottombar-img, #3d1b6e) center/cover no-repeat !important;
+  border-top: none !important;
+  backdrop-filter: none !important;
+  height: 5.208vw !important;
+  display: flex !important;
+  align-items: center !important;
+  justify-content: space-between !important;
+}
+.lbBottomBar .tetBottomText {
+  opacity: 1;
+  font-size: clamp(9px, 1vw, 13px);
+  letter-spacing: 2.5px;
+  color: rgba(255,255,255,0.9);
+  padding-left: clamp(16px, 2.5vw, 40px);
+}
+.lbBottomBar .tetBottomRight {
+  padding-right: clamp(16px, 2.5vw, 40px);
+}
+
+/* Lobby: purple-tinted content */
+.lobbyScreen .vsStyleTitle {
+  background: linear-gradient(90deg, #c084fc 0%, #a855f7 40%, #7c3aed 100%) !important;
+  -webkit-background-clip: text !important;
+  background-clip: text !important;
+  color: transparent !important;
+}
+.lobbyScreen .vsStyleHeaderGlow {
+  background: radial-gradient(ellipse 60% 80% at 50% 0%, rgba(139,92,246,0.22), transparent 70%);
+}
+.lobbyScreen .pbCard {
+  background: rgba(80, 40, 140, 0.15) !important;
+  border-color: rgba(139,92,246,0.22) !important;
+}
+.lobbyScreen .pbCard::before {
+  background: radial-gradient(ellipse 120% 200% at 0% 50%, rgba(139,92,246,0.07), transparent 60%);
+}
+.lobbyScreen .pbTitle {
+  color: rgba(196, 148, 255, 1) !important;
+}
+.lobbyScreen .pbHint {
+  color: rgba(180, 130, 255, 0.6) !important;
+}
+.lobbyScreen .pbInput {
+  border-color: rgba(139,92,246,0.35) !important;
+  background: rgba(60, 20, 100, 0.3) !important;
+}
+.lobbyScreen .pbInput:focus {
+  border-color: rgba(168,85,247,0.65) !important;
+  outline-color: rgba(168,85,247,0.3) !important;
+}
+.lobbyScreen .pbDivider {
+  background: rgba(139,92,246,0.18) !important;
+}
+.lobbyScreen .pbMiniBtn.primary {
+  background: linear-gradient(135deg, rgba(109,40,217,0.85), rgba(139,92,246,0.85)) !important;
+  border-color: rgba(168,85,247,0.4) !important;
+}
+.lobbyScreen .pbMiniBtn.primary:hover {
+  background: linear-gradient(135deg, rgba(124,58,237,0.95), rgba(167,139,250,0.9)) !important;
+}
+
+/* Logo + title in bottombar LEFT for settings/credits/lobby */
+.scBottomLeft {
+  display: flex;
+  align-items: center;
+  gap: clamp(4px, 0.6vw, 10px);
+  padding-left: clamp(16px, 2.5vw, 40px);
+}
+.scBottomLogo {
+  height: clamp(20px, 3.2vw, 54px);
+  width: auto;
+  object-fit: contain;
+  pointer-events: none;
+}
+.scBottomTitle {
+  height: clamp(12px, 2vw, 34px);
+  width: auto;
+  object-fit: contain;
+  pointer-events: none;
+}
+.scBottomText {
+  padding-left: 0 !important;
+  padding-right: clamp(16px, 2.5vw, 40px);
+}
+
+/* Mode screen: fixed layout between topbar and bottombar */
+.app.hasBottomBar:has(.mnMenu) {
+  padding-bottom: 0;
+}
+.mnMenu {
+  position: fixed;
+  top: 5.208vw;
+  bottom: 5.208vw;
+  left: 0;
+  right: 0;
+  z-index: 5;
+  overflow: hidden;
+  display: flex;
+  align-items: stretch;
+  background: #050508;
+  padding-left: clamp(28px, 5vw, 72px);
+}
+
+/* ── Left column: empty space, brand anchored to bottom ── */
+.mnLeft {
+  flex: 0 0 clamp(260px, 56vw, 840px);
+  display: flex;
+  flex-direction: column;
+  justify-content: flex-end;
+  padding-bottom: clamp(20px, 4vh, 52px);
+}
+
+.mnBrand {
+  display: flex;
+  align-items: center;
+  gap: clamp(16px, 2.2vw, 34px);
+}
+
+.mnBrandLogo {
+  width: clamp(80px, 9vw, 140px);
+  height: auto;
+  object-fit: contain;
+  filter: drop-shadow(0 4px 24px rgba(0,0,0,0.6));
+}
+
+.mnBrandTitle {
+  height: clamp(36px, 5.5vw, 82px);
+  width: auto;
+  object-fit: contain;
+  filter: drop-shadow(0 2px 12px rgba(0,0,0,0.45));
+}
+
+/* ── Right column: buttons, vertically centered, bleed past right edge ── */
+.mnRight {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  justify-content: center;
+  min-width: 0;
+}
+
+/* Buttons container — extends past right edge for bleed effect */
+.mnBtns {
+  display: flex;
+  flex-direction: column;
+  gap: clamp(8px, 1.2vh, 14px);
+  margin-right: -60px;
+  width: clamp(300px, 44vw, 680px);
+}
+
+.mnBtn {
+  background: none;
+  border: none;
+  padding: 0;
+  cursor: pointer;
+  display: block;
+  width: 100%;
+  transition: transform 0.18s cubic-bezier(0.25, 0.8, 0.25, 1),
+              filter 0.18s ease;
+  transform-origin: left center;
+}
+.mnBtn:hover {
+  transform: translateX(-20px);
+  filter: brightness(1.12) saturate(1.1);
+}
+.mnBtn:active {
+  transform: translateX(-10px) scale(0.997);
+  filter: brightness(1.05);
+}
+.mnBtnImg {
+  display: block;
+  width: 100%;
+  height: auto;
+  object-fit: contain;
+  border-radius: 6px 0 0 6px;
+  box-shadow: -6px 0 28px rgba(0, 0, 0, 0.25);
+}
+
 
 /* Override for right-shell: tiles flush to right edge */
 .tetShellRight .tetRows > .tetRow{ border-radius: 0; }
