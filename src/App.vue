@@ -315,8 +315,8 @@
               <img :src="soloCouchBtnUrl" class="mnBtnImg" alt="COUCH" />
             </button>
             <!-- ZEN PUZZLE -->
-            <button class="mnBtn" @mouseenter="uiHover" @click="uiClick(); loggedIn ? screen = 'puzzle' : showLoginRequired('Puzzle Mode')">
-              <img :src="soloPuzzleBtnUrl" class="mnBtnImg" :style="!loggedIn ? 'opacity:0.45;filter:grayscale(0.5)' : ''" alt="ZEN PUZZLE" />
+            <button class="mnBtn" @mouseenter="uiHover" @click="uiClick(); startPuzzleMode()">
+              <img :src="soloPuzzleBtnUrl" class="mnBtnImg" alt="ZEN PUZZLE" />
             </button>
           </div>
         </div>
@@ -651,21 +651,7 @@
       <!-- ══════════════════════════════════════════════════════════
            PUZZLE PLACEHOLDER
       ═══════════════════════════════════════════════════════════ -->
-      <section v-else-if="screen === 'puzzle'" class="menuShell pbShell pbShellCentered">
-        <div class="vsStylePanel">
-          <div class="vsStyleHeader">
-            <div class="vsStyleHeaderGlow"></div>
-            <div class="vsStyleTitle">🧩 PUZZLE MODE</div>
-            <div class="vsStyleSubtitle">Timed challenges · Coming soon</div>
-          </div>
-          <div class="vsStyleCards">
-            <div class="vsStyleCard">
-              <div class="vsStyleCardTitle">COMING SOON</div>
-              <div class="pbFineLine">Puzzle Mode is under construction. Stay tuned!</div>
-            </div>
-          </div>
-        </div>
-      </section>
+      <!-- puzzle screen: handled by the game canvas (v-else below) -->
 
 
       <!-- ══════════════════════════════════════════════════════════
@@ -989,10 +975,23 @@
 
           </div>
 
+          <!-- ── PUZZLE HUD: pieces remaining + cells covered ── -->
+          <div v-if="screen === 'puzzle' && game.phase !== 'gameover'" class="puzzleHud">
+            <div class="puzzleHudStat">
+              <span class="puzzleHudLabel">PIECES LEFT</span>
+              <span class="puzzleHudValue">{{ game.remaining?.[1]?.length ?? 0 }}</span>
+            </div>
+            <div class="puzzleHudStat">
+              <span class="puzzleHudLabel">CELLS COVERED</span>
+              <span class="puzzleHudValue">{{ puzzleCellsCovered }} <span class="puzzleHudOf">/ 60</span></span>
+            </div>
+            <button class="puzzleFinishBtn" @click="handlePuzzleEnd">FINISH PUZZLE</button>
+          </div>
+
           <DraftPanel v-if="game.phase === 'draft'" />
 
           <section v-else class="panel">
-            <h2 class="panelTitle">Player {{ game.currentPlayer }} Pieces</h2>
+            <h2 class="panelTitle">{{ screen === 'puzzle' ? 'Your Pieces' : `Player ${game.currentPlayer} Pieces` }}</h2>
             <PiecePicker :isOnline="isOnline" :myPlayer="myPlayer" :canAct="canAct" />
 
             <div class="divider"></div>
@@ -2226,7 +2225,7 @@ watch(loggedIn, async (isIn) => {
   } catch {}
 }, { immediate: true });
 
-const isInGame = computed(() => screen.value === "couch" || screen.value === "ai" || screen.value === "online");
+const isInGame = computed(() => screen.value === "couch" || screen.value === "ai" || screen.value === "online" || screen.value === "puzzle");
 
 /* ============================================================
    REPLAY VIEWER — reactive state + open helpers
@@ -2510,6 +2509,7 @@ const modeLabel = computed(() => {
     return `VS AI · ${labels[aiDifficulty.value] || "Dumbie"}${roundStr}`;
   }
   return screen.value === "couch" ? "Couch Play"
+       : screen.value === "puzzle" ? "Puzzle Mode"
        : screen.value === "online"
            ? online.matchKind === "mirror_war"  ? "MIRROR WAR — Full Arsenal"
            : online.matchKind === "blind_draft" ? "BLIND DRAFT — Random Loadout"
@@ -2607,7 +2607,7 @@ const bottomStatusText = computed(() => {
   if (screen.value === "credits")      return "THANK YOU FOR PLAYING PENTOBATTLE!";
   if (screen.value === "shop")         return "SHOP · COMING SOON";
   if (screen.value === "profile")      return loggedIn.value ? `VIEWING PROFILE: ${displayName.value}` : "LOGIN OR CREATE AN ACCOUNT";
-  if (screen.value === "puzzle")       return "PUZZLE MODE · COMING SOON";
+  if (screen.value === "puzzle")       return "PUZZLE MODE · FILL THE BOARD";
   return "";
 });
 
@@ -2688,8 +2688,8 @@ const timerHud = computed(() => {
   if (!isInGame.value) return null;
   if (game.phase === "gameover") return null;
   if (isOnline.value && !myPlayer.value) return null;
-  // No timers for couch play
-  if (screen.value === 'couch') return null;
+  // No timers for couch play or puzzle mode
+  if (screen.value === 'couch' || screen.value === 'puzzle') return null;
 
   // Draft timer (countdown)
   if (game.phase === "draft") {
@@ -2727,11 +2727,17 @@ const timerHud = computed(() => {
 // Top-right button
 const primaryMatchActionLabel = computed(() => {
   if (!isInGame.value) return "";
+  if (screen.value === "puzzle") return game.phase === "gameover" ? "Try Again" : "Finish Puzzle";
   if (isOnline.value) return game.phase === "gameover" ? "Play Again" : "Surrender";
   return "Reset Match";
 });
 
 const canAct = computed(() => {
+  // Puzzle mode: player 1 always acts (no opponent)
+  if (screen.value === 'puzzle') {
+    if (game.phase === 'gameover') return false;
+    return game.currentPlayer === 1;
+  }
   // AI mode: human can only act on their own turns
   if (screen.value === 'ai') {
     if (game.phase === 'gameover') return false;
@@ -2752,7 +2758,7 @@ watch(
   () => screen.value,
   (nv, ov) => {
     if (nv === ov) return;
-    if (["online", "couch", "ai"].includes(nv)) {
+    if (["online", "couch", "ai", "puzzle"].includes(nv)) {
       startUiLock({ label: "Loading match…", hint: "Syncing visuals and state…", minMs: 850 });
       stopUiLockAfterPaint(850);
     }
@@ -4613,6 +4619,16 @@ function requestPlayAgain() {
 function onPrimaryMatchAction() {
   if (!isInGame.value) return;
 
+  // Puzzle mode: Finish Puzzle or Try Again
+  if (screen.value === "puzzle") {
+    if (game.phase === "gameover") {
+      startPuzzleMode();
+    } else {
+      handlePuzzleEnd();
+    }
+    return;
+  }
+
   const lab = String(primaryMatchActionLabel.value || "").trim().toLowerCase();
 
   // ✅ Reset confirm (local modes / any reset label)
@@ -4704,10 +4720,26 @@ async function ensureRematchPrompt() {
   }
 }
 
+// Auto-finish puzzle when all 12 pieces are placed
+watch(
+  () => game.remaining?.[1]?.length,
+  (len) => {
+    if (screen.value !== "puzzle") return;
+    if (game.phase === "gameover") return;
+    if (len === 0) handlePuzzleEnd();
+  }
+);
+
 watch(
   () => game.phase,
   (p, prev) => {
     if (p !== "gameover" || prev === "gameover") return;
+
+    // Puzzle mode: show score modal, no online/ranked logic
+    if (screen.value === "puzzle") {
+      handlePuzzleEnd();
+      return;
+    }
 
     if (isOnline.value && myPlayer.value) {
       const me = myPlayer.value;
@@ -6178,6 +6210,52 @@ function startCouchPlay() {
   game.resetGame();
 
   tryPlayGameBgm();
+}
+
+/* ─── PUZZLE MODE ────────────────────────────────────────────────── */
+const PUZZLE_PIECES = ["F","I","L","P","N","T","U","V","W","X","Y","Z"];
+
+function startPuzzleMode() {
+  stopPolling();
+  myPlayer.value = null;
+  game.boardW = 10;
+  game.boardH = 6;
+  game.allowFlip = true;
+  game.startPlacementDirect(PUZZLE_PIECES, [], 10, 6);
+  game.currentPlayer = 1;
+  screen.value = "puzzle";
+  tryPlayGameBgm();
+}
+
+const puzzleCellsCovered = computed(() => {
+  if (!game.board) return 0;
+  let count = 0;
+  for (const row of game.board) {
+    if (!row) continue;
+    for (const cell of row) {
+      if (cell !== null && cell !== undefined) count++;
+    }
+  }
+  return count;
+});
+
+function handlePuzzleEnd() {
+  const covered = puzzleCellsCovered.value;
+  const pct = Math.round((covered / 60) * 100);
+  const emoji = covered === 60 ? "🎉 PERFECT!" : covered >= 48 ? "⭐ Great!" : covered >= 30 ? "👍 Good effort!" : "💪 Keep practicing!";
+  if (game.phase !== "gameover") {
+    game.phase = "gameover";
+  }
+  showModal({
+    title: "PUZZLE COMPLETE",
+    tone: covered === 60 ? "victory" : "good",
+    message: `${emoji}\n\nYou covered ${covered} / 60 cells  (${pct}%)`,
+    actions: [
+      { label: "Try Again",  tone: "primary", onClick: () => { closeModal(); startPuzzleMode(); } },
+      { label: "New Puzzle", tone: "primary", onClick: () => { closeModal(); startPuzzleMode(); } },
+      { label: "Main Menu",  tone: "soft",    onClick: () => { closeModal(); stopAndExitToMenu(""); } },
+    ],
+  });
 }
 
 // ── AI Difficulty state ────────────────────────────────────────────
@@ -8767,6 +8845,66 @@ onBeforeUnmount(() => {
 
 .panel{ margin-top: 12px; padding: 14px; border-radius: 18px; border: 1px solid rgba(255,255,255,.10); background: rgba(10,10,16,.55); backdrop-filter: blur(10px); }
 .panelTitle{ margin: 0 0 10px 0; }
+
+/* ── Puzzle Mode HUD ────────────────────────────────────────── */
+.puzzleHud {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 14px;
+  background: rgba(255,255,255,0.04);
+  border: 1px solid rgba(255,255,255,0.08);
+  border-radius: 10px;
+  margin-bottom: 10px;
+  flex-wrap: wrap;
+}
+.puzzleHudStat {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  flex: 1;
+  min-width: 72px;
+}
+.puzzleHudLabel {
+  font-family: "Orbitron", sans-serif;
+  font-size: 8px;
+  letter-spacing: 1.5px;
+  font-weight: 900;
+  color: rgba(255,255,255,0.35);
+  text-transform: uppercase;
+}
+.puzzleHudValue {
+  font-family: "Orbitron", sans-serif;
+  font-size: 20px;
+  font-weight: 900;
+  color: rgba(255,255,255,0.90);
+  line-height: 1.15;
+}
+.puzzleHudOf {
+  font-size: 12px;
+  font-weight: 600;
+  color: rgba(255,255,255,0.35);
+}
+.puzzleFinishBtn {
+  font-family: "Orbitron", sans-serif;
+  font-size: 9px;
+  font-weight: 900;
+  letter-spacing: 2px;
+  text-transform: uppercase;
+  padding: 7px 14px;
+  border-radius: 8px;
+  border: 1px solid rgba(61,255,160,0.35);
+  background: rgba(61,255,160,0.10);
+  color: rgba(61,255,160,0.90);
+  cursor: pointer;
+  transition: background .15s, border-color .15s, color .15s;
+  white-space: nowrap;
+}
+.puzzleFinishBtn:hover {
+  background: rgba(61,255,160,0.20);
+  border-color: rgba(61,255,160,0.60);
+  color: #3dffa0;
+}
 .hintSmall{ margin-top: 10px; opacity:.75; font-size: 12px; }
 .turnBadge{ padding: 8px 10px; border-radius: 999px; font-weight: 900; border: 1px solid rgba(255,255,255,.12); background: rgba(255,255,255,.06); }
 .turnBadge.p1{ border-color: rgba(0,229,255,.25); background: rgba(0,229,255,.10); }
