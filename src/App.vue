@@ -262,9 +262,33 @@
         </div>
 
         <div class="mnRight">
-          <div class="mnBtns">
+          <!-- MODE PICKER (shown after clicking QUICK PLAY) -->
+          <div v-if="qmPickerOpen" class="qmPickerPanel vsStylePanel">
+            <div class="qmPickerTitle">SELECT QUICK PLAY MODE</div>
+            <div class="qmPickerCards">
+              <div class="qmPickerCard vsStyleCard">
+                <div class="vsStyleCardTitle">NORMAL</div>
+                <div class="qmPickerDesc">Standard draft · 10×6 board · 6 pieces each</div>
+                <button class="pbMiniBtn primary qmPickerBtn" @mouseenter="uiHover" @click="uiClick(); qmPickerOpen = false; startQuickMatchAuto()">PLAY</button>
+              </div>
+              <div class="qmPickerCard vsStyleCard">
+                <div class="vsStyleCardTitle">MIRROR WAR</div>
+                <div class="qmPickerDesc">Full Arsenal · 20×12 board · 12 pieces each · No Draft</div>
+                <button class="pbMiniBtn primary qmPickerBtn" @mouseenter="uiHover" @click="uiClick(); qmPickerOpen = false; startMirrorWarMode()">PLAY</button>
+              </div>
+              <div class="qmPickerCard vsStyleCard">
+                <div class="vsStyleCardTitle">BLIND DRAFT</div>
+                <div class="qmPickerDesc">Random Loadout · 10×6 board · No Draft</div>
+                <button class="pbMiniBtn primary qmPickerBtn" @mouseenter="uiHover" @click="uiClick(); qmPickerOpen = false; startBlindDraftMode()">PLAY</button>
+              </div>
+            </div>
+            <button class="pbMiniBtn qmPickerBack" @mouseenter="uiHover" @click="uiClick(); qmPickerOpen = false">← BACK</button>
+          </div>
+
+          <!-- NORMAL MENU BUTTONS (hidden while picker is open) -->
+          <div v-else class="mnBtns">
             <!-- QUICK PLAY -->
-            <button class="mnBtn" @mouseenter="uiHover" @click="uiClick(); startQuickMatchAuto()">
+            <button class="mnBtn" @mouseenter="uiHover" @click="uiClick(); qmPickerOpen = true">
               <img :src="mpQuickBtnUrl" class="mnBtnImg" alt="QUICK PLAY" />
             </button>
             <!-- RANKED -->
@@ -274,16 +298,6 @@
             <!-- LOBBY -->
             <button class="mnBtn" @mouseenter="uiHover" @click="uiClick(); navTo('lobby')">
               <img :src="mpLobbyBtnUrl" class="mnBtnImg" alt="LOBBY" />
-            </button>
-            <!-- MIRROR WAR -->
-            <button class="mnBtnText" @mouseenter="uiHover" @click="uiClick(); startMirrorWarMode()">
-              <span class="mnBtnTextLabel">MIRROR WAR</span>
-              <span class="mnBtnTextSub">Full Arsenal · Double Board · No Draft</span>
-            </button>
-            <!-- BLIND DRAFT -->
-            <button class="mnBtnText" @mouseenter="uiHover" @click="uiClick(); startBlindDraftMode()">
-              <span class="mnBtnTextLabel">BLIND DRAFT</span>
-              <span class="mnBtnTextSub">Random Loadout · No Draft · Pure Placement</span>
             </button>
           </div>
         </div>
@@ -305,13 +319,37 @@
         </div>
 
         <div class="mnRight">
-          <div class="mnBtns">
+          <!-- COUCH MODE PICKER (shown after clicking COUCH PLAY) -->
+          <div v-if="couchPickerOpen" class="qmPickerPanel vsStylePanel">
+            <div class="qmPickerTitle">SELECT COUCH PLAY MODE</div>
+            <div class="qmPickerCards">
+              <div class="qmPickerCard vsStyleCard">
+                <div class="vsStyleCardTitle">NORMAL COUCH</div>
+                <div class="qmPickerDesc">Classic draft · 10×6 · 2 players share keyboard</div>
+                <button class="pbMiniBtn primary qmPickerBtn" @mouseenter="uiHover" @click="uiClick(); couchPickerOpen = false; startCouchPlay()">PLAY</button>
+              </div>
+              <div class="qmPickerCard vsStyleCard">
+                <div class="vsStyleCardTitle">MIRROR WAR</div>
+                <div class="qmPickerDesc">Full Arsenal · 20×12 · Both get all 12 pieces · No Draft</div>
+                <button class="pbMiniBtn primary qmPickerBtn" @mouseenter="uiHover" @click="uiClick(); startCouchMirrorWar()">PLAY</button>
+              </div>
+              <div class="qmPickerCard vsStyleCard">
+                <div class="vsStyleCardTitle">BLIND DRAFT</div>
+                <div class="qmPickerDesc">Random Loadout · 10×6 · Pieces split randomly · No Draft</div>
+                <button class="pbMiniBtn primary qmPickerBtn" @mouseenter="uiHover" @click="uiClick(); startCouchBlindDraft()">PLAY</button>
+              </div>
+            </div>
+            <button class="pbMiniBtn qmPickerBack" @mouseenter="uiHover" @click="uiClick(); couchPickerOpen = false">← BACK</button>
+          </div>
+
+          <!-- NORMAL SOLO BUTTONS -->
+          <div v-else class="mnBtns">
             <!-- VERSUS AI -->
             <button class="mnBtn" @mouseenter="uiHover" @click="uiClick(); startPracticeAi()">
               <img :src="soloVsAiBtnUrl" class="mnBtnImg" alt="VERSUS AI" />
             </button>
             <!-- COUCH PLAY -->
-            <button class="mnBtn" @mouseenter="uiHover" @click="uiClick(); startCouchPlay()">
+            <button class="mnBtn" @mouseenter="uiHover" @click="uiClick(); couchPickerOpen = true">
               <img :src="soloCouchBtnUrl" class="mnBtnImg" alt="COUCH" />
             </button>
             <!-- ZEN PUZZLE -->
@@ -676,6 +714,15 @@
                 <input v-model="quick.lobbyName" class="pbInput" placeholder="e.g., Mumuchxm room" />
               </label>
 
+              <div class="pbField">
+                <span>GAME MODE</span>
+                <div class="lobbyModePills">
+                  <button class="mhFilterTab" :class="{ active: lobbyModeOption === 'normal' }" @click="lobbyModeOption = 'normal'">NORMAL</button>
+                  <button class="mhFilterTab" :class="{ active: lobbyModeOption === 'mirror_war' }" @click="lobbyModeOption = 'mirror_war'">MIRROR WAR</button>
+                  <button class="mhFilterTab" :class="{ active: lobbyModeOption === 'blind_draft' }" @click="lobbyModeOption = 'blind_draft'">BLIND DRAFT</button>
+                </div>
+              </div>
+
               <label class="pbField inline">
                 <span>PRIVATE</span>
                 <input class="pbCheck" type="checkbox" v-model="quick.isPrivate" />
@@ -723,7 +770,11 @@
             <div v-else class="pbLobbyList">
               <div class="pbLobbyRow" v-for="l in publicLobbies" :key="l.id">
                 <div class="pbLobbyInfo">
-                  <div class="pbLobbyName">{{ l.lobby_name || "Public Lobby" }}</div>
+                  <div class="pbLobbyName">
+                    {{ l.lobby_name || "Public Lobby" }}
+                    <span v-if="l.mode === 'mirror_war'" class="lobbyModeBadge badgeMW">MW</span>
+                    <span v-else-if="l.mode === 'blind_draft'" class="lobbyModeBadge badgeBD">BD</span>
+                  </div>
                   <div class="pbLobbyMeta">
                     Code: <b>{{ l.code || "—" }}</b>
                     <span class="dot">•</span>
@@ -2150,6 +2201,10 @@ const quick = reactive({
   joinCode: "",
 });
 
+const qmPickerOpen = ref(false);
+const lobbyModeOption = ref("normal"); // "normal" | "mirror_war" | "blind_draft"
+const couchPickerOpen = ref(false);
+
 const rankedTier = computed(() => {
   if (!loggedIn.value) return "—";
   const t = memberStats.ranked_tier || "unranked";
@@ -3116,7 +3171,10 @@ async function leaveOnlineLobby(reason = "left") {
 // If someone leaves (even mid-match), delete/close the room so the next queue can't get shoved
 // into an already-ended or half-finished session.
       const isQuickMatchRoom =
-        String(lobby.lobby_name || "") === "__QM__" || String(st?.meta?.kind || "") === "quickmatch";
+        String(lobby.lobby_name || "") === "__QM__" ||
+        String(lobby.lobby_name || "") === "__MW__" ||
+        String(lobby.lobby_name || "") === "__BD__" ||
+        ["quickmatch","mirror_war","blind_draft"].includes(String(st?.meta?.kind || ""));
 
       if (isQuickMatchRoom) {
         try {
@@ -3874,7 +3932,8 @@ async function ensureOnlineInitialized(lobby) {
   game.resetGame();
 
   // Apply lobby timer (set by host when creating the room: 3, 5, or 7 minutes)
-  const timerMins = Number(prevMeta?.timerMinutes || 3);
+  const defaultMinutes = lobbyKind === "mirror_war" ? 8 : 3;
+  const timerMins = Number(prevMeta?.timerMinutes || defaultMinutes);
   const timerSecs = Math.max(60, Math.min(1800, timerMins * 60));
   game.battleClockInitSec = timerSecs;
   game.battleClockSec = { 1: timerSecs, 2: timerSecs };
@@ -4024,7 +4083,7 @@ function serverNow() {
   return Date.now() + (online.serverTimeOffset || 0);
 }
 
-async function startPollingLobby(lobbyId, role) {
+async function startPollingLobby(lobbyId, role, modeHint = null) {
   // ✅ Prevent early clicks while the online screen + first poll are not fully rendered.
   startUiLock({ label: "Connecting…", hint: "Establishing link to lobby…", minMs: 900 });
 
@@ -4046,6 +4105,7 @@ async function startPollingLobby(lobbyId, role) {
   online.hostWaitStartedAt = role === "host" ? Date.now() : null;
   online.initializingGame = false; // ✅ FIX (Bug 4): reset init lock for new session
   online.matchKind = null;
+  if (modeHint) online.matchKind = modeHint;
   myPlayer.value = null;
 
   // Near-instant sync via Supabase Realtime (polling remains as fallback + presence/TTL logic)
@@ -4054,8 +4114,13 @@ async function startPollingLobby(lobbyId, role) {
   setupRealtimeLobby(lobbyId);
 
   screen.value = "online";
-  game.boardW = 10;
-  game.boardH = 6;
+  if (modeHint === "mirror_war") {
+    game.boardW = 20;
+    game.boardH = 12;
+  } else {
+    game.boardW = 10;
+    game.boardH = 6;
+  }
   game.allowFlip = allowFlip.value;
   game.resetGame();
 
@@ -4445,7 +4510,17 @@ async function onResetClick() {
   // Prefer a single author for round resets to avoid version fights.
   // Host resets the round; guest simply waits for the new state.
   if (online.role !== "host") {
-    game.resetGame();
+    const guestKind = String(online.matchKind || "");
+    game.allowFlip = allowFlip.value;
+    if (guestKind === "mirror_war") {
+      game.startPlacementDirect(ALL_PIECE_KEYS, ALL_PIECE_KEYS, 20, 12);
+    } else if (guestKind === "blind_draft") {
+      const seed = makeRoundSeed();
+      const { picks1, picks2 } = randomSplitPieces(ALL_PIECE_KEYS, hashSeedToUint32(seed));
+      game.startPlacementDirect(picks1, picks2, 10, 6);
+    } else {
+      game.resetGame();
+    }
     return;
   }
 
@@ -4468,16 +4543,26 @@ async function onResetClick() {
 
     const { players } = makeRandomPlayers(lobby.host_id, lobby.guest_id);
 
-    game.boardW = 10;
-    game.boardH = 6;
+    const newRoundSeed = makeRoundSeed();
+    const lobbyKind = String(meta.kind || "");
+
     game.allowFlip = allowFlip.value;
-    game.resetGame();
+    if (lobbyKind === "mirror_war") {
+      game.startPlacementDirect(ALL_PIECE_KEYS, ALL_PIECE_KEYS, 20, 12);
+    } else if (lobbyKind === "blind_draft") {
+      const { picks1, picks2 } = randomSplitPieces(ALL_PIECE_KEYS, hashSeedToUint32(newRoundSeed));
+      game.startPlacementDirect(picks1, picks2, 10, 6);
+    } else {
+      game.boardW = 10;
+      game.boardH = 6;
+      game.resetGame();
+    }
 
     const snapshot = buildSyncedState({
       ...meta,
       players,
       round: nextRound,
-      roundSeed: makeRoundSeed(),
+      roundSeed: newRoundSeed,
       started_at: new Date().toISOString(),
     });
     const nextVersion = Number(lobby.version || 0) + 1;
@@ -5300,13 +5385,22 @@ async function quickMake(timerMinutes = 3) {
     return;
   }
 
+  const mode = lobbyModeOption.value;
+  const extraMeta = mode === "mirror_war"
+    ? { kind: "mirror_war", timerMinutes: Number(timerMinutes) || 3 }
+    : mode === "blind_draft"
+      ? { kind: "blind_draft", timerMinutes: Number(timerMinutes) || 3 }
+      : { timerMinutes: Number(timerMinutes) || 3 };
+  const modeArg = mode !== "normal" ? mode : null;
+
   try {
     showModal({ title: "Creating Lobby...", tone: "info", message: "Setting up your room..." });
 
     const created = await sbCreateLobby({
       isPrivate: quick.isPrivate,
       lobbyName: nm,
-      extraStateMeta: { timerMinutes: Number(timerMinutes) || 3 },
+      extraStateMeta: extraMeta,
+      ...(modeArg ? { mode: modeArg } : {}),
     });
 
     closeModal();
@@ -5329,7 +5423,7 @@ async function quickMake(timerMinutes = 3) {
 
     if (!created.is_private) await refreshPublicLobbies();
 
-    startPollingLobby(created.id, "host");
+    startPollingLobby(created.id, "host", modeArg || null);
   } catch (e) {
     closeModal();
     showModal({ title: "Create Lobby Error", tone: "bad", message: String(e?.message || e || "Something went wrong.") });
@@ -5878,8 +5972,6 @@ async function sbQuickMatch() {
   return { lobby: created, role: "host" };
 }
 
-// All 12 pentomino piece keys used by Mirror War and Blind Draft modes
-
 /* ─── MIRROR WAR ─────────────────────────────────────────────────── */
 async function startMirrorWarMode() {
   if (!(await ensureSupabaseReadyOrExplain())) return;
@@ -5944,8 +6036,10 @@ async function startMirrorWarMode() {
       if (joined?.id) {
         if (uiTimer) window.clearInterval(uiTimer);
         closeModal();
+        const ok = await quickMatchAcceptFlow(joined.id, "guest");
+        if (!ok) return;
         screen.value = "online";
-        startPollingLobby(joined.id, "guest");
+        startPollingLobby(joined.id, "guest", "mirror_war");
         return;
       }
     }
@@ -5962,15 +6056,60 @@ async function startMirrorWarMode() {
     hostLobbyId = created.id;
 
     const waitUntil = Date.now() + 60_000;
+    let qmLoopCount = 0;
     while (!cancelled && Date.now() < waitUntil) {
+      qmLoopCount++;
       const fresh = await sbSelectLobbyById(hostLobbyId);
       if (fresh?.guest_id) {
         if (uiTimer) window.clearInterval(uiTimer);
         closeModal();
+        await sbEnsureQuickMatchAcceptState(hostLobbyId);
+        const ok = await quickMatchAcceptFlow(hostLobbyId, "host");
+        if (!ok) return;
         screen.value = "online";
-        startPollingLobby(hostLobbyId, "host");
+        startPollingLobby(hostLobbyId, "host", "mirror_war");
         return;
       }
+
+      // ✅ Late-merge: handle simultaneous-start race condition for Mirror War.
+      if (qmLoopCount % 3 === 0 && hostLobbyId && !cancelled) {
+        try {
+          const meId = await getGuestId();
+          const lmQ = [
+            "select=id,code,status,updated_at,host_id,guest_id,state,version",
+            "status=eq.waiting",
+            "is_private=eq.false",
+            "guest_id=is.null",
+            "mode=eq.mirror_war",
+            `host_id=neq.${encodeURIComponent(meId)}`,
+            "order=updated_at.asc",
+            "limit=5",
+          ].join("&");
+          const lmRes = await fetch(sbRestUrl(`pb_lobbies?${lmQ}`), { headers: await sbHeaders() });
+          if (lmRes.ok) {
+            const lmRows = await lmRes.json();
+            const others = (Array.isArray(lmRows) ? lmRows : []).filter(
+              l => l.id !== hostLobbyId && l.host_id !== meId && !isLobbyExpired(l)
+            );
+            if (others.length > 0 && !cancelled) {
+              const target = others[0];
+              const joined = await sbJoinLobby(target.id);
+              if (joined?.id) {
+                try { await sbDeleteLobby(hostLobbyId); } catch {}
+                hostLobbyId = null;
+                if (uiTimer) window.clearInterval(uiTimer);
+                closeModal();
+                const ok = await quickMatchAcceptFlow(joined.id, "guest");
+                if (!ok) return;
+                screen.value = "online";
+                startPollingLobby(joined.id, "guest", "mirror_war");
+                return;
+              }
+            }
+          }
+        } catch { /* ignore — keep polling as host */ }
+      }
+
       await new Promise(r => setTimeout(r, 850));
     }
 
@@ -5979,7 +6118,7 @@ async function startMirrorWarMode() {
       try { await sbDeleteLobby(hostLobbyId); } catch {}
       closeModal();
       showModal({ title: "No Opponent", tone: "bad", message: "No one is playing right now.",
-        actions: [{ label: "OK", tone: "primary", onClick: () => (screen.value = "mode") }] });
+        actions: [{ label: "OK", tone: "primary", onClick: () => (screen.value = "multiplayer") }] });
     }
   } catch (e) {
     if (uiTimer) window.clearInterval(uiTimer);
@@ -6052,8 +6191,10 @@ async function startBlindDraftMode() {
       if (joined?.id) {
         if (uiTimer) window.clearInterval(uiTimer);
         closeModal();
+        const ok = await quickMatchAcceptFlow(joined.id, "guest");
+        if (!ok) return;
         screen.value = "online";
-        startPollingLobby(joined.id, "guest");
+        startPollingLobby(joined.id, "guest", "blind_draft");
         return;
       }
     }
@@ -6070,15 +6211,60 @@ async function startBlindDraftMode() {
     hostLobbyId = created.id;
 
     const waitUntil = Date.now() + 60_000;
+    let qmLoopCount = 0;
     while (!cancelled && Date.now() < waitUntil) {
+      qmLoopCount++;
       const fresh = await sbSelectLobbyById(hostLobbyId);
       if (fresh?.guest_id) {
         if (uiTimer) window.clearInterval(uiTimer);
         closeModal();
+        await sbEnsureQuickMatchAcceptState(hostLobbyId);
+        const ok = await quickMatchAcceptFlow(hostLobbyId, "host");
+        if (!ok) return;
         screen.value = "online";
-        startPollingLobby(hostLobbyId, "host");
+        startPollingLobby(hostLobbyId, "host", "blind_draft");
         return;
       }
+
+      // ✅ Late-merge: handle simultaneous-start race condition for Blind Draft.
+      if (qmLoopCount % 3 === 0 && hostLobbyId && !cancelled) {
+        try {
+          const meId = await getGuestId();
+          const lmQ = [
+            "select=id,code,status,updated_at,host_id,guest_id,state,version",
+            "status=eq.waiting",
+            "is_private=eq.false",
+            "guest_id=is.null",
+            "mode=eq.blind_draft",
+            `host_id=neq.${encodeURIComponent(meId)}`,
+            "order=updated_at.asc",
+            "limit=5",
+          ].join("&");
+          const lmRes = await fetch(sbRestUrl(`pb_lobbies?${lmQ}`), { headers: await sbHeaders() });
+          if (lmRes.ok) {
+            const lmRows = await lmRes.json();
+            const others = (Array.isArray(lmRows) ? lmRows : []).filter(
+              l => l.id !== hostLobbyId && l.host_id !== meId && !isLobbyExpired(l)
+            );
+            if (others.length > 0 && !cancelled) {
+              const target = others[0];
+              const joined = await sbJoinLobby(target.id);
+              if (joined?.id) {
+                try { await sbDeleteLobby(hostLobbyId); } catch {}
+                hostLobbyId = null;
+                if (uiTimer) window.clearInterval(uiTimer);
+                closeModal();
+                const ok = await quickMatchAcceptFlow(joined.id, "guest");
+                if (!ok) return;
+                screen.value = "online";
+                startPollingLobby(joined.id, "guest", "blind_draft");
+                return;
+              }
+            }
+          }
+        } catch { /* ignore — keep polling as host */ }
+      }
+
       await new Promise(r => setTimeout(r, 850));
     }
 
@@ -6087,7 +6273,7 @@ async function startBlindDraftMode() {
       try { await sbDeleteLobby(hostLobbyId); } catch {}
       closeModal();
       showModal({ title: "No Opponent", tone: "bad", message: "No one is playing right now.",
-        actions: [{ label: "OK", tone: "primary", onClick: () => (screen.value = "mode") }] });
+        actions: [{ label: "OK", tone: "primary", onClick: () => (screen.value = "multiplayer") }] });
     }
   } catch (e) {
     if (uiTimer) window.clearInterval(uiTimer);
@@ -6222,6 +6408,41 @@ function startCouchPlay() {
   game.resetGame();
 
   tryPlayGameBgm();
+}
+
+function startCouchMirrorWar() {
+  stopPolling();
+  myPlayer.value = null;
+  game.boardW = 20;
+  game.boardH = 12;
+  game.allowFlip = true;
+  game.startPlacementDirect(ALL_PIECE_KEYS, ALL_PIECE_KEYS, 20, 12);
+  game.battleClockInitSec = 480;
+  game.battleClockSec = { 1: 480, 2: 480 };
+  screen.value = "couch";
+  couchPickerOpen.value = false;
+  tryPlayGameBgm();
+}
+
+function startCouchBlindDraft() {
+  stopPolling();
+  myPlayer.value = null;
+  const seed = Math.floor(Math.random() * 0xFFFFFFFF);
+  const { picks1, picks2 } = randomSplitPieces(ALL_PIECE_KEYS, seed);
+  game.boardW = 10;
+  game.boardH = 6;
+  game.allowFlip = true;
+  game.startPlacementDirect(picks1, picks2, 10, 6);
+  screen.value = "couch";
+  couchPickerOpen.value = false;
+  tryPlayGameBgm();
+  // Inform couch players of their piece assignments
+  showModal({
+    title: "Blind Draft — Piece Split",
+    tone: "info",
+    message: `P1 gets: ${picks1.join(" ")}  ·  P2 gets: ${picks2.join(" ")}`,
+    actions: [{ label: "LET'S GO", tone: "primary" }],
+  });
 }
 
 /* ─── PUZZLE MODE ────────────────────────────────────────────────── */
@@ -11578,6 +11799,95 @@ onBeforeUnmount(() => {
   color: rgba(255,255,255,0.38);
   margin-top: 5px;
   line-height: 1;
+}
+
+
+/* ─── Quick Play Mode Picker ────────────────────────────────── */
+.qmPickerPanel {
+  width: 100%;
+  padding: 20px 18px 18px;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+.qmPickerTitle {
+  font-family: "Orbitron", sans-serif;
+  font-size: 11px;
+  font-weight: 900;
+  letter-spacing: 2.5px;
+  text-transform: uppercase;
+  color: rgba(255,255,255,0.5);
+  margin-bottom: 2px;
+}
+.qmPickerCards {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.qmPickerCard.vsStyleCard {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 14px 16px 12px;
+}
+.qmPickerDesc {
+  font-size: 10px;
+  letter-spacing: 1.2px;
+  color: rgba(255,255,255,0.40);
+  font-family: "Orbitron", sans-serif;
+  text-transform: uppercase;
+  line-height: 1.4;
+}
+.qmPickerBtn {
+  align-self: flex-start;
+  margin-top: 6px;
+}
+.qmPickerBack {
+  align-self: flex-start;
+  margin-top: 2px;
+}
+
+/* ─── Lobby Mode Pills ──────────────────────────────────────── */
+.lobbyModePills {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+  margin-top: 4px;
+}
+.mhFilterTab.active.lobbyModeActive,
+.lobbyModePills .mhFilterTab.active {
+  border-color: rgba(99,210,255,0.45);
+  background: rgba(99,210,255,0.10);
+  color: #63d2ff;
+}
+
+/* ─── Lobby Mode Badges ─────────────────────────────────────── */
+.lobbyModeBadge {
+  display: inline-block;
+  font-size: 9px;
+  font-weight: 900;
+  letter-spacing: 1.5px;
+  border-radius: 4px;
+  padding: 2px 5px;
+  vertical-align: middle;
+  margin-left: 6px;
+  font-family: "Orbitron", sans-serif;
+  line-height: 1.3;
+}
+.badgeMW {
+  background: rgba(0,210,210,0.15);
+  border: 1px solid rgba(0,210,210,0.40);
+  color: #00d2d2;
+}
+.badgeBD {
+  background: rgba(160,80,255,0.15);
+  border: 1px solid rgba(160,80,255,0.40);
+  color: #c084ff;
+}
+
+/* ─── Lobby form mode field ─────────────────────────────────── */
+.pbField .lobbyModePills {
+  margin-top: 6px;
 }
 
 
