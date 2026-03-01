@@ -25,9 +25,9 @@
     <div v-if="uiLock.active" class="loadOverlay" aria-live="polite" aria-busy="true">
       <div class="loadCard">
         <div class="loadTop">
-          <img :src="logoUrl" class="loadLogo" alt="" />
+          <img :src="menuLogoUrl" class="loadLogo" alt="" />
           <div class="loadText">
-            <img :src="titleUrl" class="loadTitlePng floatingLogo" alt="Pento Battle" />
+            <img :src="menuTitleUrl" class="loadTitlePng floatingLogo" alt="Pento Battle" />
             <div class="loadSub">{{ uiLock.label }}</div>
           </div>
         </div>
@@ -91,7 +91,7 @@
               <span class="tetBarIgnName">{{ displayName }}</span>
             </div>
           </div>
-          <button v-if="loggedIn" class="tetBarSignOutBtn" @click="doSignOut" title="Sign out">⏏</button>
+          <button v-if="loggedIn" class="tetBarSignOutBtn" @click="doSignOut" title="Sign out" style="display:none">⏏</button>
         </div>
 </template>
 
@@ -99,10 +99,10 @@
       <template v-else>
         <div class="brand" @click="goAuth" title="Back to Main Menu">
           <div class="logoMark">
-            <img :src="logoUrl" alt="Logo" class="logoImg floatingLogo" />
+            <img :src="menuLogoUrl" alt="Logo" class="logoImg floatingLogo" />
           </div>
           <div class="brandText">
-            <img :src="titleUrl" class="brandTitlePng floatingLogo" alt="Pento Battle" />
+            <img :src="menuTitleUrl" class="brandTitlePng floatingLogo" alt="Pento Battle" />
           </div>
         </div>
 
@@ -124,8 +124,8 @@
           <button
             class="btn ghost"
             v-if="screen === 'couch' || screen === 'ai'"
-            :disabled="(game.history?.length || 0) === 0"
-            @click="(game.history?.length || 0) > 0 && (uiClick(), game.undoLastMove())"
+            :disabled="!canUndo"
+            @click="doUndo"
             aria-label="Undo"
             title="Undo"
           >UNDO</button>
@@ -135,6 +135,7 @@
     </header>
 
     <main class="main">
+    <div class="pageWrap">
 
       <!-- ══════════════════════════════════════════════════════════
            WELCOME / AUTH  (Figma HOMEPAGE redesign)
@@ -145,18 +146,14 @@
         <div class="hpLeft">
           <div class="hpVideoWrap">
             <iframe
-              ref="ytIframe"
               class="hpVideoFrame"
-              :src="ytFullscreen
-                ? 'https://www.youtube.com/embed/Iqr3XIhSnUQ?autoplay=1&mute=0&controls=1&modestbranding=1&rel=0&enablejsapi=1'
-                : 'https://www.youtube.com/embed/Iqr3XIhSnUQ?autoplay=1&mute=1&loop=1&playlist=Iqr3XIhSnUQ&controls=0&modestbranding=1&rel=0&enablejsapi=1'"
+              src="https://www.youtube.com/embed/Iqr3XIhSnUQ?autoplay=1&mute=1&loop=1&playlist=Iqr3XIhSnUQ&controls=0&modestbranding=1&rel=0"
               title="PENTObattle trailer"
               frameborder="0"
-              allow="autoplay; encrypted-media; fullscreen"
-              allowfullscreen
+              allow="autoplay; encrypted-media"
             ></iframe>
-            <!-- Overlay: blocks YouTube hover UI, hidden in fullscreen so native controls work -->
-            <div v-show="!ytFullscreen" class="hpVideoOverlay" @click="openYtFullscreen">
+            <!-- Overlay: blocks YouTube hover UI, opens custom modal on click -->
+            <div class="hpVideoOverlay" @click="openYtModal">
               <div class="hpVideoPlayBtn">
                 <img :src="playBtnUrl" class="hpVideoPlayImg" alt="Play" />
               </div>
@@ -177,7 +174,7 @@
 
           <div class="hpBtns">
             <template v-if="loggedIn">
-              <button class="hpBtn hpBtnContinue" @mouseenter="uiHover" @click="uiClick(); screen = 'mode'">
+              <button class="hpBtn hpBtnContinue" @mouseenter="uiHover" @click="uiClick(); navTo('mode')">
                 <img :src="hpContinueBtnUrl" class="hpBtnImg" alt="" />
                 <div class="hpContinueOverlay">
                   <span class="hpContinueLabel">CONTINUE</span>
@@ -209,7 +206,9 @@
       ═══════════════════════════════════════════════════════════ -->
       <section v-else-if="screen === 'mode'" class="mnMenu">
         <!-- Back to auth if playing as guest -->
-        <button v-if="!loggedIn" class="subScreenBackBtn" @click="screen = 'auth'">← BACK</button>
+        <button v-if="!loggedIn" class="subScreenBackBtn" @click="navTo('auth')">← BACK</button>
+        <!-- Log out if logged in -->
+        <button v-if="loggedIn" class="subScreenBackBtn subScreenLogoutBtn" @click="confirmLogOut">⏏ LOG OUT</button>
 
         <!-- Left column: empty space, brand anchored to bottom-left -->
         <div class="mnLeft">
@@ -222,16 +221,16 @@
         <!-- Right column: button stack bleeding off right edge -->
         <div class="mnRight">
           <div class="mnBtns">
-            <button class="mnBtn" @mouseenter="uiHover" @click="uiClick(); screen = 'multiplayer'">
+            <button class="mnBtn" @mouseenter="uiHover" @click="uiClick(); navTo('multiplayer')">
               <img :src="menuDuonlineBtnUrl" class="mnBtnImg" alt="DUOnline" />
             </button>
-            <button class="mnBtn" @mouseenter="uiHover" @click="uiClick(); screen = 'solo'">
+            <button class="mnBtn" @mouseenter="uiHover" @click="uiClick(); navTo('solo')">
               <img :src="menuSolonlineBtnUrl" class="mnBtnImg" alt="SOLOnline" />
             </button>
-            <button class="mnBtn" @mouseenter="uiHover" @click="uiClick(); screen = 'settings'">
+            <button class="mnBtn" @mouseenter="uiHover" @click="uiClick(); navTo('settings')">
               <img :src="menuSettingsBtnUrl" class="mnBtnImg" alt="SETTINGS" />
             </button>
-            <button class="mnBtn" @mouseenter="uiHover" @click="uiClick(); screen = 'credits'">
+            <button class="mnBtn" @mouseenter="uiHover" @click="uiClick(); navTo('credits')">
               <img :src="menuCreditsBtnUrl" class="mnBtnImg" alt="CREDITS" />
             </button>
           </div>
@@ -264,7 +263,7 @@
               <img :src="mpRankedBtnUrl" class="mnBtnImg" :style="!loggedIn ? 'opacity:0.45;filter:grayscale(0.5)' : ''" alt="RANKED" />
             </button>
             <!-- LOBBY -->
-            <button class="mnBtn" @mouseenter="uiHover" @click="uiClick(); goLobby()">
+            <button class="mnBtn" @mouseenter="uiHover" @click="uiClick(); navTo('lobby')">
               <img :src="mpLobbyBtnUrl" class="mnBtnImg" alt="LOBBY" />
             </button>
           </div>
@@ -718,8 +717,8 @@
               </div>
             </div>
 
-            <!-- ── DUAL CLOCKS: all modes in place phase ── -->
-            <div v-if="game.phase === 'place'" class="hudGrid hudClocks">
+            <!-- ── DUAL CLOCKS: online + AI only (couch play has no timers) ── -->
+            <div v-if="game.phase === 'place' && screen !== 'couch'" class="hudGrid hudClocks">
               <div
                 class="hudStat timer p1"
                 :class="{
@@ -800,7 +799,7 @@
     ═══════════════════════════════════════════════════════════ -->
     <Teleport to="body">
       <Transition name="authFade">
-        <div v-if="authModal.open" class="authOverlay" @click.self="closeAuthModal" role="dialog" aria-modal="true" aria-label="Sign in">
+        <div v-if="authModal.open" class="authOverlay" role="dialog" aria-modal="true" aria-label="Sign in">
 
           <div class="authCard">
             <!-- Accent stripe -->
@@ -883,17 +882,37 @@
                 </button>
               </div>
 
-              <!-- Perks reminder (signup mode) -->
-              <Transition name="authField">
-                <div v-if="authModal.mode === 'signup'" class="authPerks">
-                  <div class="authPerk">🏆 Ranked matchmaking</div>
-                  <div class="authPerk">📊 Win/Loss tracking</div>
-                  <div class="authPerk">🌐 Cross-device login</div>
-                </div>
-              </Transition>
+
             </div>
           </div>
 
+        </div>
+      </Transition>
+    </Teleport>
+
+    </div><!-- end pageWrap -->
+
+    <!-- ── Custom YouTube Video Modal ── -->
+    <Teleport to="body">
+      <Transition name="ytModalFade">
+        <div v-if="ytModalOpen" class="ytModalOverlay" @click.self="closeYtModal" role="dialog" aria-modal="true" aria-label="Watch Tutorial">
+          <div class="ytModalContainer">
+            <button class="ytModalClose" @click="closeYtModal" aria-label="Close video">
+              <span class="ytModalCloseIcon">✕</span>
+              <span class="ytModalCloseLabel">CLOSE</span>
+            </button>
+            <div class="ytModalFrame">
+              <iframe
+                v-if="ytModalOpen"
+                class="ytModalIframe"
+                src="https://www.youtube.com/embed/Iqr3XIhSnUQ?autoplay=1&mute=0&controls=1&modestbranding=1&rel=0&end=11"
+                title="PENTObattle trailer"
+                frameborder="0"
+                allow="autoplay; encrypted-media"
+                allowfullscreen
+              ></iframe>
+            </div>
+          </div>
         </div>
       </Transition>
     </Teleport>
@@ -1231,6 +1250,11 @@
         </div>
       </div>
     </div>
+
+  <!-- ── Page transition curtain bars ── -->
+  <div class="pageCurtainTop" :class="{ active: pageBlackActive }" :style="{ background: curtainColorTop }" aria-hidden="true"></div>
+  <div class="pageCurtainBot" :class="{ active: pageBlackActive }" :style="{ background: curtainColorBot }" aria-hidden="true"></div>
+
   </div>
 </template>
 
@@ -1347,6 +1371,19 @@ async function doSignOut() {
   const { signOut } = await import("./lib/auth.js");
   await signOut();
   screen.value = "auth";
+}
+
+function confirmLogOut() {
+  uiClick();
+  showModal({
+    title: "LOG OUT",
+    tone: "bad",
+    message: "Are you sure you want to log out?",
+    actions: [
+      { label: "CANCEL",  tone: "soft",    onClick: () => closeModal() },
+      { label: "LOG OUT", tone: "primary",  onClick: async () => { closeModal(); await doSignOut(); navTo("auth"); } },
+    ],
+  });
 }
 // ────────────────────────────────────────────────────────────────────────────
 
@@ -1593,43 +1630,16 @@ const hpRectangle1Url   = new URL("./assets/hp_rectangle1.png",    import.meta.u
 const hpWatchTutorialUrl= new URL("./assets/hp_watch_tutorial.png",import.meta.url).href;
 const playBtnUrl        = new URL("./assets/play_btn.png",          import.meta.url).href;
 
-// YouTube iframe ref for fullscreen
-const ytIframe = ref(null);
-const ytFullscreen = ref(false);
+// YouTube modal state
+const ytModalOpen = ref(false);
 
-function openYtFullscreen() {
-  const el = ytIframe.value;
-  if (!el) return;
-  // Swap to controls=1 src first, then request fullscreen after iframe reloads
-  ytFullscreen.value = true;
-  setTimeout(() => {
-    const fn = el.requestFullscreen || el.webkitRequestFullscreen || el.mozRequestFullScreen || el.msRequestFullscreen;
-    if (fn) fn.call(el).catch(() => { ytFullscreen.value = false; });
-  }, 300);
+function openYtModal() {
+  ytModalOpen.value = true;
 }
 
-// Track fullscreen state to hide overlay when fullscreen
-function onFullscreenChange() {
-  const fsEl = document.fullscreenElement || document.webkitFullscreenElement || document.mozFullScreenElement || document.msFullscreenElement;
-  if (!fsEl) {
-    // Exited fullscreen — restore ambient muted loop
-    ytFullscreen.value = false;
-  }
+function closeYtModal() {
+  ytModalOpen.value = false;
 }
-
-onMounted(() => {
-  document.addEventListener('fullscreenchange', onFullscreenChange);
-  document.addEventListener('webkitfullscreenchange', onFullscreenChange);
-  document.addEventListener('mozfullscreenchange', onFullscreenChange);
-  document.addEventListener('MSFullscreenChange', onFullscreenChange);
-});
-
-onBeforeUnmount(() => {
-  document.removeEventListener('fullscreenchange', onFullscreenChange);
-  document.removeEventListener('webkitfullscreenchange', onFullscreenChange);
-  document.removeEventListener('mozfullscreenchange', onFullscreenChange);
-  document.removeEventListener('MSFullscreenChange', onFullscreenChange);
-});
 const hpAuthorUrl       = new URL("./assets/hp_author.png",        import.meta.url).href;
 const hpGuestBtnUrl     = new URL("./assets/hp_guest_btn.png",     import.meta.url).href;
 const hpLoginBtnUrl     = new URL("./assets/hp_login_btn.png",     import.meta.url).href;
@@ -1901,6 +1911,42 @@ watch(loggedIn, async (isIn) => {
 }, { immediate: true });
 
 const isInGame = computed(() => screen.value === "couch" || screen.value === "ai" || screen.value === "online");
+
+// Page transition key (unused now but kept for reference)
+const pageTransitionKey = computed(() => screen.value);
+
+// Curtain transition
+const pageBlackActive = ref(false);
+const curtainColorTop = ref('#ee4b72');
+const curtainColorBot = ref('#50c9ee');
+let _navLocked = false;
+
+function getCurtainColors(targetScreen) {
+  if (targetScreen === 'lobby')      return ['#664BD7', '#7E5FFD'];
+  if (targetScreen === 'settings')   return ['#777777', '#4E4E4E'];
+  if (targetScreen === 'multiplayer')return ['#05F2A0', '#02AC71'];
+  if (targetScreen === 'credits')    return ['#E5E5E5', '#CFCCCC'];
+  if (targetScreen === 'solo')       return ['#9B5FE3', '#6D40A3'];
+  if (targetScreen === 'auth')       return ['#50c9ee', '#ee4b72'];
+  return ['#ee4b72', '#50c9ee']; // default / mode
+}
+
+function navTo(newScreen) {
+  if (_navLocked) return;
+  _navLocked = true;
+  const [top, bot] = getCurtainColors(newScreen);
+  curtainColorTop.value = top;
+  curtainColorBot.value = bot;
+  pageBlackActive.value = true;
+  setTimeout(() => {
+    screen.value = newScreen;
+    if (newScreen === 'lobby') refreshLobby();
+    setTimeout(() => {
+      pageBlackActive.value = false;
+      setTimeout(() => { _navLocked = false; }, 400);
+    }, 40);
+  }, 370);
+}
 const modeLabel = computed(() => {
   if (screen.value === "ai") {
     const labels = { dumbie: "Dumbie", elite: "Elite", tactician: "Tactician", grandmaster: "Grandmaster", legendary: "Legendary" };
@@ -2081,6 +2127,8 @@ const timerHud = computed(() => {
   if (!isInGame.value) return null;
   if (game.phase === "gameover") return null;
   if (isOnline.value && !myPlayer.value) return null;
+  // No timers for couch play
+  if (screen.value === 'couch') return null;
 
   // Draft timer (countdown)
   if (game.phase === "draft") {
@@ -4669,27 +4717,27 @@ function confirmInGame({ title, message, yesLabel = "YES", noLabel = "NO", onYes
 function goBack() {
   // Multiplayer sub-screens
   if (["lobby", "ranked"].includes(screen.value)) {
-    screen.value = "multiplayer";
+    navTo("multiplayer");
     return;
   }
   // Solo sub-screens
   if (["puzzle"].includes(screen.value)) {
-    screen.value = "solo";
+    navTo("solo");
     return;
   }
   // Channel sub-screens
   if (["leaderboards", "profile"].includes(screen.value)) {
-    screen.value = "channel";
+    navTo("channel");
     return;
   }
   // Top-level menu screens → main menu
   if (["multiplayer", "solo", "channel", "shop", "settings", "credits"].includes(screen.value)) {
-    screen.value = "mode";
+    navTo("mode");
     return;
   }
   // Main menu → welcome
   if (screen.value === "mode") {
-    screen.value = "auth";
+    navTo("auth");
     return;
   }
   // In-game back is handled by dedicated buttons (Main Menu / Reset) to avoid desync.
@@ -4707,7 +4755,7 @@ async function goAuth() {
         if (isOnline.value) await leaveOnlineLobby("main_menu");
         stopPolling();
         myPlayer.value = null;
-        screen.value = "auth";
+        navTo("auth");
       },
     });
   }
@@ -4715,19 +4763,19 @@ async function goAuth() {
   if (isOnline.value) await leaveOnlineLobby("main_menu");
   stopPolling();
   myPlayer.value = null;
-  screen.value = "auth";
+  navTo("auth");
 }
 
 async function goMode() {
   if (isOnline.value) await leaveOnlineLobby("back_to_modes");
   stopPolling();
   myPlayer.value = null;
-  screen.value = "mode";
+  navTo("mode");
 }
 
 function playAsGuest() {
   loggedIn.value = false;
-  screen.value = "mode";
+  navTo("mode");
 }
 
 function goQuick() { return goLobby(); }
@@ -4748,6 +4796,14 @@ function showLoginRequired(feature = "This feature") {
     ],
   });
 }
+
+function doUndo() {
+  if (!game.history?.length) return;
+  uiClick();
+  game.undoLastMove();
+}
+
+const canUndo = computed(() => Array.isArray(game.history) && game.history.length > 0);
 
 function startCouchPlay() {
   stopPolling();
@@ -5149,21 +5205,7 @@ onMounted(() => {
         }
       }
     }
-    // Couch mode: tick battle clock + enforce draft timeout
-    if (screen.value === 'couch') {
-      if (game.phase === 'place') {
-        game.tickBattleClock(Date.now());
-      } else if (game.phase === 'draft' && game.turnStartedAt) {
-        const limitSec = game.turnLimitDraftSec || 30;
-        const elapsed = (Date.now() - game.turnStartedAt) / 1000;
-        if (elapsed >= limitSec) {
-          // Current draft player loses; opponent wins
-          const loser = game.draftTurn;
-          const winner = loser === 1 ? 2 : 1;
-          game.aiDraftTimeout(loser, winner);
-        }
-      }
-    }
+    // Couch mode: no timers, skip all clock logic
 
     if (!isOnline.value) return;
     if (!myPlayer.value) return;
@@ -8547,19 +8589,19 @@ onBeforeUnmount(() => {
 .authCard{
   width: min(440px, 100%);
   border-radius: 20px;
-  border: 1px solid rgba(255,255,255,0.12);
+  border: 1px solid rgba(80,170,255,0.22);
   background: linear-gradient(180deg, rgba(16,16,28,0.98), rgba(10,10,22,0.96));
   box-shadow:
     0 24px 80px rgba(0,0,0,0.7),
-    0 0 0 1px rgba(255,255,255,0.05) inset,
-    0 0 60px rgba(80,170,255,0.05);
+    0 0 0 1px rgba(80,170,255,0.08) inset,
+    0 0 60px rgba(80,170,255,0.12);
   overflow: hidden;
   animation: popIn .22s cubic-bezier(.22,1,.36,1);
 }
 
 .authStripe{
   height: 3px;
-  background: linear-gradient(90deg, rgba(80,170,255,0.9), rgba(140,80,255,0.8), rgba(255,43,214,0.7));
+  background: linear-gradient(90deg, rgba(80,170,255,0.5), rgba(80,200,255,1), rgba(80,170,255,0.5));
 }
 
 .authInner{ padding: 20px 22px 24px; }
@@ -8745,6 +8787,109 @@ onBeforeUnmount(() => {
 .authField-enter-from{ opacity:0; transform:translateY(-4px); }
 .authField-leave-active{ transition: all .14s ease; }
 .authField-leave-to{ opacity:0; transform:translateY(-4px); }
+
+/* ── Page transition: fade to black / fade from black ── */
+.pageWrap{ display: contents; }
+
+/* Two-bar curtain transition */
+.pageCurtainTop,
+.pageCurtainBot {
+  position: fixed;
+  left: 0;
+  right: 0;
+  height: 50%;
+  z-index: 8000;
+  pointer-events: none;
+  transform: scaleY(0);
+  transition: transform 0.35s cubic-bezier(0.76, 0, 0.24, 1);
+}
+.pageCurtainTop {
+  top: 0;
+  transform-origin: top center;
+}
+.pageCurtainBot {
+  bottom: 0;
+  transform-origin: bottom center;
+}
+.pageCurtainTop.active,
+.pageCurtainBot.active {
+  transform: scaleY(1);
+  pointer-events: all;
+}
+
+/* ── YouTube custom fullscreen modal ── */
+.ytModalOverlay{
+  position: fixed;
+  inset: 0;
+  background: rgba(0,0,0,0.88);
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+  z-index: 9100;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 20px;
+}
+.ytModalFade-enter-active{ transition: opacity .25s ease, transform .25s cubic-bezier(.22,1,.36,1); }
+.ytModalFade-leave-active{ transition: opacity .18s ease, transform .18s ease; }
+.ytModalFade-enter-from{ opacity: 0; transform: scale(0.95); }
+.ytModalFade-leave-to{ opacity: 0; transform: scale(0.97); }
+
+.ytModalContainer{
+  position: relative;
+  width: min(900px, 100%);
+  border-radius: 16px;
+  border: 1.5px solid rgba(80,170,255,0.35);
+  box-shadow:
+    0 0 0 1px rgba(80,170,255,0.08) inset,
+    0 30px 80px rgba(0,0,0,0.8),
+    0 0 60px rgba(80,170,255,0.15);
+  overflow: visible;
+  background: #050508;
+}
+.ytModalFrame{
+  width: 100%;
+  aspect-ratio: 16 / 9;
+  border-radius: 14px;
+  overflow: hidden;
+  position: relative;
+}
+.ytModalIframe{
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  border: none;
+  border-radius: 14px;
+}
+.ytModalClose{
+  position: absolute;
+  top: -44px;
+  right: 0;
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  background: rgba(80,170,255,0.12);
+  border: 1px solid rgba(80,170,255,0.35);
+  border-radius: 10px;
+  padding: 8px 14px;
+  color: rgba(80,200,255,0.95);
+  font-size: 11px;
+  font-weight: 900;
+  letter-spacing: 2px;
+  text-transform: uppercase;
+  cursor: pointer;
+  font-family: 'Orbitron', 'Rajdhani', Inter, system-ui, sans-serif;
+  transition: background .15s, border-color .15s, box-shadow .15s, transform .12s;
+}
+.ytModalClose:hover{
+  background: rgba(80,170,255,0.22);
+  border-color: rgba(80,200,255,0.55);
+  box-shadow: 0 0 18px rgba(80,170,255,0.2);
+  transform: translateY(-1px);
+}
+.ytModalCloseIcon{ font-size: 13px; }
+.ytModalCloseLabel{ font-size: 10px; }
 
 
 /* ══════════════════════════════════════════════════════════════
@@ -8991,6 +9136,16 @@ onBeforeUnmount(() => {
   background: rgba(255,255,255,0.12);
   color: #fff;
   border-color: rgba(255,255,255,0.32);
+}
+.subScreenLogoutBtn {
+  background: rgba(220, 38, 60, 0.12);
+  border-color: rgba(220, 38, 60, 0.35);
+  color: rgba(255, 80, 100, 0.9);
+}
+.subScreenLogoutBtn:hover {
+  background: rgba(220, 38, 60, 0.22);
+  border-color: rgba(220, 38, 60, 0.6);
+  color: #ff6070;
 }
 .tetBarRight{
   display: flex;
@@ -9370,10 +9525,14 @@ onBeforeUnmount(() => {
 }
 .hpContinueOverlay {
   position: absolute;
-  inset: 0;
+  top: 0;
+  bottom: 0;
+  left: 17%;
+  right: 0;
   display: flex;
   flex-direction: column;
   justify-content: center;
+  align-items: flex-start;
   pointer-events: none;
 }
 .hpContinueLabel {
@@ -9384,6 +9543,7 @@ onBeforeUnmount(() => {
   color: #ffffff;
   line-height: 1;
   text-shadow: 0 2px 12px rgba(0,0,0,0.4);
+  text-align: left;
 }
 .hpContinueName {
   font-size: clamp(9px, 1vw, 14px);
@@ -9393,6 +9553,7 @@ onBeforeUnmount(() => {
   color: rgba(255,255,255,0.65);
   line-height: 1;
   margin-top: 5px;
+  text-align: left;
 }
 
 /* ── Bottom bar: fixed strip at bottom with author inside ── */
