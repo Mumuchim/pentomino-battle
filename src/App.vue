@@ -2134,17 +2134,29 @@ const timerHud = computed(() => {
   if (game.phase === "draft") {
     if (!game.turnStartedAt) return null;
     const limit = game.turnLimitDraftSec || 30;
-    // In online mode use server-corrected clock to avoid drift from DB latency
-    const now = isOnline.value ? serverNow() : nowTick.value;
+    // Always read nowTick.value so Vue registers it as a reactive dependency.
+    // serverNow() is a plain function (reads a non-reactive number) so using it
+    // directly broke Vue's tracking in online mode — the computed never re-ran
+    // and the draft timer appeared frozen. We apply the server offset manually
+    // on top of the reactive tick so clock sync is preserved for fairness.
+    const localTick = nowTick.value;
+    const now = isOnline.value ? (localTick + (online.serverTimeOffset || 0)) : localTick;
     const left = Math.max(0, limit - (now - game.turnStartedAt) / 1000);
     const s = Math.ceil(left);
     return { kind: "draft", seconds: s, value: `${s}s` };
   }
 
-  // Battle clock (place phase): show for online, AI mode, and couch
+  // Battle clock (place phase): the template reads game.battleClockSec directly
+  // (mutated every 250ms by tickBattleClock) so this branch is not used by the
+  // template, but we keep it for any future consumers of timerHud.
   if (game.phase === "place") {
+    const localTick = nowTick.value; // keep reactive dep consistent
+    const now = isOnline.value ? (localTick + (online.serverTimeOffset || 0)) : localTick;
     const p = game.currentPlayer === 2 ? 2 : 1;
-    const v = fmtClock(game.battleClockSec?.[p] ?? 0);
+    // Anchor-based: remaining = snapshot at turn-start minus elapsed this turn.
+    const snapshot = game.battleClockSec?.[p] ?? 0;
+    const elapsed = game.battleClockLastTickAt ? Math.max(0, (now - game.battleClockLastTickAt) / 1000) : 0;
+    const v = fmtClock(Math.max(0, snapshot - elapsed));
     return { kind: "clock", player: p, value: v };
   }
 
