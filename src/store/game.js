@@ -401,7 +401,7 @@ export const useGameStore = defineStore("game", {
       // ✅ rebuild solved draft puzzle (randomized)
       // Guard: only run solver when pieces exactly tile the board (normal 10×6 mode).
       const _resetTotalCells = this.boardW * this.boardH;
-      const _resetPieceCells = (this.picks[1].length + this.picks[2].length) * 5;
+      const _resetPieceCells = this.pool.length * 5;
       const _resetCanTile = _resetTotalCells === _resetPieceCells;
       this.draftBoard = _resetCanTile
         ? computeDraftTiling(this.boardW, this.boardH, this.allowFlip, true)
