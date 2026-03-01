@@ -1917,8 +1917,8 @@ const pageTransitionKey = computed(() => screen.value);
 
 // Curtain transition
 const pageBlackActive = ref(false);
-const curtainColorTop = ref('#ee4b72');
-const curtainColorBot = ref('#50c9ee');
+const curtainColorTop = ref('#50c9ee');
+const curtainColorBot = ref('#ee4b72');
 let _navLocked = false;
 
 function getCurtainColors(targetScreen) {
