@@ -3133,6 +3133,15 @@ async function ensureOnlineInitialized(lobby) {
   if (hasPlayers) return;
   if (!lobby.host_id || !lobby.guest_id) return;
 
+  // ✅ FIX: Only the HOST writes the initial game state.
+  // If the guest also tried to init, we had a race where:
+  //   1. Both call resetGame() generating DIFFERENT random draftBoards
+  //   2. Both try a version-guarded write — guest loses and gets null back
+  //   3. Guest does: lastAppliedVersion = null?.version || nextVersion  → sets a phantom version
+  //   4. All future DB versions are lower than phantom → guest rejects every sync forever
+  // Solution: guest simply waits for host's state to arrive via polling.
+  if (online.role !== "host") return;
+
   // ── prevMeta MUST be declared before any usage below ──────────────
   const prevMeta = lobby.state?.meta ? lobby.state.meta : {};
   const nextRound = Number(prevMeta.round || 0) + 1;
@@ -3162,17 +3171,22 @@ async function ensureOnlineInitialized(lobby) {
   const nextVersion = Number(lobby.version || 0) + 1;
 
   try {
-    // Prefer guarded patch to avoid race if both clients try to init at once.
-    const updated = await sbPatchStateWithVersionGuard(lobby.id, lobby.version, {
+    // Host is the sole author — use force-patch so transient version drift never blocks init.
+    const updated = await sbForcePatchState(lobby.id, {
       state: initState,
       version: nextVersion,
       status: "playing",
       updated_at: new Date().toISOString(),
     });
 
-    online.lastAppliedVersion = updated?.version || nextVersion;
+    // ✅ FIX: Only update lastAppliedVersion when the write actually succeeded.
+    // Previously: `updated?.version || nextVersion` set a phantom version when updated=null,
+    // causing the guest to permanently reject all future syncs.
+    if (updated?.version) {
+      online.lastAppliedVersion = updated.version;
+    }
   } catch {
-    // If it failed, assume the other side initialized it.
+    // If it failed, the guest will still apply state when the next poll reads DB.
   }
 }
 
@@ -3521,14 +3535,29 @@ async function startPollingLobby(lobbyId, role) {
         await ensureOnlineInitialized(lobby);
       }
 
-      await maybeSetMyPlayerFromLobby(lobby);
+      // ✅ FIX: After host initializes state, re-fetch so this poll applies the NEW version.
+      // Without this, the current `lobby` object is stale (pre-init) and the guest misses
+      // the first state update, leaving them with an empty/wrong board for a full poll cycle.
+      let effectiveLobby = lobby;
+      if (online.role === "guest" && lobby.host_id && lobby.guest_id && !lobby?.state?.meta?.players) {
+        try {
+          const refetched = await sbSelectLobbyById(lobbyId);
+          if (refetched?.state?.meta?.players) {
+            effectiveLobby = refetched;
+            online.waitingForOpponent = false;
+            if (modal.open && modal.title === "Waiting for Opponent") closeModal();
+          }
+        } catch { /* ignore — next poll will catch it */ }
+      }
 
-      const v = Number(lobby.version || 0);
-      const st = lobby.state || null;
+      await maybeSetMyPlayerFromLobby(effectiveLobby);
+
+      const v = Number(effectiveLobby.version || 0);
+      const st = effectiveLobby.state || null;
 
       if (st && v && v > (online.lastAppliedVersion || 0)) {
         online.lastAppliedVersion = v;
-        online.lastSeenUpdatedAt = lobby.updated_at || null;
+        online.lastSeenUpdatedAt = effectiveLobby.updated_at || null;
         applySyncedState(st);
       }
 
@@ -4395,10 +4424,12 @@ async function startQuickMatchAuto() {
     hostLobbyId = lobby?.id || null;
 
     const waitUntil = Date.now() + 60_000;
+    let qmLoopCount = 0;
     while (!cancelled && Date.now() < waitUntil) {
       updateModal();
+      qmLoopCount++;
 
-      // Check if someone joined.
+      // Check if someone joined our lobby.
       const fresh = hostLobbyId ? await sbSelectLobbyById(hostLobbyId) : null;
       if (fresh?.guest_id) {
         if (uiTimer) window.clearInterval(uiTimer);
@@ -4410,6 +4441,48 @@ async function startQuickMatchAuto() {
         screen.value = "online";
         startPollingLobby(hostLobbyId, "host");
         return;
+      }
+
+      // ✅ FIX: Late-merge to handle simultaneous-start race condition.
+      // When two players both click Quick Match at the same time, both find an empty queue
+      // and both create host lobbies. Without this check they'd wait forever.
+      // Every ~2.5 seconds, scan for OTHER waiting QM lobbies and volunteer to be the guest.
+      if (qmLoopCount % 3 === 0 && hostLobbyId && !cancelled) {
+        try {
+          const meId = await getGuestId();
+          const lmQ = [
+            "select=id,code,status,updated_at,host_id,guest_id,state,version",
+            "status=eq.waiting",
+            "is_private=eq.false",
+            "guest_id=is.null",
+            "mode=eq.quick",
+            "order=updated_at.asc",
+            "limit=5",
+          ].join("&");
+          const lmRes = await fetch(sbRestUrl(`pb_lobbies?${lmQ}`), { headers: await sbHeaders() });
+          if (lmRes.ok) {
+            const lmRows = await lmRes.json();
+            const others = (Array.isArray(lmRows) ? lmRows : []).filter(
+              l => l.id !== hostLobbyId && l.host_id !== meId && !isLobbyExpired(l)
+            );
+            if (others.length > 0 && !cancelled) {
+              // Another host is waiting — join their lobby as guest and close ours
+              const target = others[0];
+              const joined = await sbJoinLobby(target.id);
+              if (joined?.id) {
+                try { await sbDeleteLobby(hostLobbyId); } catch {}
+                hostLobbyId = null;
+                if (uiTimer) window.clearInterval(uiTimer);
+                closeModal();
+                const ok = await quickMatchAcceptFlow(joined.id, "guest");
+                if (!ok) return;
+                screen.value = "online";
+                startPollingLobby(joined.id, "guest");
+                return;
+              }
+            }
+          }
+        } catch { /* ignore — keep polling as host */ }
       }
 
       await new Promise((r) => setTimeout(r, 850));
@@ -4467,28 +4540,37 @@ async function sbEnsureQuickMatchAcceptState(lobbyId) {
 }
 
 async function sbSetQuickMatchAccept(lobbyId, role, accepted) {
-  const fresh = await sbSelectLobbyById(lobbyId);
-  if (!fresh) return null;
-  const st = normalizeLobbyState(fresh.state);
+  // ✅ FIX: Retry up to 3 times on version conflict.
+  // Previously a single version-guarded write with no retry meant that if two clients
+  // wrote accept state simultaneously, one silently lost their click.
+  for (let attempt = 0; attempt < 3; attempt++) {
+    const fresh = await sbSelectLobbyById(lobbyId);
+    if (!fresh) return null;
+    const st = normalizeLobbyState(fresh.state);
 
-  // Ensure accept window exists
-  if (!st.qmAccept || !st.qmAccept.expiresAt) {
-    st.qmAccept = { startedAt: Date.now(), expiresAt: Date.now() + 10_000, host: null, guest: null, declinedBy: null };
+    // Ensure accept window exists
+    if (!st.qmAccept || !st.qmAccept.expiresAt) {
+      st.qmAccept = { startedAt: Date.now(), expiresAt: Date.now() + 10_000, host: null, guest: null, declinedBy: null };
+    }
+
+    if (accepted === true) {
+      st.qmAccept[role] = true;
+    } else {
+      st.qmAccept[role] = false;
+      st.qmAccept.declinedBy = role;
+    }
+
+    const nextVersion = Number(fresh.version || 0) + 1;
+    const result = await sbPatchStateWithVersionGuard(fresh.id, fresh.version, {
+      state: st,
+      version: nextVersion,
+      updated_at: new Date().toISOString(),
+    });
+    if (result) return result;
+    // Version conflict — brief pause then retry with fresh read
+    if (attempt < 2) await new Promise(r => setTimeout(r, 150 + attempt * 100));
   }
-
-  if (accepted === true) {
-    st.qmAccept[role] = true;
-  } else {
-    st.qmAccept[role] = false;
-    st.qmAccept.declinedBy = role;
-  }
-
-  const nextVersion = Number(fresh.version || 0) + 1;
-  return await sbPatchStateWithVersionGuard(fresh.id, fresh.version, {
-    state: st,
-    version: nextVersion,
-    updated_at: new Date().toISOString(),
-  });
+  return null;
 }
 
 async function quickMatchAcceptFlow(lobbyId, role) {
