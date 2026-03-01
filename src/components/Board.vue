@@ -810,9 +810,9 @@ function ghostBlockStyle(b) {
   display: flex;
   align-items: center;
   justify-content: center;
-  /* Prevent the browser from intercepting touch events for scrolling
-     so touch drag-to-place works correctly on mobile. */
-  touch-action: none;
+  /* touch-action is intentionally NOT set here — setting it to none on the
+     outer shell was blocking pinch-to-zoom across the entire game screen.
+     The inner .board grid handles touch events for drag-to-place instead. */
 }
 
 /* Mobile: ensure boardShell has real height so the ResizeObserver
@@ -902,6 +902,10 @@ function ghostBlockStyle(b) {
   padding: 10px;
 
   border-radius: 16px;
+
+  /* Capture single-touch drag events for piece placement without blocking
+     the browser's native pinch-to-zoom gesture on the surrounding shell. */
+  touch-action: pan-x pan-y;
 
   background:
     radial-gradient(900px 360px at 50% 30%, rgba(0,255,255,0.08), rgba(0,0,0,0) 55%),
