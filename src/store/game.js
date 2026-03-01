@@ -241,6 +241,13 @@ export const useGameStore = defineStore("game", {
     timeoutPendingAt: null,
     timeoutPendingPlayer: null,
 
+    // Draft timeout grace window — mirrors battle clock GRACE_MS pattern.
+    // When a player's draft clock hits 0, we wait DRAFT_GRACE_MS before
+    // committing "dodged". This absorbs clock drift between clients (typically
+    // 2-4s) so a clutch last-second pick is never wrongly killed by the
+    // opponent's slightly-ahead clock.
+    draftTimeoutPendingAt: null,
+
     // Rematch handshake (online)
     rematch: { 1: false, 2: false },
     rematchDeclinedBy: null,
@@ -382,6 +389,7 @@ export const useGameStore = defineStore("game", {
 
       this.timeoutPendingAt = null;
       this.timeoutPendingPlayer = null;
+      this.draftTimeoutPendingAt = null;
       this.rematch = { 1: false, 2: false };
       this.rematchDeclinedBy = null;
 
@@ -426,6 +434,7 @@ export const useGameStore = defineStore("game", {
       // Any successful action cancels pending timeout.
       this.timeoutPendingAt = null;
       this.timeoutPendingPlayer = null;
+      this.draftTimeoutPendingAt = null; // cancel any in-progress draft grace window
 
       // swap turns
       this.draftTurn = this.draftTurn === 1 ? 2 : 1;
@@ -772,15 +781,37 @@ export const useGameStore = defineStore("game", {
     checkAndApplyTimeout(now = Date.now()) {
       if (this.phase === "gameover") return false;
 
-      // Draft: per-turn (single) timer
+      // Draft: per-turn timer with grace window.
+      // Both clients run this independently, but their clocks can differ by 2-4s
+      // (observable in prod: P1 sees 19s, P2 sees 16s for the same turn).
+      // Without a grace window, the opponent's ahead clock fires "dodged" while
+      // the picker is still within their own legitimate time budget.
+      // DRAFT_GRACE_MS absorbs that drift — a clutch last-second pick arrives and
+      // clears draftTimeoutPendingAt before the window expires.
       if (this.phase === "draft") {
         if (!this.turnStartedAt) return false;
         const limitSec = this.turnLimitDraftSec || 30;
         const elapsedSec = (now - this.turnStartedAt) / 1000;
-        if (elapsedSec < limitSec) return false;
 
-        // Draft pick took too long -> invalid match (dodged)
+        if (elapsedSec < limitSec) {
+          // Time still remaining — reset grace window if it somehow started early.
+          this.draftTimeoutPendingAt = null;
+          return false;
+        }
+
+        // Time expired. Start (or continue) the grace window.
+        const DRAFT_GRACE_MS = 3000; // covers ~3s of observed clock drift
+        if (!this.draftTimeoutPendingAt) {
+          this.draftTimeoutPendingAt = now;
+          return false; // begin window — do not commit yet
+        }
+        if (now - this.draftTimeoutPendingAt < DRAFT_GRACE_MS) {
+          return false; // still inside window — a pick can still cancel this
+        }
+
+        // Grace window expired with no pick — confirmed dodge.
         const dodger = this.currentPlayer;
+        this.draftTimeoutPendingAt = null;
         this.matchInvalid = true;
         this.matchInvalidReason = `Player ${dodger} did not pick — automatically dodges the game.`;
         this.phase = "gameover";
