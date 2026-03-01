@@ -267,9 +267,8 @@ export const useGameStore = defineStore("game", {
     // Local-only snapshot helper (Couch Play undo)
     _pushHistory(label = "") {
       try {
-        const clone = typeof structuredClone === "function"
-          ? (v) => structuredClone(v)
-          : (v) => JSON.parse(JSON.stringify(v));
+        // Use JSON clone — safe with Pinia reactive proxies
+        const clone = (v) => JSON.parse(JSON.stringify(v));
 
         const snap = {
           label,
@@ -302,7 +301,9 @@ export const useGameStore = defineStore("game", {
         this.history.push(snap);
         // keep memory bounded
         if (this.history.length > 50) this.history.splice(0, this.history.length - 50);
-      } catch {}
+      } catch(e) {
+        console.warn('[undo] _pushHistory failed:', e);
+      }
     },
 
     undoLastMove() {
