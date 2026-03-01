@@ -123,7 +123,7 @@
           <!-- Couch Play / AI Mode: Undo last placement (local only) -->
           <button
             class="btn ghost"
-            v-if="screen === 'couch' || screen === 'ai'"
+            v-if="screen === 'couch' || screen === 'ai' || screen === 'puzzle'"
             :disabled="!canUndo"
             @click="doUndo"
             aria-label="Undo"
@@ -883,9 +883,12 @@
             >
               <div class="tbGlow" aria-hidden="true"></div>
               <div class="tbLeft">
-                <div class="tbPhaseTag">{{ game.phase === 'draft' ? 'DRAFT' : game.phase === 'place' ? 'BATTLE' : 'END' }}</div>
+                <div class="tbPhaseTag">{{ screen === 'puzzle' ? 'PUZZLE' : game.phase === 'draft' ? 'DRAFT' : game.phase === 'place' ? 'BATTLE' : 'END' }}</div>
                 <div class="tbMain">
-                  <span v-if="game.phase === 'draft'">
+                  <span v-if="screen === 'puzzle' && game.phase !== 'gameover'">
+                    YOUR TURN
+                  </span>
+                  <span v-else-if="game.phase === 'draft'">
                     <span class="tbPlayerNum">P{{ game.draftTurn }}</span> PICKING
                     <span v-if="isOnline && myPlayer === game.draftTurn" class="tbYouTag">YOU</span>
                     <span v-else-if="screen === 'ai' && game.draftTurn === humanPlayer" class="tbYouTag">YOU</span>
@@ -915,8 +918,8 @@
               </div>
             </div>
 
-            <!-- ── DUAL CLOCKS: online + AI only (couch play has no timers) ── -->
-            <div v-if="game.phase === 'place' && screen !== 'couch'" class="hudGrid hudClocks">
+            <!-- ── DUAL CLOCKS: online + AI only (couch/puzzle have no timers) ── -->
+            <div v-if="game.phase === 'place' && screen !== 'couch' && screen !== 'puzzle'" class="hudGrid hudClocks">
               <div
                 class="hudStat timer p1"
                 :class="{
@@ -2525,6 +2528,7 @@ const phaseTitle = computed(() => {
 });
 
 const phaseSub = computed(() => {
+  if (screen.value === "puzzle") return "";
   if (game.phase === "draft") {
     if (screen.value === "ai") {
       return game.draftTurn === humanPlayer.value ? "Your Pick" : "AI Picking…";
@@ -2590,7 +2594,7 @@ const topPageTitle = computed(() => {
   if (screen.value === "credits")       return "CREDITS";
   return "HOME";
 });
-const showMenuChrome = computed(() => isMenuScreen.value && ["auth","mode","multiplayer","solo","channel","lobby","ranked","leaderboards","shop","profile","puzzle","settings","credits"].includes(screen.value));
+const showMenuChrome = computed(() => isMenuScreen.value && ["auth","mode","multiplayer","solo","channel","lobby","ranked","leaderboards","shop","profile","settings","credits"].includes(screen.value));
 const showBottomBar = computed(() => showMenuChrome.value && screen.value !== 'auth');
 
 // TETR.IO-style contextual status line at the bottom
@@ -2763,7 +2767,7 @@ watch(
       stopUiLockAfterPaint(850);
     }
     if (["auth", "mode", "multiplayer", "solo", "channel", "lobby", "ranked",
-             "leaderboards", "shop", "profile", "puzzle", "settings", "credits"].includes(nv)) {
+             "leaderboards", "shop", "profile", "settings", "credits"].includes(nv)) {
       // If we navigated back to menus, ensure the lock isn't stuck.
       if (uiLock.active && Date.now() > uiLock._minUntil) stopUiLock();
     }
@@ -4735,9 +4739,10 @@ watch(
   (p, prev) => {
     if (p !== "gameover" || prev === "gameover") return;
 
-    // Puzzle mode: show score modal, no online/ranked logic
+    // Puzzle mode: show score modal, no online/ranked logic.
+    // _puzzleEndFired prevents double-call if remaining watcher fires first.
     if (screen.value === "puzzle") {
-      handlePuzzleEnd();
+      if (!_puzzleEndFired) handlePuzzleEnd();
       return;
     }
 
@@ -6115,9 +6120,16 @@ function goBack() {
     navTo("multiplayer");
     return;
   }
-  // Solo sub-screens
-  if (["puzzle"].includes(screen.value)) {
-    navTo("solo");
+  // Solo sub-screens — puzzle is in-game, confirm before leaving
+  if (screen.value === "puzzle") {
+    if (game.phase === "gameover") { navTo("solo"); return; }
+    confirmInGame({
+      title: "Leave Puzzle?",
+      message: "Your progress will be lost.",
+      yesLabel: "LEAVE",
+      noLabel: "KEEP PLAYING",
+      onYes: () => { screen.value = "solo"; },
+    });
     return;
   }
   // Channel sub-screens
@@ -6217,11 +6229,15 @@ const PUZZLE_PIECES = ["F","I","L","P","N","T","U","V","W","X","Y","Z"];
 
 function startPuzzleMode() {
   stopPolling();
+  _puzzleEndFired = false; // reset double-fire guard for fresh run
   myPlayer.value = null;
   game.boardW = 10;
   game.boardH = 6;
   game.allowFlip = true;
-  game.startPlacementDirect(PUZZLE_PIECES, [], 10, 6);
+  // Give P2 a single dummy piece so the store's playerHasAnyMove(2) check
+  // after each P1 placement never triggers an immediate gameover.
+  // Puzzle exit is handled exclusively by the watcher and Finish button.
+  game.startPlacementDirect(PUZZLE_PIECES, ["I"], 10, 6);
   game.currentPlayer = 1;
   screen.value = "puzzle";
   tryPlayGameBgm();
@@ -6239,21 +6255,29 @@ const puzzleCellsCovered = computed(() => {
   return count;
 });
 
+// Guard against double-fire: the phase watcher and the remaining watcher
+// can both call handlePuzzleEnd in the same tick.
+let _puzzleEndFired = false;
+
 function handlePuzzleEnd() {
+  if (_puzzleEndFired) return;
+  _puzzleEndFired = true;
+
   const covered = puzzleCellsCovered.value;
   const pct = Math.round((covered / 60) * 100);
   const emoji = covered === 60 ? "🎉 PERFECT!" : covered >= 48 ? "⭐ Great!" : covered >= 30 ? "👍 Good effort!" : "💪 Keep practicing!";
+
   if (game.phase !== "gameover") {
     game.phase = "gameover";
   }
+
   showModal({
     title: "PUZZLE COMPLETE",
     tone: covered === 60 ? "victory" : "good",
     message: `${emoji}\n\nYou covered ${covered} / 60 cells  (${pct}%)`,
     actions: [
-      { label: "Try Again",  tone: "primary", onClick: () => { closeModal(); startPuzzleMode(); } },
-      { label: "New Puzzle", tone: "primary", onClick: () => { closeModal(); startPuzzleMode(); } },
-      { label: "Main Menu",  tone: "soft",    onClick: () => { closeModal(); stopAndExitToMenu(""); } },
+      { label: "Try Again", tone: "primary", onClick: () => { closeModal(); startPuzzleMode(); } },
+      { label: "Main Menu", tone: "soft",    onClick: () => { closeModal(); screen.value = "solo"; } },
     ],
   });
 }
