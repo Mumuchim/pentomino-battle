@@ -2820,6 +2820,46 @@ async function sbCloseAndNukeLobby(id, metaPatch = {}) {
   await sbForcePatchState(id, { status: "closed", state: nextState, version: nextVersion, updated_at: nowIso });
 }
 
+/**
+ * Record a completed online match in pb_matches.
+ * Safe to call from BOTH clients simultaneously — the server-side
+ * record_match_result() RPC uses ON CONFLICT DO NOTHING, so only the
+ * first call inserts; the second is silently ignored.
+ * The DB trigger then auto-updates wins/losses in pb_profiles.
+ * Note: draws are impossible in Pentomino Battle — winner_id is null only
+ * for dodged/abandoned matches where no real game was played.
+ */
+async function sbRecordMatchResult({
+  lobbyId,
+  roundNumber = 1,
+  player1Id,
+  player2Id,
+  winnerId   = null,
+  loserId    = null,
+  endReason  = "normal",
+  durationSec = null,
+}) {
+  if (!lobbyId || !player1Id || !player2Id) return;
+  try {
+    const { requireSupabase } = await import("./lib/supabase.js");
+    const sb = requireSupabase();
+    await sb.rpc("record_match_result", {
+      p_lobby_id:     lobbyId,
+      p_round:        roundNumber,
+      p_player1_id:   player1Id,
+      p_player2_id:   player2Id,
+      p_winner_id:    winnerId,
+      p_loser_id:     loserId,
+      p_end_reason:   endReason,
+      p_duration_sec: durationSec,
+      p_mode:         "online",
+    });
+  } catch (e) {
+    // Non-fatal — stats can be backfilled later. Never break the UX.
+    console.warn("[pbMatch] record_match_result failed:", e?.message ?? e);
+  }
+}
+
 /* =========================
    ✅ ONLINE STATE SERIALIZATION
 ========================= */
@@ -4136,6 +4176,48 @@ watch(
           ]
         : [{ label: "Play Again", tone: "primary", onClick: onResetClick }],
     });
+
+    // ✅ Record match result to pb_matches (both clients call; server deduplicates)
+    if (isOnline.value && online.lobbyId) {
+      (async () => {
+        try {
+          const lobby  = await sbSelectLobbyById(online.lobbyId);
+          if (!lobby) return;
+          const meta   = lobby?.state?.meta || {};
+          const players = meta?.players || {};
+
+          // Resolve player IDs from the meta.players map: { "1": userId, "2": userId }
+          const p1Id = String(players["1"] || players[1] || "");
+          const p2Id = String(players["2"] || players[2] || "");
+          if (!p1Id || !p2Id) return;
+
+          const w       = game.winner;
+          const winnerId = w ? (w === 1 ? p1Id : p2Id) : null;
+          const loserId  = w ? (w === 1 ? p2Id : p1Id) : null;
+
+          // Calculate wall-clock duration from match start
+          const startedAt   = meta?.started_at ? Date.parse(meta.started_at) : null;
+          const durationSec = startedAt ? Math.round((Date.now() - startedAt) / 1000) : null;
+
+          // Map game end type to DB end_reason
+          const lm = game.lastMove?.type || "normal";
+          const endReason = ["timeout","surrender","dodged","abandoned"].includes(lm) ? lm : "normal";
+
+          await sbRecordMatchResult({
+            lobbyId:     online.lobbyId,
+            roundNumber: Number(meta?.round || 1),
+            player1Id:   p1Id,
+            player2Id:   p2Id,
+            winnerId,
+            loserId,
+            endReason,
+            durationSec,
+          });
+        } catch (e) {
+          console.warn("[pbMatch] gameover record failed:", e?.message ?? e);
+        }
+      })();
+    }
 
     // ✅ FIX (Bug 3): Schedule background lobby cleanup after game over.
     // Without this, if neither player clicks "Main Menu" or "Play Again", the lobby
