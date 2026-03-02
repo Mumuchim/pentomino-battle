@@ -1270,6 +1270,219 @@ function getDynamicWeights(board, W, H, ap, hp, placedCount, totalPieces) {
   return { aggression, lead, progress, earlyBoost, lateBoost };
 }
 
+// ═════════════════════════════════════════════════════════════════════
+//  KEY PIECE RESERVATION SYSTEM
+//
+//  Legendary (and Grandmaster) should NOT blindly use whatever piece
+//  scores best right now. Some pieces are "closers" — they uniquely fit
+//  a territory zone the AI is building toward, and spending them early
+//  means that zone can never be perfectly sealed later.
+//
+//  The system works in three layers:
+//
+//  1. identifyKeyPieces()      — for each piece in hand, compute a
+//     "reservation score" based on how uniquely it fits remaining AI zones.
+//     Critical (only piece that fits a zone) → very high score.
+//     Key (few pieces fit) → medium score.
+//     Expendable (many alternatives) → low score.
+//
+//  2. pieceReservationPenalty() — penalises using a high-reservation-
+//     score piece when expendable alternatives exist.
+//     Penalty fades to zero in the endgame (≤3 pieces) when there are
+//     no more choices.
+//
+//  3. sealingFinisherBonus()   — the "last move" mechanic.
+//     If placing this piece NOW would COMPLETE a zone seal (close off a
+//     region entirely), give a massive bonus. This is what makes Legendary
+//     hold a piece until the board is ready, then slam it home.
+// ═════════════════════════════════════════════════════════════════════
+
+/**
+ * Score each piece in hand by how important it is to SAVE for later.
+ * Higher score = more critical to reserve.
+ *
+ * Returns Map<pieceKey, number>
+ */
+function identifyKeyPieces(hand, board, W, H, ap, allowFlip, PENTS, xformFn) {
+  const scores = new Map();
+  for (const pk of hand) scores.set(pk, 0);
+  if (hand.length <= 3) return scores; // endgame: no point reserving
+
+  const regions = floodFillRegions(board, W, H);
+  const flipOptions = allowFlip ? [false, true] : [false];
+
+  for (const reg of regions) {
+    // Only care about regions adjacent to AI territory (zones we're contesting)
+    if (reg.length < 5 || reg.length > 25) continue;
+    let aiAdjacent = false;
+    for (const [x, y] of reg) {
+      for (const [ox, oy] of DIRS) {
+        const nx = x+ox, ny = y+oy;
+        if (nx < 0 || ny < 0 || nx >= W || ny >= H) continue;
+        if (board[ny][nx]?.player === ap) { aiAdjacent = true; break; }
+      }
+      if (aiAdjacent) break;
+    }
+    if (!aiAdjacent) continue;
+
+    const regSet = new Set(reg.map(([x, y]) => y * W + x));
+    const fittingPieces = [];
+
+    for (const pk of hand) {
+      let canFit = false;
+      outer: for (const flip of flipOptions) {
+        for (let rot = 0; rot < 4; rot++) {
+          const shape = xformFn(PENTS[pk], rot, flip);
+          for (const [bx, by] of reg) {
+            let valid = true;
+            for (const [dx, dy] of shape) {
+              if (!regSet.has((by + dy) * W + (bx + dx))) { valid = false; break; }
+            }
+            if (valid) { canFit = true; break outer; }
+          }
+        }
+      }
+      if (canFit) fittingPieces.push(pk);
+    }
+
+    if (fittingPieces.length === 0) continue;
+
+    // Zone value: larger and infeasible zones are worth more
+    const infeasibleBonus = reg.length % 5 !== 0 ? 1.8 : 1.0;
+    const zoneValue = reg.length * infeasibleBonus;
+
+    if (fittingPieces.length === 1) {
+      // CRITICAL: only one piece can close this zone — must be saved
+      scores.set(fittingPieces[0], scores.get(fittingPieces[0]) + zoneValue * 7.0);
+    } else if (fittingPieces.length === 2) {
+      // KEY: very few alternatives
+      for (const pk of fittingPieces) scores.set(pk, scores.get(pk) + zoneValue * 3.0);
+    } else if (fittingPieces.length <= 4) {
+      // USEFUL: some reservation value
+      for (const pk of fittingPieces) scores.set(pk, scores.get(pk) + zoneValue * 1.2);
+    }
+  }
+
+  // Inherent endgame value — some pieces are universally better closers
+  const inherentValue = {
+    I: 22, P: 20, L: 18, Y: 17, N: 15, V: 16, T: 13,
+    Z: 11, S: 11, W: 9, F: 7, U: 7, X: 5,
+  };
+  for (const pk of hand) {
+    scores.set(pk, scores.get(pk) + (inherentValue[pk] || 5));
+  }
+
+  return scores;
+}
+
+/**
+ * Penalises using a key/critical piece when expendable alternatives exist.
+ * Returns a negative number (penalty) or 0.
+ */
+function pieceReservationPenalty(pk, hand, keyScores, piecesPlaced, totalHandSize) {
+  if (hand.length <= 3) return 0; // endgame — must use everything
+  const myScore = keyScores.get(pk) || 0;
+  if (myScore < 20) return 0; // not a key piece
+
+  // Are there pieces with meaningfully lower reservation scores?
+  const expendableAlts = hand.filter(k => k !== pk && (keyScores.get(k) || 0) < myScore * 0.55);
+  if (expendableAlts.length === 0) return 0; // no alternatives, must use it
+
+  // Penalty fades as game progresses (early = big penalty, late = zero)
+  const progress = Math.min(1.0, piecesPlaced / Math.max(totalHandSize * 2, 1));
+  const earlyFactor = Math.max(0, 1.0 - progress * 1.6);
+  if (earlyFactor <= 0) return 0;
+
+  return -(myScore * earlyFactor * 3.8);
+}
+
+/**
+ * SEALING FINISHER BONUS — the "last move" mechanic.
+ *
+ * If placing this piece NOW completely seals a zone (creates a region
+ * with zero opponent-accessible entry points), give a massive reward.
+ * This is what makes Legendary hold pieces then snap them home at the
+ * perfect moment to close territory.
+ *
+ * Different from territorySealScore: that measures if a zone is already
+ * sealed in the sim. This specifically rewards moves that TRANSITION a
+ * zone from open → sealed in a single placement.
+ */
+function sealingFinisherBonus(abs, preBoard, simBoard, W, H, ap, hp) {
+  // Find regions that were borderline-open before, but sealed after
+  const regsBefore = floodFillRegions(preBoard, W, H);
+  const regsAfter  = floodFillRegions(simBoard, W, H);
+
+  // Build a set of all AI cells after placement
+  const aiCellsAfter = new Set();
+  for (let y = 0; y < H; y++)
+    for (let x = 0; x < W; x++)
+      if (simBoard[y][x]?.player === ap) aiCellsAfter.add(y * W + x);
+
+  let bonus = 0;
+
+  for (const regAfter of regsAfter) {
+    if (regAfter.length < 5) continue;
+
+    // Was this region bordered by opponent BEFORE our move?
+    let oppBorderedBefore = false;
+    for (const [x, y] of regAfter) {
+      for (const [ox, oy] of DIRS) {
+        const nx = x+ox, ny = y+oy;
+        if (nx < 0 || ny < 0 || nx >= W || ny >= H) continue;
+        if (preBoard[ny][nx]?.player === hp) { oppBorderedBefore = true; break; }
+      }
+      if (oppBorderedBefore) break;
+    }
+    if (!oppBorderedBefore) continue;
+
+    // Is this region NOW sealed by AI only (no opponent borders)?
+    let oppBorderedAfter = false;
+    let aiBordersAfter = 0;
+    for (const [x, y] of regAfter) {
+      for (const [ox, oy] of DIRS) {
+        const nx = x+ox, ny = y+oy;
+        if (nx < 0 || ny < 0 || nx >= W || ny >= H) { aiBordersAfter++; continue; }
+        const p = simBoard[ny][nx]?.player;
+        if (p === ap) aiBordersAfter++;
+        else if (p === hp) { oppBorderedAfter = true; break; }
+      }
+      if (oppBorderedAfter) break;
+    }
+
+    if (!oppBorderedAfter && aiBordersAfter > 0) {
+      // SEALED! This move just closed off a zone.
+      const infeasible = regAfter.length % 5 !== 0;
+      const parityTrap = parityImbalance(regAfter) > 0;
+      bonus += regAfter.length * 18.0;                      // base: each sealed cell is valuable
+      if (infeasible) bonus += regAfter.length * 14.0;      // opponent can't tile it
+      if (parityTrap) bonus += parityImbalance(regAfter) * 20.0; // parity trap locked in
+    }
+  }
+
+  return bonus;
+}
+
+/**
+ * Mirror war weight multiplier.
+ * On a 20×12 board the territory numbers are ~4× larger, and the strategy
+ * shifts: corners matter more, seam theory doesn't apply, and piece
+ * reservation is even more critical (12 pieces each, longer game).
+ */
+function isMirrorWar(W, H) { return W === 20 && H === 12; }
+
+function getMirrorWarWeights(baseWeights) {
+  if (!baseWeights._isMW) return baseWeights; // identity if not mirror war
+  return {
+    ...baseWeights,
+    territory:  baseWeights.territory  * 0.7,  // Voronoi numbers are larger, scale down
+    seal:       baseWeights.seal       * 1.4,  // sealing is even more important
+    articulate: baseWeights.articulate * 1.5,  // board splits have huge impact on big board
+    cluster:    baseWeights.cluster    * 1.3,  // isolation is catastrophic on big board
+    opening:    0,                              // opening theory N/A on 20×12
+  };
+}
+
 // ─────────────────────────────────────────────────────────────────────
 //  FACTORY
 // ─────────────────────────────────────────────────────────────────────
@@ -1533,15 +1746,28 @@ function connectivityBeam(moves, board, boardW, boardH, ap, hp, beamSize) {
 }
 
 
-  // ── Endgame solver: full enumeration when ≤3 pieces remain ─────────
+  // ── Endgame solver: territory-precise evaluation for closing moves ──
+  // Smarter than greedy: rewards sealing moves and penalises wasting
+  // key pieces on suboptimal positions. Used when AI has ≤ threshold pieces.
   function endgameSolve(moves) {
     if (!moves.length) return null;
-    const { board, boardW, boardH } = game;
+    const { board, boardW, boardH, remaining, placedCount, allowFlip } = game;
     const ap = aiPlayer.value, hp = humanPlayer.value;
+    const diff = aiDifficulty.value;
+    const aiHand = remaining[ap] || [];
+
+    // For Legendary/Grandmaster, pre-compute key piece scores so the endgame
+    // solver still respects piece reservation even in the closing phase.
+    const useReservation = (diff === 'legendary' || diff === 'grandmaster') && aiHand.length > 3;
+    const keyPiecesEG = useReservation
+      ? identifyKeyPieces(aiHand, board, boardW, boardH, ap, allowFlip, PENTOMINOES, transformCells)
+      : null;
+
     let best = null, bestScore = -Infinity;
     for (const m of moves) {
       const sim = board.map(r => [...r]);
       for (const [x, y] of m.abs) sim[y][x] = { player: ap, pieceKey: m.pk };
+
       let aiCells = 0, hpCells = 0;
       for (let y = 0; y < boardH; y++)
         for (let x = 0; x < boardW; x++) {
@@ -1549,10 +1775,52 @@ function connectivityBeam(moves, board, boardW, boardH, ap, hp, beamSize) {
           if (p === ap) aiCells++;
           else if (p === hp) hpCells++;
         }
+
       const regions = floodFillRegions(sim, boardW, boardH);
-      const score = (aiCells - hpCells) * 20.0
-                  + regionFeasibilityBonus(regions, sim, boardW, boardH, hp)
-                  + territoryAdvantage(sim, boardW, boardH, ap, hp) * 4.0;
+
+      // Core endgame score: cells on board + territory + infeasibility pressure
+      let score = (aiCells - hpCells) * 22.0
+                + regionFeasibilityBonus(regions, sim, boardW, boardH, hp) * 1.4
+                + territoryAdvantage(sim, boardW, boardH, ap, hp) * 6.0
+                + aiClusterPenalty(sim, boardW, boardH, ap) * 1.5;
+
+      // SEALING FINISHER: big bonus for completing a zone seal
+      // This is the most important endgame signal — close the door
+      score += sealingFinisherBonus(m.abs, board, sim, boardW, boardH, ap, hp) * 2.8;
+
+      // Territory seal score: reward regions already sealed by AI
+      score += territorySealScore(sim, boardW, boardH, ap, hp) * 1.2;
+
+      // Zone seal transitions: reward cutting off opponent from open regions
+      score += zoneSealBonus(regions, board, sim, boardW, boardH, hp) * 1.5;
+
+      // Piece reservation: even in endgame, avoid wasting key pieces if alternatives exist
+      if (keyPiecesEG) {
+        const totalHandSizeEG = aiHand.length;
+        score += pieceReservationPenalty(m.pk, aiHand, keyPiecesEG, placedCount, totalHandSizeEG) * 1.2;
+      }
+
+      // 1-ply lookahead: check opponent's best response
+      if (diff === 'legendary' || diff === 'grandmaster') {
+        const remAfterEG = {
+          [ap]: aiHand.filter(pk => pk !== m.pk),
+          [hp]: [...(remaining[hp] || [])],
+        };
+        const oppMovesEG = movesOnBoard(hp, sim, boardW, boardH, remAfterEG, placedCount+1, allowFlip);
+        if (oppMovesEG.length > 0) {
+          // Find opponent's best response and penalise if it's very strong
+          let worstResponseScore = Infinity;
+          const oppBeamEG = Math.min(12, oppMovesEG.length);
+          for (const om of oppMovesEG.slice(0, oppBeamEG)) {
+            const afterOpp = sim.map(r => [...r]);
+            for (const [x, y] of om.abs) afterOpp[y][x] = { player: hp, pieceKey: om.pk };
+            const s = quickScore(afterOpp, ap, hp, boardW, boardH);
+            if (s < worstResponseScore) worstResponseScore = s;
+          }
+          score += worstResponseScore * 0.45;
+        }
+      }
+
       if (score > bestScore) { bestScore = score; best = m; }
     }
     return best;
@@ -1710,10 +1978,19 @@ function movesGrandmaster(moves) {
   const totalPieces     = humanPieceCount + aiPieceCount;
 
   // Endgame solver kicks in early — precise solver handles endgame perfectly
-  if (aiPieceCount <= 7 || humanPieceCount <= 7) return endgameSolve(moves);
+  const _mwGM = isMirrorWar(boardW, boardH);
+  const endgameThreshold = _mwGM ? 9 : 7; // mirror war has more pieces, kick in later
+  if (aiPieceCount <= endgameThreshold || humanPieceCount <= endgameThreshold) return endgameSolve(moves);
 
   // Dynamic weights based on current territory lead
   const dw = getDynamicWeights(board, boardW, boardH, ap, hp, placedCount, totalPieces);
+
+  // ── KEY PIECE RESERVATION ─────────────────────────────────────────
+  // Identify closers (pieces that uniquely seal territory zones) so we
+  // don't spend them early when expendable alternatives exist.
+  const keyPiecesGM = identifyKeyPieces(
+    remaining[ap] || [], board, boardW, boardH, ap, allowFlip, PENTOMINOES, transformCells
+  );
 
   const oppMobilityBefore = countTotalMoves(board, boardW, boardH, hp, remaining, placedCount, allowFlip);
   const oppFeasibleBefore = countFeasiblePieces(board, boardW, boardH, hp, remaining, placedCount, allowFlip);
@@ -1805,6 +2082,16 @@ function movesGrandmaster(moves) {
     // Reward moves that set up P+U infeasibility traps, I+V rectangles, etc.
     // The most powerful territorial combos in the game.
     score += comboSetupBonus(m.abs, sim, boardW, boardH, ap, hp, remAfter[ap], placedCount) * 1.8;
+
+    // ── KEY PIECE RESERVATION (Grandmaster) ───────────────────────────
+    // Penalise spending a "closer" piece early when expendable alternatives
+    // exist. Let the GM hold its I/P/L for the perfect sealing moment.
+    score += pieceReservationPenalty(m.pk, remaining[ap] || [], keyPiecesGM, placedCount, aiPieceCount) * 1.6;
+
+    // ── SEALING FINISHER BONUS ────────────────────────────────────────
+    // If this placement COMPLETES a zone seal (transitions open → sealed),
+    // give a large bonus — this is the "snap it home" moment.
+    score += sealingFinisherBonus(m.abs, board, sim, boardW, boardH, ap, hp) * 2.2;
 
     // ── 3-PLY MINIMAX LOOKAHEAD ───────────────────────────────────────
     const oppMoves = movesOnBoard(hp, sim, boardW, boardH, remAfter, placedCount+1, allowFlip);
@@ -2133,11 +2420,22 @@ function movesLegendary(moves) {
   const totalPieces     = aiPieceCount + humanPieceCount;
 
   // Endgame solver kicks in extremely early
-  if (aiPieceCount <= 8 || humanPieceCount <= 8) return endgameSolve(moves);
+  // Mirror war has 12 pieces each — kick in earlier so the solver handles closing
+  const _mwLeg = isMirrorWar(boardW, boardH);
+  const legEndgameThreshold = _mwLeg ? 10 : 8;
+  if (aiPieceCount <= legEndgameThreshold || humanPieceCount <= legEndgameThreshold) return endgameSolve(moves);
 
   // Dynamic weights: Legendary is AGGRESSIVE by default
   const dw = getDynamicWeights(board, boardW, boardH, ap, hp, placedCount, totalPieces);
   const aggressiveMultiplier = Math.max(1.0, dw.aggression);
+
+  // ── KEY PIECE RESERVATION (Legendary) ─────────────────────────────
+  // Legendary explicitly plans which pieces to save as closers.
+  // It uses expendable pieces first and snaps key pieces home at the
+  // precise moment to seal territory — the "last move" strategy.
+  const keyPiecesLeg = identifyKeyPieces(
+    remaining[ap] || [], board, boardW, boardH, ap, allowFlip, PENTOMINOES, transformCells
+  );
 
   // ── FORK FOLLOW-THROUGH: detect if we have an open zone to claim ──
   // This is the most important signal: if we forked last turn and the
@@ -2309,7 +2607,15 @@ function movesLegendary(moves) {
       + sealTerritoryBonus  *  1.8   // poison zone creation
       + shapeReadBonus      *  1.5   // geometry denial
       + comboSetupBonus(m.abs, sim, boardW, boardH, ap, hp, remAfter[ap], placedCount) * 2.2
-      + followThrough       *  3.5;  // ← FORK FOLLOW-THROUGH: claim the open zone
+      + followThrough       *  3.5   // ← FORK FOLLOW-THROUGH: claim the open zone
+      // ── KEY PIECE RESERVATION ─────────────────────────────────────
+      // Penalise using closers early. Legendary consciously saves its
+      // best sealing pieces and deploys them at the decisive moment.
+      + pieceReservationPenalty(m.pk, remaining[ap] || [], keyPiecesLeg, placedCount, aiPieceCount) * 2.5
+      // ── SEALING FINISHER ──────────────────────────────────────────
+      // Massive bonus when THIS placement completes a zone seal.
+      // This is the "snap the I-piece home" / "close the door" moment.
+      + sealingFinisherBonus(m.abs, board, sim, boardW, boardH, ap, hp) * 3.0;
 
     // Dynamic aggression: when behind, amplify offensive signals
     if (aggressiveMultiplier > 1.0) {
