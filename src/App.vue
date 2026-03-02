@@ -1525,45 +1525,116 @@
       </div>
     </Transition>
 
-    <!-- ✅ FRACTURE CIRCUIT — Post-fight reaction -->
+    <!-- ✅ PENTwelve — Post-fight result -->
     <Transition name="fcFightFade">
-      <div v-if="storyResult.active" class="fcResultOverlay" @click.self="closeStoryResult">
-        <div class="fcResultCard" :class="storyResult.won ? 'fcResultWin' : 'fcResultLose'">
-          <div class="fcResultGlow"></div>
-          <div class="fcResultEmoji">{{ storyResult.won ? '🏁' : '💢' }}</div>
-          <div class="fcResultBig">{{ storyResult.won ? 'RANKED UP' : 'NOT YET' }}</div>
-          <div class="fcResultName">{{ storyResult.chapterName }}</div>
-          <div class="fcResultQuote">"{{ storyResult.quote }}"</div>
-          <div v-if="storyResult.won && storyResult.nextChapter" class="fcResultNextPreview">
-            <div class="fcResultNextLabel">NEXT UP</div>
-            <div class="fcResultNextName">{{ storyResult.nextChapter.name }}</div>
-            <div class="fcResultNextTitle">{{ storyResult.nextChapter.title }}</div>
+      <div v-if="storyResult.active" class="fcResultOverlay"
+        :class="storyResult.won ? 'fcResultOverlayWin' : 'fcResultOverlayLose'"
+        :style="{ '--res-color': storyResult.chapterColor }"
+        @click.self="closeStoryResult">
+
+        <!-- Background layers -->
+        <div class="fcResultBg"></div>
+        <div class="fcResultParticles" v-if="storyResult.won">
+          <div class="fcResultParticle" v-for="n in 16" :key="n" :style="{ '--i': n }"></div>
+        </div>
+
+        <!-- ── WIN STATE ───────────────────────────────────────── -->
+        <div v-if="storyResult.won" class="fcResultCard fcResultWin">
+
+          <!-- Top: eliminated label -->
+          <div class="fcResultElimLabel">ELIMINATED</div>
+          <div class="fcResultElimName" :style="{ color: storyResult.chapterColor }">
+            {{ storyResult.chapterName }}
           </div>
-          <div v-if="storyResult.won && !storyResult.nextChapter" class="fcResultComplete">
-            <div class="fcResultCompleteIcon">🏆</div>
-            <div class="fcResultCompleteText">YOU REACHED #1</div>
+          <div class="fcResultElimLine" :style="{ background: storyResult.chapterColor }"></div>
+
+          <!-- Rank climb -->
+          <div class="fcResultRankClimb">
+            <div class="fcResultRankBefore">#{{ storyResult.chapterRank + 1 }}</div>
+            <div class="fcResultRankArrow">→</div>
+            <div class="fcResultRankAfter" :style="{ color: storyResult.nextChapter ? storyResult.nextChapter.color : '#ffd700' }">#{{ storyResult.chapterRank }}</div>
           </div>
+
+          <!-- Quote from defeated opponent -->
+          <div class="fcResultQuote">
+            <span class="fcResultQuoteMark">"</span>{{ storyResult.quote }}<span class="fcResultQuoteMark">"</span>
+          </div>
+
+          <!-- Next opponent preview -->
+          <div v-if="storyResult.nextChapter" class="fcResultNext"
+            :style="{ '--next-color': storyResult.nextChapter.color }">
+            <div class="fcResultNextHeader">NEXT OPPONENT</div>
+            <div class="fcResultNextBody">
+              <div class="fcResultNextEmoji">{{ storyResult.nextChapter.emoji }}</div>
+              <div class="fcResultNextInfo">
+                <div class="fcResultNextName">{{ storyResult.nextChapter.name }}</div>
+                <div class="fcResultNextSub">{{ storyResult.nextChapter.title }}</div>
+              </div>
+              <div class="fcResultNextRank">#{{ storyResult.chapterRank - 1 }}</div>
+            </div>
+          </div>
+
+          <!-- All clear -->
+          <div v-if="!storyResult.nextChapter" class="fcResultChampion">
+            <div class="fcResultChampionIcon">🏆</div>
+            <div class="fcResultChampionText">PENTWELVE #1</div>
+            <div class="fcResultChampionSub">You came from nothing. Now you are the standard.</div>
+          </div>
+
           <div class="fcResultActions">
-            <button v-if="storyResult.won && storyResult.nextChapter"
-              class="fcResultBtn fcResultBtnPrimary"
-              @click="closeStoryResult(); startStoryChapter(storyResult.nextIndex)">
+            <button v-if="storyResult.nextChapter"
+              class="fcResultBtn fcResultBtnNext"
+              :style="{ '--next-color': storyResult.nextChapter.color }"
+              @mouseenter="uiHover" @click="closeStoryResult(); startStoryChapter(storyResult.nextIndex)">
               NEXT OPPONENT ▶
             </button>
-            <button v-if="storyResult.won && !storyResult.nextChapter"
-              class="fcResultBtn fcResultBtnGold"
-              @click="closeStoryResult(); screen = 'story'">
+            <button v-if="!storyResult.nextChapter"
+              class="fcResultBtn fcResultBtnChamp"
+              @mouseenter="uiHover" @click="closeStoryResult(); screen = 'story'">
               VIEW THE LIST 🏁
             </button>
-            <button v-if="!storyResult.won"
-              class="fcResultBtn fcResultBtnPrimary"
-              @click="closeStoryResult(); startStoryChapter(storyResult.chapterIndex)">
-              TRY AGAIN ↺
-            </button>
-            <button class="fcResultBtn fcResultBtnSoft" @click="closeStoryResult(); screen = 'story'">
+            <button class="fcResultBtn fcResultBtnSoft"
+              @click="closeStoryResult(); screen = 'story'">
               CIRCUIT LIST
             </button>
           </div>
         </div>
+
+        <!-- ── LOSE STATE ──────────────────────────────────────── -->
+        <div v-if="!storyResult.won" class="fcResultCard fcResultLose">
+
+          <!-- Taunting header -->
+          <div class="fcResultLoseHeader">
+            <div class="fcResultLoseLabel">HELD RANK</div>
+            <div class="fcResultLoseName" :style="{ color: storyResult.chapterColor }">
+              {{ storyResult.chapterName }}
+            </div>
+          </div>
+
+          <!-- "Not getting through" rank wall visual -->
+          <div class="fcResultRankWall">
+            <div class="fcResultRankWallNum" :style="{ color: storyResult.chapterColor }">#{{ storyResult.chapterRank }}</div>
+            <div class="fcResultRankWallLabel">BLOCKED</div>
+          </div>
+
+          <!-- Quote -->
+          <div class="fcResultQuote fcResultQuoteLose">
+            <span class="fcResultQuoteMark">"</span>{{ storyResult.quote }}<span class="fcResultQuoteMark">"</span>
+          </div>
+
+          <div class="fcResultActions">
+            <button class="fcResultBtn fcResultBtnRetry"
+              :style="{ '--res-color': storyResult.chapterColor }"
+              @mouseenter="uiHover" @click="closeStoryResult(); startStoryChapter(storyResult.chapterIndex)">
+              TRY AGAIN ↺
+            </button>
+            <button class="fcResultBtn fcResultBtnSoft"
+              @click="closeStoryResult(); screen = 'story'">
+              CIRCUIT LIST
+            </button>
+          </div>
+        </div>
+
       </div>
     </Transition>
 
@@ -6878,6 +6949,7 @@ const storyResult = reactive({
   active: false, won: false,
   quote: '', chapterName: '', chapterIndex: -1,
   nextChapter: null, nextIndex: -1,
+  chapterColor: '#C0C0C0', chapterRank: 12,
 });
 
 // Track whether the current AI game is a story chapter
@@ -6964,6 +7036,8 @@ function handleStoryResult(humanWon) {
     storyResult.quote = ch.postWinDialogue;
     storyResult.chapterName = ch.name;
     storyResult.chapterIndex = idx;
+    storyResult.chapterColor = ch.color || '#C0C0C0';
+    storyResult.chapterRank = 12 - idx;
     storyResult.nextChapter = nextCh;
     storyResult.nextIndex = nextIdx;
     setTimeout(() => { storyResult.active = true; }, 900);
@@ -6972,6 +7046,8 @@ function handleStoryResult(humanWon) {
     storyResult.quote = ch.postLoseDialogue;
     storyResult.chapterName = ch.name;
     storyResult.chapterIndex = idx;
+    storyResult.chapterColor = ch.color || '#C0C0C0';
+    storyResult.chapterRank = 12 - idx;
     storyResult.nextChapter = null;
     storyResult.nextIndex = -1;
     setTimeout(() => { storyResult.active = true; }, 900);
@@ -9379,84 +9455,301 @@ onBeforeUnmount(() => {
   98%         { text-shadow: 0 0 60px color-mix(in srgb, var(--ch-color, #888) 90%, transparent), 0 0 100px color-mix(in srgb, var(--ch-color, #888) 40%, transparent); }
 }
 
-/* ── Post-fight result overlay ───────────────────────────────── */
+/* ═══════════════════════════════════════════════════════════════════
+   PENTwelve — POST-FIGHT RESULT OVERLAY
+   WIN: rank-up cinematic with opponent color + next preview
+   LOSE: rank-wall blocked state
+═══════════════════════════════════════════════════════════════════ */
+
 .fcResultOverlay {
   position: fixed; inset: 0; z-index: 80;
-  background: rgba(4,4,18,.88);
-  backdrop-filter: blur(18px);
   display: flex; align-items: center; justify-content: center;
-  padding: 20px;
+  padding: 16px;
+  --res-color: #C0C0C0;
 }
-.fcResultCard {
-  position: relative;
-  width: min(400px, 100%);
-  border-radius: 24px;
-  border: 1px solid rgba(255,255,255,.1);
-  background: rgba(255,255,255,.04);
-  padding: 28px 24px;
-  text-align: center;
-  animation: fcFightCardIn .35s cubic-bezier(.22,1,.36,1);
+
+/* Shared blurred backdrop */
+.fcResultBg {
+  position: absolute; inset: 0;
+  background: rgba(3,3,14,.93);
+  backdrop-filter: blur(22px);
 }
-.fcResultWin  { border-color: rgba(79,255,120,.3); }
-.fcResultLose { border-color: rgba(255,80,50,.25); }
-.fcResultGlow {
-  position: absolute; inset: -30px;
-  filter: blur(20px); pointer-events: none;
+
+/* Win: subtle color wash from bottom */
+.fcResultOverlayWin .fcResultBg {
+  background:
+    radial-gradient(ellipse 100% 45% at 50% 100%, color-mix(in srgb, var(--res-color) 14%, transparent), transparent 70%),
+    rgba(3,3,14,.93);
+}
+
+/* Lose: red danger tint */
+.fcResultOverlayLose .fcResultBg {
+  background:
+    radial-gradient(ellipse 80% 40% at 50% 0%, rgba(200,20,20,.1), transparent 65%),
+    rgba(3,3,14,.95);
+}
+
+/* Floating particles (win only) */
+.fcResultParticles { position: absolute; inset: 0; pointer-events: none; overflow: hidden; }
+.fcResultParticle {
+  position: absolute;
+  width: calc(2px + (var(--i) * 0.6px));
+  height: calc(2px + (var(--i) * 0.6px));
   border-radius: 50%;
+  background: var(--res-color);
+  opacity: 0;
+  left: calc(var(--i) * 6.25%);
+  bottom: -6px;
+  animation: fcResParticleRise calc(2.8s + var(--i) * 0.35s) calc(var(--i) * 0.2s) ease-in infinite;
+  filter: blur(0.5px);
 }
-.fcResultWin  .fcResultGlow { background: radial-gradient(ellipse, rgba(79,255,120,.15), transparent 65%); }
-.fcResultLose .fcResultGlow { background: radial-gradient(ellipse, rgba(255,80,50,.12), transparent 65%); }
-.fcResultEmoji { font-size: 44px; line-height: 1; margin-bottom: 8px; }
-.fcResultBig {
-  font-size: 11px; letter-spacing: 4px; opacity: .4; text-transform: uppercase; margin-bottom: 2px;
+@keyframes fcResParticleRise {
+  0%   { opacity: 0;   transform: translateY(0) scale(1); }
+  12%  { opacity: 0.7; }
+  85%  { opacity: 0.1; }
+  100% { opacity: 0;   transform: translateY(-100vh) scale(0.3); }
 }
-.fcResultName {
-  font-size: 22px; font-weight: 900; letter-spacing: 4px;
-  color: rgba(255,255,255,.9); margin-bottom: 14px;
+
+/* ── Shared card shell ───────────────────────────────────────── */
+.fcResultCard {
+  position: relative; z-index: 2;
+  width: min(440px, 100%);
+  border-radius: 20px;
+  background: rgba(8,8,20,.9);
+  border: 1px solid rgba(255,255,255,.08);
+  padding: 0;
+  text-align: center;
+  overflow: hidden;
+  animation: fcResCardIn .45s cubic-bezier(.22,1,.36,1) both;
+  box-shadow: 0 0 0 1px rgba(0,0,0,.5), 0 32px 80px rgba(0,0,0,.6);
 }
+@keyframes fcResCardIn {
+  from { transform: translateY(28px) scale(.96); opacity: 0; }
+  to   { transform: translateY(0) scale(1); opacity: 1; }
+}
+
+/* ══════════════════════════════════════════════════════════════
+   WIN STATE
+══════════════════════════════════════════════════════════════ */
+
+/* Top color stripe */
+.fcResultWin::before {
+  content: '';
+  display: block; width: 100%; height: 4px;
+  background: linear-gradient(90deg, transparent, var(--res-color), transparent);
+}
+
+/* "ELIMINATED" header block */
+.fcResultElimLabel {
+  font-size: 9px; letter-spacing: 5px; font-weight: 900;
+  color: rgba(255,255,255,.3);
+  padding: 18px 24px 4px;
+}
+.fcResultElimName {
+  font-size: 30px; font-weight: 900; letter-spacing: 7px;
+  text-shadow: 0 0 30px color-mix(in srgb, var(--res-color) 50%, transparent);
+  padding: 0 24px 0;
+  animation: fcElimNameIn .4s .1s cubic-bezier(.22,1,.36,1) both;
+}
+@keyframes fcElimNameIn {
+  from { opacity: 0; transform: scale(1.1); filter: blur(3px); }
+  to   { opacity: 1; transform: scale(1); filter: blur(0); }
+}
+.fcResultElimLine {
+  height: 1px; margin: 14px 24px;
+  opacity: .35; border-radius: 99px;
+  animation: fcElimLineIn .5s .2s ease-out both;
+}
+@keyframes fcElimLineIn {
+  from { transform: scaleX(0); }
+  to   { transform: scaleX(1); }
+}
+
+/* Rank climb counter */
+.fcResultRankClimb {
+  display: flex; align-items: center; justify-content: center; gap: 14px;
+  padding: 4px 24px 16px;
+  animation: fcResSlideUp .4s .25s ease-out both;
+}
+@keyframes fcResSlideUp {
+  from { opacity: 0; transform: translateY(10px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+.fcResultRankBefore {
+  font-size: 22px; font-weight: 900; letter-spacing: 2px;
+  color: rgba(255,255,255,.2);
+  text-decoration: line-through;
+}
+.fcResultRankArrow {
+  font-size: 20px; color: rgba(255,255,255,.25);
+  animation: fcArrowPulse 1.4s .6s ease-in-out infinite;
+}
+@keyframes fcArrowPulse {
+  0%,100% { opacity: .25; transform: translateX(0); }
+  50%     { opacity: .8;  transform: translateX(3px); }
+}
+.fcResultRankAfter {
+  font-size: 34px; font-weight: 900; letter-spacing: 2px;
+  text-shadow: 0 0 24px currentColor;
+  animation: fcRankAfterPop .5s .35s cubic-bezier(.22,1,.36,1) both;
+}
+@keyframes fcRankAfterPop {
+  from { opacity: 0; transform: scale(1.5); filter: blur(4px); }
+  to   { opacity: 1; transform: scale(1); filter: blur(0); }
+}
+
+/* Quote block */
 .fcResultQuote {
-  font-size: 13px; font-style: italic; opacity: .65;
-  line-height: 1.5; margin-bottom: 20px;
+  font-size: 12.5px; font-style: italic; line-height: 1.55;
+  color: rgba(255,255,255,.6);
+  margin: 0 24px 16px;
   padding: 12px 16px;
-  background: rgba(255,255,255,.04);
+  background: rgba(255,255,255,.03);
+  border: 1px solid rgba(255,255,255,.07);
   border-radius: 12px;
-  border: 1px solid rgba(255,255,255,.06);
+  animation: fcResSlideUp .4s .35s ease-out both;
 }
-.fcResultNextPreview {
-  margin-bottom: 20px; padding: 10px 14px;
-  background: rgba(255,215,0,.06);
-  border: 1px solid rgba(255,215,0,.18);
-  border-radius: 12px;
+.fcResultQuoteMark { opacity: .35; font-style: normal; font-size: 16px; }
+.fcResultQuoteLose { margin: 0 24px 20px; }
+
+/* Next opponent preview card */
+.fcResultNext {
+  margin: 0 24px 16px;
+  border-radius: 14px;
+  border: 1px solid color-mix(in srgb, var(--next-color, #fff) 30%, transparent);
+  background: color-mix(in srgb, var(--next-color, #fff) 7%, rgba(8,8,20,.8));
+  overflow: hidden;
+  animation: fcResSlideUp .4s .45s ease-out both;
 }
-.fcResultNextLabel { font-size: 9px; letter-spacing: 3px; opacity: .4; }
-.fcResultNextName { font-size: 16px; font-weight: 900; letter-spacing: 3px; color: #ffd700; }
-.fcResultNextTitle { font-size: 11px; opacity: .4; margin-top: 2px; }
-.fcResultComplete { margin-bottom: 20px; }
-.fcResultCompleteIcon { font-size: 36px; }
-.fcResultCompleteText {
-  font-size: 14px; font-weight: 900; letter-spacing: 3px;
+.fcResultNextHeader {
+  font-size: 8px; letter-spacing: 4px; font-weight: 900;
+  color: rgba(255,255,255,.3);
+  padding: 10px 16px 4px;
+  border-bottom: 1px solid rgba(255,255,255,.05);
+}
+.fcResultNextBody {
+  display: flex; align-items: center; gap: 12px;
+  padding: 12px 16px;
+}
+.fcResultNextEmoji { font-size: 28px; flex-shrink: 0; }
+.fcResultNextInfo { flex: 1; text-align: left; }
+.fcResultNextName {
+  font-size: 17px; font-weight: 900; letter-spacing: 3px;
+  color: var(--next-color, #fff);
+}
+.fcResultNextSub { font-size: 10px; opacity: .4; margin-top: 2px; letter-spacing: 1px; }
+.fcResultNextRank {
+  font-size: 22px; font-weight: 900; letter-spacing: 1px;
+  color: var(--next-color, #fff); opacity: .5;
+  flex-shrink: 0;
+}
+
+/* Champion state */
+.fcResultChampion {
+  margin: 0 24px 16px; padding: 20px 16px;
+  background: linear-gradient(135deg, rgba(255,200,0,.08), rgba(255,100,0,.06));
+  border: 1px solid rgba(255,200,0,.2);
+  border-radius: 14px;
+  animation: fcResSlideUp .4s .45s ease-out both;
+}
+.fcResultChampionIcon { font-size: 36px; }
+.fcResultChampionText {
+  font-size: 18px; font-weight: 900; letter-spacing: 4px; margin-top: 8px;
   background: linear-gradient(90deg, #ffd700, #ff8c28);
   -webkit-background-clip: text; background-clip: text; color: transparent;
-  margin-top: 6px;
 }
-.fcResultActions { display: flex; flex-direction: column; gap: 8px; }
+.fcResultChampionSub { font-size: 11px; opacity: .4; margin-top: 6px; letter-spacing: 1px; }
+
+/* Actions */
+.fcResultActions {
+  display: flex; flex-direction: column; gap: 8px;
+  padding: 0 24px 22px;
+  animation: fcResSlideUp .4s .55s ease-out both;
+}
 .fcResultBtn {
-  width: 100%; padding: 12px; border-radius: 12px;
+  width: 100%; padding: 13px; border-radius: 12px;
   font-size: 12px; font-weight: 900; letter-spacing: 2.5px;
-  cursor: pointer; transition: transform .12s, opacity .12s;
+  cursor: pointer; transition: transform .12s, box-shadow .15s, background .15s;
 }
 .fcResultBtn:hover { transform: scale(1.02); }
-.fcResultBtnPrimary {
-  background: linear-gradient(135deg, rgba(80,170,255,.2), rgba(80,100,255,.2));
-  border: 1px solid rgba(80,170,255,.4); color: #80ccff;
+.fcResultBtn:active { transform: scale(.98); }
+
+/* Next opponent button — uses next character's color */
+.fcResultBtnNext {
+  background: color-mix(in srgb, var(--next-color, #4fc3f7) 18%, rgba(8,8,20,.7));
+  border: 1px solid color-mix(in srgb, var(--next-color, #4fc3f7) 45%, transparent);
+  color: var(--next-color, #4fc3f7);
 }
-.fcResultBtnGold {
-  background: linear-gradient(135deg, rgba(255,200,0,.18), rgba(255,120,0,.18));
+.fcResultBtnNext:hover {
+  background: color-mix(in srgb, var(--next-color, #4fc3f7) 28%, rgba(8,8,20,.7));
+  box-shadow: 0 0 24px color-mix(in srgb, var(--next-color, #4fc3f7) 25%, transparent);
+}
+
+.fcResultBtnChamp {
+  background: linear-gradient(135deg, rgba(255,200,0,.18), rgba(255,100,0,.14));
   border: 1px solid rgba(255,200,0,.4); color: #ffd700;
 }
+.fcResultBtnChamp:hover { box-shadow: 0 0 24px rgba(255,200,0,.2); }
+
+/* Retry button — uses defeated character's color */
+.fcResultBtnRetry {
+  background: color-mix(in srgb, var(--res-color, #ff4444) 14%, rgba(8,8,20,.8));
+  border: 1px solid color-mix(in srgb, var(--res-color, #ff4444) 40%, transparent);
+  color: var(--res-color, #ff8080);
+}
+.fcResultBtnRetry:hover {
+  background: color-mix(in srgb, var(--res-color, #ff4444) 22%, rgba(8,8,20,.8));
+  box-shadow: 0 0 20px color-mix(in srgb, var(--res-color, #ff4444) 20%, transparent);
+}
+
 .fcResultBtnSoft {
-  background: rgba(255,255,255,.04);
-  border: 1px solid rgba(255,255,255,.1); color: rgba(255,255,255,.5);
+  background: rgba(255,255,255,.03);
+  border: 1px solid rgba(255,255,255,.08);
+  color: rgba(255,255,255,.35);
+}
+.fcResultBtnSoft:hover { background: rgba(255,255,255,.06); }
+
+/* ══════════════════════════════════════════════════════════════
+   LOSE STATE — rank wall blocked
+══════════════════════════════════════════════════════════════ */
+
+/* Red top stripe on lose */
+.fcResultLose::before {
+  content: '';
+  display: block; width: 100%; height: 4px;
+  background: linear-gradient(90deg, transparent, var(--res-color, #ff3333), transparent);
+}
+
+.fcResultLoseHeader { padding: 18px 24px 14px; }
+.fcResultLoseLabel {
+  font-size: 9px; letter-spacing: 5px; font-weight: 900;
+  color: rgba(255,80,50,.6); margin-bottom: 6px;
+}
+.fcResultLoseName {
+  font-size: 28px; font-weight: 900; letter-spacing: 6px;
+  text-shadow: 0 0 20px color-mix(in srgb, var(--res-color) 40%, transparent);
+}
+
+/* The rank wall */
+.fcResultRankWall {
+  margin: 0 24px 16px; padding: 20px 16px;
+  background: color-mix(in srgb, var(--res-color) 6%, rgba(4,4,14,.8));
+  border: 1px solid color-mix(in srgb, var(--res-color) 25%, transparent);
+  border-radius: 14px;
+  display: flex; flex-direction: column; align-items: center; gap: 6px;
+}
+.fcResultRankWallNum {
+  font-size: 52px; font-weight: 900; letter-spacing: 2px; line-height: 1;
+  text-shadow: 0 0 40px currentColor;
+  animation: fcWallPulse 2.2s ease-in-out infinite;
+}
+@keyframes fcWallPulse {
+  0%,100% { opacity: 1; }
+  50%     { opacity: .7; }
+}
+.fcResultRankWallLabel {
+  font-size: 9px; letter-spacing: 5px; font-weight: 900;
+  color: rgba(255,80,50,.5);
 }
 
 /* ============================================================
