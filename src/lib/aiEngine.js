@@ -104,9 +104,9 @@ function voronoiTerritory(board, W, H, ap, hp) {
         if (nx < 0 || ny < 0 || nx >= W || ny >= H) continue;
         if (board[ny][nx] !== null) continue; // cannot pass through occupied
         const nk = ny * W + nx;
-        const nd = cd + 1;
-        if (nd < dist[nk]) {
-          dist[nk] = nd;
+        // Only enqueue if not yet visited (Infinity = unvisited)
+        if (dist[nk] === Infinity) {
+          dist[nk] = cd + 1;
           q.push([nx, ny]);
         }
       }
@@ -224,8 +224,14 @@ function zoneSealBonus(regions, board, simBoard, W, H, hp) {
 
     // Narrow corridor sealed
     const xs = reg.map(([x]) => x), ys = reg.map(([,y]) => y);
-    const span   = Math.max(Math.max(...xs) - Math.min(...xs) + 1, Math.max(...ys) - Math.min(...ys) + 1);
-    const narrow = Math.min(Math.max(...xs) - Math.min(...xs) + 1, Math.max(...ys) - Math.min(...ys) + 1);
+    const minX = xs.reduce((a, b) => a < b ? a : b, Infinity);
+    const maxX = xs.reduce((a, b) => a > b ? a : b, -Infinity);
+    const minY = ys.reduce((a, b) => a < b ? a : b, Infinity);
+    const maxY = ys.reduce((a, b) => a > b ? a : b, -Infinity);
+    const spanX  = maxX - minX + 1;
+    const spanY  = maxY - minY + 1;
+    const span   = Math.max(spanX, spanY);
+    const narrow = Math.min(spanX, spanY);
     if (narrow <= 2 && span >= 4 && !oppCanReach) bonus += span * 4.0;
   }
   return bonus;
@@ -468,26 +474,55 @@ function findArticulationPoints(board, W, H) {
 
   const disc = new Array(n).fill(-1);
   const low  = new Array(n).fill(0);
+  const childCount = new Array(n).fill(0);
   const isAP = new Set(); // indices of articulation points
   let timer = 0;
 
-  function dfs(u, parent) {
-    disc[u] = low[u] = timer++;
-    let childCount = 0;
-    for (const v of adj[u]) {
-      if (disc[v] === -1) {
-        childCount++;
-        dfs(v, u);
-        low[u] = Math.min(low[u], low[v]);
-        if (parent === -1 && childCount > 1)   isAP.add(u);
-        if (parent !== -1 && low[v] >= disc[u]) isAP.add(u);
-      } else if (v !== parent) {
-        low[u] = Math.min(low[u], disc[v]);
+  // Iterative Tarjan — avoids JS call-stack overflow on large boards.
+  // Stack frames: { u, parent, adjIdx }
+  const stack = [];
+  for (let root = 0; root < n; root++) {
+    if (disc[root] !== -1) continue;
+    disc[root] = low[root] = timer++;
+    stack.push({ u: root, parent: -1, adjIdx: 0 });
+
+    while (stack.length > 0) {
+      const top = stack[stack.length - 1];
+      const { u } = top;
+      let pushed = false;
+
+      while (top.adjIdx < adj[u].length) {
+        const v = adj[u][top.adjIdx++];
+        if (v === top.parent) continue;
+
+        if (disc[v] === -1) {
+          // Tree edge: push child
+          childCount[u]++;
+          disc[v] = low[v] = timer++;
+          stack.push({ u: v, parent: u, adjIdx: 0 });
+          pushed = true;
+          break;
+        } else {
+          // Back edge: update low
+          low[u] = Math.min(low[u], disc[v]);
+        }
+      }
+
+      if (!pushed) {
+        // All neighbours of u processed — pop and propagate to parent
+        stack.pop();
+        const p = top.parent;
+        if (p === -1) {
+          // u is a DFS root: AP iff it has more than one DFS-tree child
+          if (childCount[u] > 1) isAP.add(u);
+        } else {
+          low[p] = Math.min(low[p], low[u]);
+          // p is AP if u cannot reach any ancestor of p without passing through p
+          if (low[u] >= disc[p]) isAP.add(p);
+        }
       }
     }
   }
-
-  for (let i = 0; i < n; i++) if (disc[i] === -1) dfs(i, -1);
 
   // Convert back to coord key set
   const result = new Set();
@@ -616,8 +651,10 @@ function opponentShapeReadScore(simBoard, W, H, hp, remainingHpPieces, placedCou
     const regSet = new Set(reg.map(([x,y]) => y*W+x));
     // Bounding box
     const xs = reg.map(([x]) => x), ys = reg.map(([,y]) => y);
-    const x0 = Math.min(...xs), y0 = Math.min(...ys);
-    const x1 = Math.max(...xs), y1 = Math.max(...ys);
+    const x0 = xs.reduce((a, b) => a < b ? a : b, Infinity);
+    const y0 = ys.reduce((a, b) => a < b ? a : b, Infinity);
+    const x1 = xs.reduce((a, b) => a > b ? a : b, -Infinity);
+    const y1 = ys.reduce((a, b) => a > b ? a : b, -Infinity);
     const rW = x1-x0+1, rH = y1-y0+1;
 
     // Check how many opponent pieces CANNOT fit in this region
@@ -794,8 +831,10 @@ function p1OpeningBonus(abs, W, H, placedCount, mode, pieceKey, aiHand) {
 
   // ── Helper: bounding box ─────────────────────────────────────────
   const xs = abs.map(([x])=>x), ys = abs.map(([,y])=>y);
-  const minX=Math.min(...xs), maxX=Math.max(...xs);
-  const minY=Math.min(...ys), maxY=Math.max(...ys);
+  const minX = xs.reduce((a, b) => a < b ? a : b, Infinity);
+  const maxX = xs.reduce((a, b) => a > b ? a : b, -Infinity);
+  const minY = ys.reduce((a, b) => a < b ? a : b, Infinity);
+  const maxY = ys.reduce((a, b) => a > b ? a : b, -Infinity);
   const spanX = maxX - minX + 1;
   const spanY = maxY - minY + 1;
 
@@ -1064,8 +1103,8 @@ function comboSetupBonus(abs, simBoard, W, H, ap, hp, aiHandKeys, placedCount) {
         bonus += 180.0; // 6-cell zone adjacent to us = potential infeasibility trap!
         // Extra if it's 2×3 shaped (the ideal trap)
         const regXs = reg.map(([x])=>x), regYs = reg.map(([,y])=>y);
-        const rW = Math.max(...regXs)-Math.min(...regXs)+1;
-        const rH = Math.max(...regYs)-Math.min(...regYs)+1;
+        const rW = regXs.reduce((a,b)=>a>b?a:b,-Infinity) - regXs.reduce((a,b)=>a<b?a:b,Infinity) + 1;
+        const rH = regYs.reduce((a,b)=>a>b?a:b,-Infinity) - regYs.reduce((a,b)=>a<b?a:b,Infinity) + 1;
         if ((rW===2&&rH===3)||(rW===3&&rH===2)) bonus += 120.0;
       }
     }
@@ -1079,8 +1118,8 @@ function comboSetupBonus(abs, simBoard, W, H, ap, hp, aiHandKeys, placedCount) {
     for (const reg of regions) {
       if (reg.length < 10 || reg.length > 15) continue;
       const regXs = reg.map(([x])=>x), regYs = reg.map(([,y])=>y);
-      const rW = Math.max(...regXs)-Math.min(...regXs)+1;
-      const rH = Math.max(...regYs)-Math.min(...regYs)+1;
+      const rW = regXs.reduce((a,b)=>a>b?a:b,-Infinity) - regXs.reduce((a,b)=>a<b?a:b,Infinity) + 1;
+      const rH = regYs.reduce((a,b)=>a>b?a:b,-Infinity) - regYs.reduce((a,b)=>a<b?a:b,Infinity) + 1;
       const isRectangular = rW*rH === reg.length; // no holes
       if (isRectangular && (rW===2||rH===2) && reg.length%5===0) {
         // Perfect rectangular zone, divisible by 5, width 2 = I+L/V can tile it
@@ -1603,6 +1642,7 @@ export function createAiEngine({ game, aiPlayer, humanPlayer, aiDifficulty, PENT
     }
     _moveCache.set(_key, moves);
     _evict(_moveCache);
+    return moves;
   }
 
   function getAllValidMoves() {
@@ -1628,21 +1668,22 @@ export function createAiEngine({ game, aiPlayer, humanPlayer, aiDifficulty, PENT
           seenOrients.add(oKey);
           for (let ay = 0; ay < boardH; ay++) {
             for (let ax = 0; ax < boardW; ax++) {
+              // Bounds + overlap check
               let valid = true;
-              const abs = [];
               for (const [dx, dy] of shape) {
                 const x = ax+dx, y = ay+dy;
                 if (x < 0 || y < 0 || x >= boardW || y >= boardH || board[y][x] !== null) {
                   valid = false; break;
                 }
-                abs.push([x, y]);
               }
               if (!valid) continue;
+              // Touch check (inline — no need to build an abs array)
               if (placedCount > 0) {
                 let touches = false;
-                tO: for (const [x, y] of abs) {
+                tO: for (const [dx, dy] of shape) {
+                  const px = ax+dx, py = ay+dy;
                   for (const [ox, oy] of DIRS) {
-                    const nx = x+ox, ny = y+oy;
+                    const nx = px+ox, ny = py+oy;
                     if (nx >= 0 && ny >= 0 && nx < boardW && ny < boardH && board[ny][nx] !== null) {
                       touches = true; break tO;
                     }
@@ -1659,6 +1700,7 @@ export function createAiEngine({ game, aiPlayer, humanPlayer, aiDifficulty, PENT
     }
     _feasibleCache.set(_k, feasible);
     _evict(_feasibleCache);
+    return feasible;
   }
 
   function countTotalMoves(board, boardW, boardH, playerNum, remaining, placedCount, allowFlip) {
@@ -1668,6 +1710,7 @@ export function createAiEngine({ game, aiPlayer, humanPlayer, aiDifficulty, PENT
     const v = movesOnBoard(playerNum, board, boardW, boardH, remaining, placedCount, allowFlip).length;
     _moveCountCache.set(_k, v);
     _evict(_moveCountCache);
+    return v;
   }
 
   /** Quick score (used for lookahead pruning). 🔥 SUPERCHARGED weights for GM/Legendary beam quality. */

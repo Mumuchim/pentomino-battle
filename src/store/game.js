@@ -784,7 +784,6 @@ export const useGameStore = defineStore("game", {
     // ----- BATTLE CLOCK (PLACE PHASE) -----
     tickBattleClock(now = Date.now()) {
       if (this.phase !== "place") return false;
-      if (this.phase === "gameover") return false;
 
       // Only tick when a turn is actually running
       if (!this.turnStartedAt) return false;
