@@ -273,7 +273,7 @@
               </div>
               <div class="qmPickerCard vsStyleCard">
                 <div class="vsStyleCardTitle">MIRROR WAR</div>
-                <div class="qmPickerDesc">Full Arsenal · 20×12 board · 12 pieces each · No Draft</div>
+                <div class="qmPickerDesc">Full Arsenal · 15×8 board · 12 pieces each · No Draft</div>
                 <button class="pbMiniBtn primary qmPickerBtn" @mouseenter="uiHover" @click="uiClick(); qmPickerOpen = false; startMirrorWarMode()">PLAY</button>
               </div>
               <div class="qmPickerCard vsStyleCard">
@@ -330,7 +330,7 @@
               </div>
               <div class="qmPickerCard vsStyleCard">
                 <div class="vsStyleCardTitle">MIRROR WAR</div>
-                <div class="qmPickerDesc">Full Arsenal · 20×12 · Both get all 12 pieces · No Draft</div>
+                <div class="qmPickerDesc">Full Arsenal · 15×8 · Both get all 12 pieces · No Draft</div>
                 <button class="pbMiniBtn primary qmPickerBtn" @mouseenter="uiHover" @click="uiClick(); startCouchMirrorWar()">PLAY</button>
               </div>
               <div class="qmPickerCard vsStyleCard">
@@ -979,7 +979,7 @@
               </label>
             </div>
 
-            <div class="vsStyleFinePrint">Default board: <b>10×6</b> (Mirror War uses 20×12). Tip: Q rotate · E flip</div>
+            <div class="vsStyleFinePrint">Default board: <b>10×6</b> (Mirror War uses 15×8). Tip: Q rotate · E flip</div>
           </div>
         </div>
       </section>
@@ -4169,8 +4169,8 @@ async function ensureOnlineInitialized(lobby) {
   const roundSeed = makeRoundSeed();
 
   if (lobbyKind === "mirror_war") {
-    // 20×12 board, both players get all 12 pieces
-    game.startPlacementDirect(ALL_PIECE_KEYS, ALL_PIECE_KEYS, 20, 12);
+    // 15×8 board, both players get all 12 pieces
+    game.startPlacementDirect(ALL_PIECE_KEYS, ALL_PIECE_KEYS, 15, 8);
   } else if (lobbyKind === "blind_draft") {
     // 10×6 board, pieces split randomly by seed
     const { picks1, picks2 } = randomSplitPieces(ALL_PIECE_KEYS, hashSeedToUint32(roundSeed));
@@ -4341,8 +4341,8 @@ async function startPollingLobby(lobbyId, role, modeHint = null) {
 
   screen.value = "online";
   if (modeHint === "mirror_war") {
-    game.boardW = 20;
-    game.boardH = 12;
+    game.boardW = 15;
+    game.boardH = 8;
   } else {
     game.boardW = 10;
     game.boardH = 6;
@@ -4769,7 +4769,7 @@ async function onResetClick() {
 
     game.allowFlip = allowFlip.value;
     if (lobbyKind === "mirror_war") {
-      game.startPlacementDirect(ALL_PIECE_KEYS, ALL_PIECE_KEYS, 20, 12);
+      game.startPlacementDirect(ALL_PIECE_KEYS, ALL_PIECE_KEYS, 15, 8);
     } else if (lobbyKind === "blind_draft") {
       const { picks1, picks2 } = randomSplitPieces(ALL_PIECE_KEYS, hashSeedToUint32(newRoundSeed));
       game.startPlacementDirect(picks1, picks2, 10, 6);
@@ -6647,10 +6647,10 @@ function startCouchMirrorWar() {
   stopPolling();
   myPlayer.value = null;
   couchMode.value = "mirror_war";
-  game.boardW = 20;
-  game.boardH = 12;
+  game.boardW = 15;
+  game.boardH = 8;
   game.allowFlip = true;
-  game.startPlacementDirect(ALL_PIECE_KEYS, ALL_PIECE_KEYS, 20, 12);
+  game.startPlacementDirect(ALL_PIECE_KEYS, ALL_PIECE_KEYS, 15, 8);
   game.battleClockInitSec = 480;
   game.battleClockSec = { 1: 480, 2: 480 };
   screen.value = "couch";
@@ -7003,10 +7003,10 @@ function _startStoryBlindDraft() {
 
 function _startStoryMirrorWar() {
   screen.value = 'ai';
-  game.boardW = 20;
-  game.boardH = 12;
+  game.boardW = 15;
+  game.boardH = 8;
   game.allowFlip = allowFlip.value;
-  game.startPlacementDirect(ALL_PIECE_KEYS, ALL_PIECE_KEYS, 20, 12);
+  game.startPlacementDirect(ALL_PIECE_KEYS, ALL_PIECE_KEYS, 15, 8);
   game.battleClockInitSec = 480;
   game.battleClockSec = { 1: 480, 2: 480 };
   tryPlayGameBgm();
