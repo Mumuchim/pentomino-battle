@@ -344,23 +344,8 @@
 
           <!-- NORMAL SOLO BUTTONS -->
           <div v-else class="mnBtns">
-            <!-- FRACTURE CIRCUIT (Story Mode) -->
-            <button class="mnBtn fractureCircuitBtn" @mouseenter="uiHover" @click="uiClick(); screen = 'story'">
-              <div class="fcBtnInner">
-                <div class="fcBtnGlow"></div>
-                <div class="fcBtnIcon">⚡</div>
-                <div class="fcBtnText">
-                  <div class="fcBtnTitle">FRACTURE CIRCUIT</div>
-                  <div class="fcBtnSub">Story Mode · 12 Chapters</div>
-                </div>
-                <div class="fcBtnProgress">
-                  <span class="fcBtnProgressNum">{{ storyProgress.completed }}/12</span>
-                  <span class="fcBtnProgressLabel">CLEARED</span>
-                </div>
-              </div>
-            </button>
-            <!-- VERSUS AI -->
-            <button class="mnBtn" @mouseenter="uiHover" @click="uiClick(); startPracticeAi()">
+            <!-- THE CIRCUIT LIST (Story Mode via VS AI button) -->
+            <button class="mnBtn" @mouseenter="uiHover" @click="uiClick(); screen = 'story'">
               <img :src="soloVsAiBtnUrl" class="mnBtnImg" alt="VERSUS AI" />
             </button>
             <!-- COUCH PLAY -->
@@ -385,9 +370,9 @@
 
         <div class="fcHeader">
           <div class="fcHeaderGlow"></div>
-          <div class="fcHeaderBolt">⚡</div>
-          <div class="fcHeaderTitle">FRACTURE CIRCUIT</div>
-          <div class="fcHeaderSub">Underground Tournament · 12 Chapters</div>
+          <div class="fcHeaderBolt">🏁</div>
+          <div class="fcHeaderTitle">THE CIRCUIT LIST</div>
+          <div class="fcHeaderSub">Underground Rankings · 12 Opponents</div>
           <div class="fcHeaderProgress">
             <div class="fcProgressBar">
               <div class="fcProgressFill" :style="{ width: (storyProgress.completed / 12 * 100) + '%' }"></div>
@@ -435,9 +420,32 @@
         <!-- Champion Banner (all cleared) -->
         <div v-if="storyProgress.completed >= 12" class="fcChampionBanner">
           <div class="fcChampionGlow"></div>
-          <div class="fcChampionCrown">👑</div>
-          <div class="fcChampionTitle">FRACTURE CIRCUIT CHAMPION</div>
-          <div class="fcChampionSub">You broke them all.</div>
+          <div class="fcChampionCrown">🏆</div>
+          <div class="fcChampionTitle">CIRCUIT LIST #1</div>
+          <div class="fcChampionSub">You came from nowhere. Now you're the standard.</div>
+        </div>
+
+        <!-- Free Battle — rematch any defeated opponent -->
+        <div v-if="storyProgress.cleared.size > 0" class="fcFreeBattle">
+          <div class="fcFreeBattleTitle">⚔ FREE BATTLE — REMATCH</div>
+          <div class="fcFreeBattleSub">Challenge anyone you've already beaten</div>
+          <div class="fcFreeBattleGrid">
+            <button
+              v-for="(ch, idx) in STORY_CHAPTERS"
+              :key="ch.id + '_fb'"
+              v-if="storyProgress.cleared.has(idx)"
+              class="fcFbCard"
+              :style="{ '--fb-color': ch.color }"
+              @mouseenter="uiHover()"
+              @click="uiClick(); startStoryChapter(idx)"
+            >
+              <div class="fcFbGlow"></div>
+              <div class="fcFbNum">#{{ String(12 - idx).padStart(2,'0') }}</div>
+              <div class="fcFbEmoji">{{ ch.emoji }}</div>
+              <div class="fcFbName">{{ ch.name }}</div>
+              <div class="fcFbMode">{{ ch.mode === 'normal' ? 'STANDARD' : ch.mode === 'blind_draft' ? 'BLIND' : 'MIRROR' }}</div>
+            </button>
+          </div>
         </div>
       </section>
 
@@ -1487,7 +1495,7 @@
           </div>
           <!-- CTA -->
           <button class="fcFightBeginBtn" @click="launchStoryChapterGame()">
-            <span class="fcFightBeginText">ENTER THE CIRCUIT</span>
+            <span class="fcFightBeginText">ACCEPT THE CHALLENGE</span>
             <span class="fcFightBeginArrow">▶</span>
           </button>
         </div>
@@ -1499,8 +1507,8 @@
       <div v-if="storyResult.active" class="fcResultOverlay" @click.self="closeStoryResult">
         <div class="fcResultCard" :class="storyResult.won ? 'fcResultWin' : 'fcResultLose'">
           <div class="fcResultGlow"></div>
-          <div class="fcResultEmoji">{{ storyResult.won ? '💀' : '😤' }}</div>
-          <div class="fcResultBig">{{ storyResult.won ? 'DEFEATED' : 'TAUNTING YOU' }}</div>
+          <div class="fcResultEmoji">{{ storyResult.won ? '🏁' : '💢' }}</div>
+          <div class="fcResultBig">{{ storyResult.won ? 'RANKED UP' : 'NOT YET' }}</div>
           <div class="fcResultName">{{ storyResult.chapterName }}</div>
           <div class="fcResultQuote">"{{ storyResult.quote }}"</div>
           <div v-if="storyResult.won && storyResult.nextChapter" class="fcResultNextPreview">
@@ -1509,19 +1517,19 @@
             <div class="fcResultNextTitle">{{ storyResult.nextChapter.title }}</div>
           </div>
           <div v-if="storyResult.won && !storyResult.nextChapter" class="fcResultComplete">
-            <div class="fcResultCompleteIcon">👑</div>
-            <div class="fcResultCompleteText">CIRCUIT COMPLETE</div>
+            <div class="fcResultCompleteIcon">🏆</div>
+            <div class="fcResultCompleteText">YOU REACHED #1</div>
           </div>
           <div class="fcResultActions">
             <button v-if="storyResult.won && storyResult.nextChapter"
               class="fcResultBtn fcResultBtnPrimary"
               @click="closeStoryResult(); startStoryChapter(storyResult.nextIndex)">
-              NEXT CHAPTER ▶
+              NEXT OPPONENT ▶
             </button>
             <button v-if="storyResult.won && !storyResult.nextChapter"
               class="fcResultBtn fcResultBtnGold"
               @click="closeStoryResult(); screen = 'story'">
-              VIEW CIRCUIT ⚡
+              VIEW THE LIST 🏁
             </button>
             <button v-if="!storyResult.won"
               class="fcResultBtn fcResultBtnPrimary"
@@ -1529,58 +1537,13 @@
               TRY AGAIN ↺
             </button>
             <button class="fcResultBtn fcResultBtnSoft" @click="closeStoryResult(); screen = 'story'">
-              CIRCUIT MAP
+              CIRCUIT LIST
             </button>
           </div>
         </div>
       </div>
     </Transition>
 
-<!-- ✅ VS AI Difficulty Picker -->
-    <Transition name="vsAiFade">
-      <div v-if="showVsAiPicker" class="vsAiOverlay" @click.self="showVsAiPicker = false">
-        <div class="vsAiPanel">
-          <div class="vsAiHeader">
-            <div class="vsAiHeaderGlow"></div>
-            <div class="vsAiTitle">⚔ VERSUS AI</div>
-            <div class="vsAiSubtitle">Choose your opponent's rank</div>
-          </div>
-          <div class="vsAiRanks">
-            <button
-              v-for="(rank, idx) in [
-                { id:'dumbie',      label:'DUMBIE',      sub:'The Learning Dummy',     icon:'🟢', tier:0 },
-                { id:'elite',       label:'ELITE',       sub:'Sharpened Strategist',   icon:'🔵', tier:1 },
-                { id:'tactician',   label:'TACTICIAN',   sub:'Master of Patterns',     icon:'🟣', tier:2 },
-                { id:'grandmaster', label:'GRANDMASTER', sub:'The Territorial God',    icon:'🟠', tier:3 },
-                { id:'legendary',   label:'LEGENDARY',   sub:'Beyond Human Reach',     icon:'🔴', tier:4 },
-              ]"
-              :key="rank.id"
-              class="vsAiRankCard"
-              :class="[`tier${rank.tier}`, { locked: !aiUnlocks[rank.id], unlocked: aiUnlocks[rank.id] }]"
-              @click="selectAiDifficulty(rank.id)"
-              @mouseenter="aiUnlocks[rank.id] && uiHover()"
-            >
-              <div class="vsAiRankGlow"></div>
-              <div class="vsAiRankNum">{{ String(idx + 1).padStart(2,'0') }}</div>
-              <div class="vsAiRankIcon">
-                <span v-if="!aiUnlocks[rank.id]" class="vsAiLockIcon">🔒</span>
-                <span v-else class="vsAiTierIcon">{{ rank.icon }}</span>
-              </div>
-              <div class="vsAiRankInfo">
-                <div class="vsAiRankLabel">{{ rank.label }}</div>
-                <div class="vsAiRankSub" v-if="aiUnlocks[rank.id]">{{ rank.sub }}</div>
-                <div class="vsAiRankSub locked" v-else>
-                  Beat {{ idx === 1 ? 'Dumbie' : idx === 2 ? 'Elite' : idx === 3 ? 'Tactician' : 'Grandmaster' }} to unlock
-                </div>
-              </div>
-              <div class="vsAiRankArrow" v-if="aiUnlocks[rank.id]">▶</div>
-              <div class="vsAiRankChain" v-if="idx < 4"></div>
-            </button>
-          </div>
-          <button class="vsAiClose" @click="showVsAiPicker = false">✕ CANCEL</button>
-        </div>
-      </div>
-    </Transition>
 
     <!-- ✅ Unlock Animation Overlay -->
     <Transition name="unlockFade">
@@ -6685,165 +6648,165 @@ function handlePuzzleEnd() {
 // ── AI Difficulty state ────────────────────────────────────────────
 // 'dumbie' | 'elite' | 'tactician' | 'grandmaster' | 'legendary'
 // ═══════════════════════════════════════════════════════════════════
-//  FRACTURE CIRCUIT — STORY MODE
-//  12-chapter underground tournament. Three modes, five difficulties,
-//  eight opponents, one champion title at the end.
+//  THE CIRCUIT LIST — STORY MODE
+//  12 ranked players. One newcomer. Zero backstory.
+//  Climb from #12 to #1 and earn your place in the scene.
 // ═══════════════════════════════════════════════════════════════════
 
 const STORY_CHAPTERS = [
-  // ── ACT I: THE PARLOR (Dumbie) ──────────────────────────────────
+  // ── TIER 1: THE BOTTOM (Dumbie) ──────────────────────────────────
   {
-    id: 'rook', name: 'ROOK', title: 'The Café Champion',
-    emoji: '🎲', color: '#4fff78', tier: 0,
+    id: 'dumbie', name: 'DUMBIE', title: 'Rank #12 · The Bottom of the List',
+    emoji: '⬜', color: '#C0C0C0', tier: 0,
     difficulty: 'dumbie', mode: 'normal', aiAsP1: false,
     preDialogue: [
-      '"I\'ve beaten everyone at this café for six months straight."',
-      '"You look new. I\'ll go easy on you."',
-      '"Actually no I won\'t. I\'m gonna destroy you."',
+      '"Oh, a new face. You here to play or just watch?"',
+      '"I\'ve been #12 for like three weeks. It\'s not that deep."',
+      '"Anyway let\'s just get this over with."',
     ],
-    postWinDialogue: 'The—the café doesn\'t count as a real tournament anyway.',
-    postLoseDialogue: 'I TOLD you. Six months. Undefeated. See you never.',
+    postWinDialogue: 'Okay that was unlucky. The board was weird. You got me on a weird board.',
+    postLoseDialogue: 'Yeah. That\'s why I\'m still #12. Good game though.',
   },
   {
-    id: 'jinx', name: 'JINX', title: 'The Superstitious Gambler',
-    emoji: '🃏', color: '#4fa8ff', tier: 0,
-    difficulty: 'dumbie', mode: 'blind_draft', aiAsP1: false,
+    id: 'orda', name: 'ORDA', title: 'Rank #11 · The Fan Favorite',
+    emoji: '🩶', color: '#888888', tier: 0,
+    difficulty: 'dumbie', mode: 'normal', aiAsP1: false,
     preDialogue: [
-      '"Standard draft is for cowards who fear fate."',
-      '"Blind draft reveals who you REALLY are."',
-      '"My lucky socks say I win today. They\'ve never been wrong."',
+      '"You beat Dumbie? Okay, everyone beats Dumbie."',
+      '"But you\'re new here, right? I can tell."',
+      '"No hard feelings — I just can\'t let a newcomer skip past me."',
     ],
-    postWinDialogue: 'The socks lied. THE SOCKS LIED TO ME.',
-    postLoseDialogue: 'Told you. Socks don\'t lie. Better luck next universe.',
+    postWinDialogue: 'Okay wow. That was actually really clean. Where did you come from?',
+    postLoseDialogue: 'Ha! Nice try. The crowd loves a comeback story, but not today.',
   },
-  // ── ACT II: THE MAIN TABLE (Elite) ──────────────────────────────
+  // ── TIER 2: FIRST REAL WALL (Elite) ──────────────────────────────
   {
-    id: 'ace', name: 'ACE', title: 'The Local Legend',
-    emoji: '♠️', color: '#50aaff', tier: 1,
-    difficulty: 'elite', mode: 'normal', aiAsP1: false,
-    preDialogue: [
-      '"Oh, you beat Rook and Jinx? Congratulations on beating children."',
-      '"I\'ve placed top 3 at three regional tournaments."',
-      '"Come back when you\'ve actually played someone real."',
-    ],
-    postWinDialogue: 'Regional tournaments are rigged anyway. Everyone knows that.',
-    postLoseDialogue: 'Three regionals. THREE. What do you have? Nothing.',
-  },
-  {
-    id: 'shuffle', name: 'SHUFFLE', title: 'The Chaos Architect',
-    emoji: '🌀', color: '#a050ff', tier: 1,
+    id: 'elite', name: 'ELITE', title: 'Rank #10 · The Gatekeeper',
+    emoji: '🟩', color: '#69FF47', tier: 1,
     difficulty: 'elite', mode: 'blind_draft', aiAsP1: false,
     preDialogue: [
-      '"You beat Ace with a predictable draft strategy. I watched."',
-      '"In blind draft, your precious preparation means nothing."',
-      '"Chaos is the only honest game."',
+      '"You don\'t have a ranked record. Not a single match on the board."',
+      '"This scene isn\'t for people who just walk in off the street."',
+      '"Blind draft. No prep. Let\'s see if you actually know the game."',
     ],
-    postWinDialogue: 'Fine. Maybe chaos isn\'t everything. DON\'T quote me on that.',
-    postLoseDialogue: 'Chaos wins again. As it always has. As it always will.',
+    postWinDialogue: '...Fine. You know the game. I\'ll give you that.',
+    postLoseDialogue: 'No record. No ranking. No business being here. Come back when you\'ve earned it.',
   },
   {
-    id: 'brox', name: 'BROX', title: 'The Territorial Brute',
-    emoji: '🦍', color: '#ff8c28', tier: 1,
+    id: 'judev', name: 'JUDEV', title: 'Rank #9 · The Grinder',
+    emoji: '🟢', color: '#2DB53B', tier: 1,
+    difficulty: 'elite', mode: 'normal', aiAsP1: false,
+    preDialogue: [
+      '"I don\'t care who you beat."',
+      '"Results only."',
+      '"Let\'s go."',
+    ],
+    postWinDialogue: 'Good.',
+    postLoseDialogue: 'Expected. Next time, play cleaner.',
+  },
+  {
+    id: 'sefia', name: 'SEFIA', title: 'Rank #8 · The Watcher',
+    emoji: '🌲', color: '#1A7A2A', tier: 1,
     difficulty: 'elite', mode: 'mirror_war', aiAsP1: false,
     preDialogue: [
-      '"Bigger board. All pieces. No draft. No excuses."',
-      '"This is where the smart kids cry and go home."',
-      '"I\'ve never lost a Mirror War. Not once. Not ever."',
+      '"I\'ve been watching you since your first match."',
+      '"You tend to build inward. You protect your center too early."',
+      '"Big board. All pieces. Let\'s see if I\'m right."',
     ],
-    postWinDialogue: '...I need a bigger board.',
-    postLoseDialogue: 'Mirror War favors the relentless. That\'s me. That\'s always been me.',
+    postWinDialogue: 'You changed your pattern. That\'s... not what I expected. Good.',
+    postLoseDialogue: 'You built inward. Again. Just like I knew you would.',
   },
-  // ── ACT III: THE SHADOW CIRCUIT (Tactician) ─────────────────────
+  // ── TIER 3: THE MIND GAMES (Tactician) ───────────────────────────
   {
-    id: 'cipher', name: 'CIPHER', title: 'The Silent Analyst',
-    emoji: '👁️', color: '#a050ff', tier: 2,
-    difficulty: 'tactician', mode: 'normal', aiAsP1: false,
-    preDialogue: [
-      '"I\'ve watched all five of your matches."',
-      '"You favor P and I pieces in the draft. You always have."',
-      '"I\'ve already planned my response to every move you\'ll make."',
-    ],
-    postWinDialogue: '...Recalculating. You deviated from the model.',
-    postLoseDialogue: 'Every move you made was accounted for. Every single one.',
-  },
-  {
-    id: 'vex', name: 'VEX', title: 'The Weaponized Wildcard',
-    emoji: '🎭', color: '#ff50aa', tier: 2,
+    id: 'tactician', name: 'TACTICIAN', title: 'Rank #7 · The Disruptor',
+    emoji: '🔷', color: '#4FC3F7', tier: 2,
     difficulty: 'tactician', mode: 'blind_draft', aiAsP1: false,
     preDialogue: [
-      '"Cipher tried to read you. I prefer to break you."',
-      '"Any piece can be a weapon. You just haven\'t learned how yet."',
-      '"Blind draft is where Tacticians separate from pretenders."',
+      '"I don\'t play to win. I play to make you lose."',
+      '"There\'s a difference. Most people don\'t figure that out until it\'s too late."',
+      '"Blind draft. You\'ll have no idea what to deny me."',
     ],
-    postWinDialogue: 'Okay. You\'re not a pretender. I acknowledge this. Grudgingly.',
-    postLoseDialogue: 'ANY piece. A weapon. I proved it.',
+    postWinDialogue: 'You held your space. Most people crack before that. Interesting.',
+    postLoseDialogue: 'You were gone before you realized it. That\'s the whole point.',
   },
   {
-    id: 'monolith', name: 'MONOLITH', title: 'The Immovable Wall',
-    emoji: '🏯', color: '#ff8c28', tier: 2,
-    difficulty: 'tactician', mode: 'mirror_war', aiAsP1: false,
+    id: 'lilica', name: 'LILICA', title: 'Rank #6 · The Rising Star',
+    emoji: '🔵', color: '#1565C0', tier: 2,
+    difficulty: 'tactician', mode: 'normal', aiAsP1: false,
     preDialogue: [
-      '"On a 20×12 board, defense is everything."',
-      '"I build walls. They grow. They connect. They close."',
-      '"You will run out of space before I run out of patience."',
+      '"Oh! A newcomer in the top half. I love this."',
+      '"I haven\'t lost a standard match in two months."',
+      '"I\'m actually really excited to see what you do."',
     ],
-    postWinDialogue: 'The wall had a crack. I\'ll find it. I\'ll seal it.',
-    postLoseDialogue: 'You ran out of space. As everyone does. As everyone will.',
+    postWinDialogue: 'Okay. Okay! That\'s the first time in a while. You\'re the real thing, aren\'t you.',
+    postLoseDialogue: 'See, this is why I love this game. You never stood a chance and you didn\'t even know it.',
   },
-  // ── ACT IV: THE INNER SANCTUM (Grandmaster) ─────────────────────
   {
-    id: 'architect', name: 'THE ARCHITECT', title: 'Master of Territory',
-    emoji: '🏛️', color: '#ff8c28', tier: 3,
-    difficulty: 'grandmaster', mode: 'normal', aiAsP1: true,
+    id: 'drift', name: 'DRIFT', title: 'Rank #5 · The Unknown',
+    emoji: '🟣', color: '#CE93D8', tier: 2,
+    difficulty: 'tactician', mode: 'blind_draft', aiAsP1: false,
     preDialogue: [
-      '"Every cell on this board is already mine."',
-      '"You just don\'t know it yet."',
-      '"I claimed it the moment you sat down."',
+      '"..."',
+      '"..."',
+      '"..."',
     ],
-    postWinDialogue: 'Impossible. I modeled every partition. Every partition.',
-    postLoseDialogue: 'You felt it, didn\'t you? The board closing around you. That was me.',
+    postWinDialogue: '.',
+    postLoseDialogue: '...',
   },
+  // ── TIER 4: THE IMMOVABLE (Grandmaster) ──────────────────────────
   {
-    id: 'ironatlas', name: 'IRON ATLAS', title: 'Lord of the Horizon',
-    emoji: '⚙️', color: '#ff5050', tier: 3,
+    id: 'grand', name: 'GRAND', title: 'Rank #4 · Three Years Unmoved',
+    emoji: '🟪', color: '#6A1B9A', tier: 3,
     difficulty: 'grandmaster', mode: 'mirror_war', aiAsP1: true,
     preDialogue: [
-      '"You beat The Architect on a small board."',
-      '"Now face me on the only board that matters."',
-      '"Twenty by twelve. One hundred and twenty cells each. No mercy."',
+      '"Top five for three years."',
+      '"I\'ve seen a hundred climbers reach this point."',
+      '"Prove you\'re not just another one."',
     ],
-    postWinDialogue: 'The horizon... moved.',
-    postLoseDialogue: 'I control the horizon. The horizon doesn\'t negotiate.',
+    postWinDialogue: 'Three years. You\'re the first. Remember that.',
+    postLoseDialogue: 'A hundred climbers. A hundred losses. Now a hundred and one.',
   },
-  // ── ACT V: FINAL CIRCUIT (Legendary) ────────────────────────────
   {
-    id: 'phantom', name: 'PHANTOM', title: 'The Fork Master',
-    emoji: '👻', color: '#ff2855', tier: 4,
-    difficulty: 'legendary', mode: 'normal', aiAsP1: true,
+    id: 'axia', name: 'AXIA', title: 'Rank #3 · The Variable',
+    emoji: '🟡', color: '#FFB300', tier: 3,
+    difficulty: 'grandmaster', mode: 'normal', aiAsP1: true,
     preDialogue: [
-      '"You\'ve come a long way."',
-      '"But you\'ve never faced someone who already knows your next three moves."',
-      '"The fork is already set. You just can\'t see it."',
+      '"I\'ve run the numbers on your last seven matches."',
+      '"Statistically, you have a 23% chance of winning today."',
+      '"I find it useful to be transparent. It changes nothing."',
     ],
-    postWinDialogue: 'You saw the fork. No one sees the fork.',
-    postLoseDialogue: 'Did you see it coming? You didn\'t. You never do.',
+    postWinDialogue: 'The model was wrong. I\'ll need to update the variable. You\'re... more than I calculated.',
+    postLoseDialogue: '23%. That\'s what the model said. The model is usually right.',
   },
+  // ── TIER 5: THE TOP (Legendary) ──────────────────────────────────
   {
-    id: 'fracture', name: 'THE FRACTURE', title: 'Circuit\'s Undefeated Champion',
-    emoji: '💠', color: '#ff2855', tier: 4,
+    id: 'mumu', name: 'MUMU', title: 'Rank #2 · The Cheerful Terror',
+    emoji: '🟠', color: '#E65100', tier: 4,
     difficulty: 'legendary', mode: 'mirror_war', aiAsP1: true,
     preDialogue: [
-      '"You actually made it."',
-      '"Eleven opponents. Three modes. All cleared."',
-      '"But the circuit doesn\'t end until someone breaks me. And no one has."',
+      '"Oh WOW you actually made it here! I\'ve been rooting for you!"',
+      '"Honestly you\'re so fun to watch. The way you play is really something."',
+      '"Okay! Big board, all pieces — and I am going to absolutely wreck you. Let\'s go!"',
     ],
-    postWinDialogue: '...The circuit is yours.',
-    postLoseDialogue: 'The Fracture Circuit remains undefeated. As it always has.',
+    postWinDialogue: 'YOOO! Okay! OKAY! That was so good! Go get Zero! You\'ve got this!',
+    postLoseDialogue: 'Hehe~ You\'ll get me next time! ...Probably. Maybe. We\'ll see!',
+  },
+  {
+    id: 'zero', name: 'LEGENDARY ZERO', title: 'Rank #1 · The Standard',
+    emoji: '🔴', color: '#D50000', tier: 4,
+    difficulty: 'legendary', mode: 'mirror_war', aiAsP1: true,
+    preDialogue: [
+      '"I watched every single one of your matches."',
+      '"You didn\'t come here with a story. No record, no reputation, nothing."',
+      '"That\'s exactly why I\'ve been waiting."',
+    ],
+    postWinDialogue: 'The top is yours. You didn\'t just beat me — you earned this place. Don\'t waste it.',
+    postLoseDialogue: 'You\'re close. Closer than most ever get. Come back when you\'re ready. I\'ll be here.',
   },
 ];
 
 // ── Story Progress (localStorage) ──────────────────────────────────
-const STORY_PROGRESS_KEY = 'pb_fracture_circuit_v1';
+const STORY_PROGRESS_KEY = 'pb_circuit_list_v1';
 
 function loadStoryProgress() {
   try {
@@ -9000,11 +8963,11 @@ onBeforeUnmount(() => {
 .fcChapterCard.fcCleared:not(:hover) { filter: saturate(.7); }
 
 /* tier accent colors */
-.fcChapterCard.fcTier0 { --fc-t: 79,255,120; }
-.fcChapterCard.fcTier1 { --fc-t: 80,170,255; }
-.fcChapterCard.fcTier2 { --fc-t: 160,80,255; }
-.fcChapterCard.fcTier3 { --fc-t: 255,140,40; }
-.fcChapterCard.fcTier4 { --fc-t: 255,40,80; }
+.fcChapterCard.fcTier0 { --fc-t: 192,192,192; }
+.fcChapterCard.fcTier1 { --fc-t: 105,255,71; }
+.fcChapterCard.fcTier2 { --fc-t: 79,195,247; }
+.fcChapterCard.fcTier3 { --fc-t: 255,179,0; }
+.fcChapterCard.fcTier4 { --fc-t: 213,0,0; }
 
 .fcCardGlow {
   position: absolute; inset: 0; border-radius: 16px;
@@ -9058,9 +9021,44 @@ onBeforeUnmount(() => {
 .fcDifflegendary   { background: rgba(255,40,80,.12);  color: #ff2855; border: 1px solid rgba(255,40,80,.25); }
 
 /* Champion banner */
+/* ── Free Battle ────────────────────────────────────────────── */
+.fcFreeBattle {
+  margin-top: 28px; padding: 20px;
+  border-radius: 16px;
+  border: 1px solid rgba(255,255,255,.08);
+  background: rgba(255,255,255,.03);
+}
+.fcFreeBattleTitle {
+  font-size: 13px; font-weight: 900; letter-spacing: 3px;
+  color: rgba(255,255,255,.7); margin-bottom: 4px;
+}
+.fcFreeBattleSub {
+  font-size: 11px; opacity: .4; margin-bottom: 14px; letter-spacing: 1px;
+}
+.fcFreeBattleGrid {
+  display: flex; flex-wrap: wrap; gap: 8px;
+}
+.fcFbCard {
+  position: relative; overflow: hidden;
+  display: flex; flex-direction: column; align-items: center; justify-content: center;
+  width: 72px; padding: 10px 6px; border-radius: 10px; cursor: pointer;
+  border: 1px solid rgba(var(--fb-color, 255,255,255), 0.3);
+  background: rgba(var(--fb-color, 255,255,255), 0.06);
+  transition: transform .15s, background .15s;
+  gap: 2px;
+}
+.fcFbCard:hover { transform: translateY(-2px); background: rgba(var(--fb-color, 255,255,255), 0.14); }
+.fcFbGlow {
+  position: absolute; inset: 0;
+  background: radial-gradient(ellipse at 50% 0%, rgba(var(--fb-color, 255,255,255),.15), transparent 70%);
+  pointer-events: none;
+}
+.fcFbNum { font-size: 9px; opacity: .4; letter-spacing: 1px; font-weight: 700; }
+.fcFbEmoji { font-size: 18px; }
+.fcFbName { font-size: 8px; font-weight: 900; letter-spacing: 1px; color: rgb(var(--fb-color, 255,255,255)); margin-top: 2px; }
+.fcFbMode { font-size: 7px; opacity: .4; letter-spacing: .5px; }
+
 .fcChampionBanner {
-  position: relative; text-align: center;
-  margin-top: 20px; padding: 28px 20px;
   border-radius: 20px;
   border: 1px solid rgba(255,215,0,.4);
   background: linear-gradient(135deg, rgba(255,200,0,.1), rgba(255,80,0,.1));
