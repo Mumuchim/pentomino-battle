@@ -344,6 +344,21 @@
 
           <!-- NORMAL SOLO BUTTONS -->
           <div v-else class="mnBtns">
+            <!-- FRACTURE CIRCUIT (Story Mode) -->
+            <button class="mnBtn fractureCircuitBtn" @mouseenter="uiHover" @click="uiClick(); screen = 'story'">
+              <div class="fcBtnInner">
+                <div class="fcBtnGlow"></div>
+                <div class="fcBtnIcon">⚡</div>
+                <div class="fcBtnText">
+                  <div class="fcBtnTitle">FRACTURE CIRCUIT</div>
+                  <div class="fcBtnSub">Story Mode · 12 Chapters</div>
+                </div>
+                <div class="fcBtnProgress">
+                  <span class="fcBtnProgressNum">{{ storyProgress.completed }}/12</span>
+                  <span class="fcBtnProgressLabel">CLEARED</span>
+                </div>
+              </div>
+            </button>
             <!-- VERSUS AI -->
             <button class="mnBtn" @mouseenter="uiHover" @click="uiClick(); startPracticeAi()">
               <img :src="soloVsAiBtnUrl" class="mnBtnImg" alt="VERSUS AI" />
@@ -359,6 +374,71 @@
           </div>
         </div>
 
+      </section>
+
+
+      <!-- ══════════════════════════════════════════════════════════
+           FRACTURE CIRCUIT — STORY MODE
+      ═══════════════════════════════════════════════════════════ -->
+      <section v-else-if="screen === 'story'" class="menuShell fcShell">
+        <button class="subScreenBackBtn" @click="goBack">← BACK</button>
+
+        <div class="fcHeader">
+          <div class="fcHeaderGlow"></div>
+          <div class="fcHeaderBolt">⚡</div>
+          <div class="fcHeaderTitle">FRACTURE CIRCUIT</div>
+          <div class="fcHeaderSub">Underground Tournament · 12 Chapters</div>
+          <div class="fcHeaderProgress">
+            <div class="fcProgressBar">
+              <div class="fcProgressFill" :style="{ width: (storyProgress.completed / 12 * 100) + '%' }"></div>
+            </div>
+            <span class="fcProgressText">{{ storyProgress.completed }} / 12 CLEARED</span>
+          </div>
+        </div>
+
+        <div class="fcChapterList">
+          <div
+            v-for="(ch, idx) in STORY_CHAPTERS"
+            :key="ch.id"
+            class="fcChapterCard"
+            :class="[
+              `fcTier${ch.tier}`,
+              { fcLocked: !storyProgress.unlocked.has(idx), fcCleared: storyProgress.cleared.has(idx), fcActive: idx === storyProgress.completed }
+            ]"
+            @click="storyProgress.unlocked.has(idx) && startStoryChapter(idx)"
+          >
+            <!-- cleared ribbon -->
+            <div v-if="storyProgress.cleared.has(idx)" class="fcClearedBadge">✓ CLEARED</div>
+            <div class="fcCardGlow"></div>
+            <div class="fcCardNum">{{ String(idx + 1).padStart(2, '0') }}</div>
+            <div class="fcCardEmoji">
+              <span v-if="!storyProgress.unlocked.has(idx)">🔒</span>
+              <span v-else>{{ ch.emoji }}</span>
+            </div>
+            <div class="fcCardBody">
+              <div class="fcCardName">{{ ch.name }}</div>
+              <div class="fcCardTitle">{{ ch.title }}</div>
+              <div class="fcCardBadges">
+                <span class="fcModeBadge" :class="`fcMode${ch.mode}`">
+                  {{ ch.mode === 'normal' ? 'STANDARD' : ch.mode === 'blind_draft' ? 'BLIND DRAFT' : 'MIRROR WAR' }}
+                </span>
+                <span class="fcDiffBadge" :class="`fcDiff${ch.difficulty}`">
+                  {{ ch.difficulty.toUpperCase() }}
+                </span>
+              </div>
+            </div>
+            <div v-if="storyProgress.unlocked.has(idx) && !storyProgress.cleared.has(idx)" class="fcCardArrow">▶</div>
+            <div v-if="idx < 11" class="fcCardConnector" :class="{ fcConnectorDone: storyProgress.cleared.has(idx) }"></div>
+          </div>
+        </div>
+
+        <!-- Champion Banner (all cleared) -->
+        <div v-if="storyProgress.completed >= 12" class="fcChampionBanner">
+          <div class="fcChampionGlow"></div>
+          <div class="fcChampionCrown">👑</div>
+          <div class="fcChampionTitle">FRACTURE CIRCUIT CHAMPION</div>
+          <div class="fcChampionSub">You broke them all.</div>
+        </div>
       </section>
 
 
@@ -1373,6 +1453,88 @@
         </div>
       </div>
     </div>
+
+<!-- ✅ FRACTURE CIRCUIT — Pre-fight cinematic -->
+    <Transition name="fcFightFade">
+      <div v-if="storyFight.active" class="fcFightOverlay">
+        <div class="fcFightBg" :style="{ '--fc-color': storyFight.chapter?.color || '#fff' }"></div>
+        <div class="fcFightCard">
+          <div class="fcFightGlow"></div>
+          <!-- Chapter number -->
+          <div class="fcFightChNum">CHAPTER {{ String(storyFight.index + 1).padStart(2,'0') }}</div>
+          <!-- Enemy portrait -->
+          <div class="fcFightEmoji">{{ storyFight.chapter?.emoji }}</div>
+          <!-- Name + title -->
+          <div class="fcFightName">{{ storyFight.chapter?.name }}</div>
+          <div class="fcFightCharTitle">{{ storyFight.chapter?.title }}</div>
+          <!-- Mode badges -->
+          <div class="fcFightBadges">
+            <span class="fcModeBadge" :class="`fcMode${storyFight.chapter?.mode}`">
+              {{ storyFight.chapter?.mode === 'normal' ? 'STANDARD' : storyFight.chapter?.mode === 'blind_draft' ? 'BLIND DRAFT' : 'MIRROR WAR' }}
+            </span>
+            <span class="fcDiffBadge" :class="`fcDiff${storyFight.chapter?.difficulty}`">
+              {{ storyFight.chapter?.difficulty?.toUpperCase() }}
+            </span>
+          </div>
+          <!-- Pre-fight dialogue -->
+          <div class="fcFightDialogue">
+            <div
+              v-for="(line, i) in storyFight.chapter?.preDialogue"
+              :key="i"
+              class="fcFightLine"
+              :style="{ animationDelay: (0.3 + i * 0.18) + 's' }"
+            >{{ line }}</div>
+          </div>
+          <!-- CTA -->
+          <button class="fcFightBeginBtn" @click="launchStoryChapterGame()">
+            <span class="fcFightBeginText">ENTER THE CIRCUIT</span>
+            <span class="fcFightBeginArrow">▶</span>
+          </button>
+        </div>
+      </div>
+    </Transition>
+
+    <!-- ✅ FRACTURE CIRCUIT — Post-fight reaction -->
+    <Transition name="fcFightFade">
+      <div v-if="storyResult.active" class="fcResultOverlay" @click.self="closeStoryResult">
+        <div class="fcResultCard" :class="storyResult.won ? 'fcResultWin' : 'fcResultLose'">
+          <div class="fcResultGlow"></div>
+          <div class="fcResultEmoji">{{ storyResult.won ? '💀' : '😤' }}</div>
+          <div class="fcResultBig">{{ storyResult.won ? 'DEFEATED' : 'TAUNTING YOU' }}</div>
+          <div class="fcResultName">{{ storyResult.chapterName }}</div>
+          <div class="fcResultQuote">"{{ storyResult.quote }}"</div>
+          <div v-if="storyResult.won && storyResult.nextChapter" class="fcResultNextPreview">
+            <div class="fcResultNextLabel">NEXT UP</div>
+            <div class="fcResultNextName">{{ storyResult.nextChapter.name }}</div>
+            <div class="fcResultNextTitle">{{ storyResult.nextChapter.title }}</div>
+          </div>
+          <div v-if="storyResult.won && !storyResult.nextChapter" class="fcResultComplete">
+            <div class="fcResultCompleteIcon">👑</div>
+            <div class="fcResultCompleteText">CIRCUIT COMPLETE</div>
+          </div>
+          <div class="fcResultActions">
+            <button v-if="storyResult.won && storyResult.nextChapter"
+              class="fcResultBtn fcResultBtnPrimary"
+              @click="closeStoryResult(); startStoryChapter(storyResult.nextIndex)">
+              NEXT CHAPTER ▶
+            </button>
+            <button v-if="storyResult.won && !storyResult.nextChapter"
+              class="fcResultBtn fcResultBtnGold"
+              @click="closeStoryResult(); screen = 'story'">
+              VIEW CIRCUIT ⚡
+            </button>
+            <button v-if="!storyResult.won"
+              class="fcResultBtn fcResultBtnPrimary"
+              @click="closeStoryResult(); startStoryChapter(storyResult.chapterIndex)">
+              TRY AGAIN ↺
+            </button>
+            <button class="fcResultBtn fcResultBtnSoft" @click="closeStoryResult(); screen = 'story'">
+              CIRCUIT MAP
+            </button>
+          </div>
+        </div>
+      </div>
+    </Transition>
 
 <!-- ✅ VS AI Difficulty Picker -->
     <Transition name="vsAiFade">
@@ -2604,7 +2766,7 @@ const phaseSub = computed(() => {
 });
 
 const canGoBack = computed(() =>
-  ["mode", "multiplayer", "solo", "channel", "lobby", "ranked",
+  ["mode", "multiplayer", "solo", "story", "channel", "lobby", "ranked",
    "leaderboards", "shop", "profile", "match-history", "puzzle", "settings", "credits"].includes(screen.value)
 );
 
@@ -2653,7 +2815,7 @@ const topPageTitle = computed(() => {
   if (screen.value === "credits")       return "CREDITS";
   return "HOME";
 });
-const showMenuChrome = computed(() => isMenuScreen.value && ["auth","mode","multiplayer","solo","channel","lobby","ranked","leaderboards","shop","profile","settings","credits"].includes(screen.value));
+const showMenuChrome = computed(() => isMenuScreen.value && ["auth","mode","multiplayer","solo","story","channel","lobby","ranked","leaderboards","shop","profile","settings","credits"].includes(screen.value));
 const showBottomBar = computed(() => showMenuChrome.value && screen.value !== 'auth');
 
 // TETR.IO-style contextual status line at the bottom
@@ -4896,6 +5058,14 @@ watch(
       if (screen.value === 'ai') {
         const humanWon = w === humanPlayer.value;
         const aiWon = w === aiPlayer.value;
+
+        // ✅ STORY MODE: intercept result and route to story handler
+        if (storyMode.active) {
+          saveAiDraftHistory(game.picks[humanPlayer.value], !!aiWon);
+          handleStoryResult(humanWon);
+          return;
+        }
+
         let newStageUnlocked = false;
         if (humanWon) { aiScore.p1++; newStageUnlocked = tryUnlockNextDifficulty(humanPlayer.value, humanPlayer.value); }
         else if (aiWon) aiScore.p2++;
@@ -6329,7 +6499,7 @@ function goBack() {
     return;
   }
   // Top-level menu screens → main menu
-  if (["multiplayer", "solo", "channel", "shop", "settings", "credits"].includes(screen.value)) {
+  if (["multiplayer", "solo", "story", "channel", "shop", "settings", "credits"].includes(screen.value)) {
     navTo("mode");
     return;
   }
@@ -6514,6 +6684,307 @@ function handlePuzzleEnd() {
 
 // ── AI Difficulty state ────────────────────────────────────────────
 // 'dumbie' | 'elite' | 'tactician' | 'grandmaster' | 'legendary'
+// ═══════════════════════════════════════════════════════════════════
+//  FRACTURE CIRCUIT — STORY MODE
+//  12-chapter underground tournament. Three modes, five difficulties,
+//  eight opponents, one champion title at the end.
+// ═══════════════════════════════════════════════════════════════════
+
+const STORY_CHAPTERS = [
+  // ── ACT I: THE PARLOR (Dumbie) ──────────────────────────────────
+  {
+    id: 'rook', name: 'ROOK', title: 'The Café Champion',
+    emoji: '🎲', color: '#4fff78', tier: 0,
+    difficulty: 'dumbie', mode: 'normal', aiAsP1: false,
+    preDialogue: [
+      '"I\'ve beaten everyone at this café for six months straight."',
+      '"You look new. I\'ll go easy on you."',
+      '"Actually no I won\'t. I\'m gonna destroy you."',
+    ],
+    postWinDialogue: 'The—the café doesn\'t count as a real tournament anyway.',
+    postLoseDialogue: 'I TOLD you. Six months. Undefeated. See you never.',
+  },
+  {
+    id: 'jinx', name: 'JINX', title: 'The Superstitious Gambler',
+    emoji: '🃏', color: '#4fa8ff', tier: 0,
+    difficulty: 'dumbie', mode: 'blind_draft', aiAsP1: false,
+    preDialogue: [
+      '"Standard draft is for cowards who fear fate."',
+      '"Blind draft reveals who you REALLY are."',
+      '"My lucky socks say I win today. They\'ve never been wrong."',
+    ],
+    postWinDialogue: 'The socks lied. THE SOCKS LIED TO ME.',
+    postLoseDialogue: 'Told you. Socks don\'t lie. Better luck next universe.',
+  },
+  // ── ACT II: THE MAIN TABLE (Elite) ──────────────────────────────
+  {
+    id: 'ace', name: 'ACE', title: 'The Local Legend',
+    emoji: '♠️', color: '#50aaff', tier: 1,
+    difficulty: 'elite', mode: 'normal', aiAsP1: false,
+    preDialogue: [
+      '"Oh, you beat Rook and Jinx? Congratulations on beating children."',
+      '"I\'ve placed top 3 at three regional tournaments."',
+      '"Come back when you\'ve actually played someone real."',
+    ],
+    postWinDialogue: 'Regional tournaments are rigged anyway. Everyone knows that.',
+    postLoseDialogue: 'Three regionals. THREE. What do you have? Nothing.',
+  },
+  {
+    id: 'shuffle', name: 'SHUFFLE', title: 'The Chaos Architect',
+    emoji: '🌀', color: '#a050ff', tier: 1,
+    difficulty: 'elite', mode: 'blind_draft', aiAsP1: false,
+    preDialogue: [
+      '"You beat Ace with a predictable draft strategy. I watched."',
+      '"In blind draft, your precious preparation means nothing."',
+      '"Chaos is the only honest game."',
+    ],
+    postWinDialogue: 'Fine. Maybe chaos isn\'t everything. DON\'T quote me on that.',
+    postLoseDialogue: 'Chaos wins again. As it always has. As it always will.',
+  },
+  {
+    id: 'brox', name: 'BROX', title: 'The Territorial Brute',
+    emoji: '🦍', color: '#ff8c28', tier: 1,
+    difficulty: 'elite', mode: 'mirror_war', aiAsP1: false,
+    preDialogue: [
+      '"Bigger board. All pieces. No draft. No excuses."',
+      '"This is where the smart kids cry and go home."',
+      '"I\'ve never lost a Mirror War. Not once. Not ever."',
+    ],
+    postWinDialogue: '...I need a bigger board.',
+    postLoseDialogue: 'Mirror War favors the relentless. That\'s me. That\'s always been me.',
+  },
+  // ── ACT III: THE SHADOW CIRCUIT (Tactician) ─────────────────────
+  {
+    id: 'cipher', name: 'CIPHER', title: 'The Silent Analyst',
+    emoji: '👁️', color: '#a050ff', tier: 2,
+    difficulty: 'tactician', mode: 'normal', aiAsP1: false,
+    preDialogue: [
+      '"I\'ve watched all five of your matches."',
+      '"You favor P and I pieces in the draft. You always have."',
+      '"I\'ve already planned my response to every move you\'ll make."',
+    ],
+    postWinDialogue: '...Recalculating. You deviated from the model.',
+    postLoseDialogue: 'Every move you made was accounted for. Every single one.',
+  },
+  {
+    id: 'vex', name: 'VEX', title: 'The Weaponized Wildcard',
+    emoji: '🎭', color: '#ff50aa', tier: 2,
+    difficulty: 'tactician', mode: 'blind_draft', aiAsP1: false,
+    preDialogue: [
+      '"Cipher tried to read you. I prefer to break you."',
+      '"Any piece can be a weapon. You just haven\'t learned how yet."',
+      '"Blind draft is where Tacticians separate from pretenders."',
+    ],
+    postWinDialogue: 'Okay. You\'re not a pretender. I acknowledge this. Grudgingly.',
+    postLoseDialogue: 'ANY piece. A weapon. I proved it.',
+  },
+  {
+    id: 'monolith', name: 'MONOLITH', title: 'The Immovable Wall',
+    emoji: '🏯', color: '#ff8c28', tier: 2,
+    difficulty: 'tactician', mode: 'mirror_war', aiAsP1: false,
+    preDialogue: [
+      '"On a 20×12 board, defense is everything."',
+      '"I build walls. They grow. They connect. They close."',
+      '"You will run out of space before I run out of patience."',
+    ],
+    postWinDialogue: 'The wall had a crack. I\'ll find it. I\'ll seal it.',
+    postLoseDialogue: 'You ran out of space. As everyone does. As everyone will.',
+  },
+  // ── ACT IV: THE INNER SANCTUM (Grandmaster) ─────────────────────
+  {
+    id: 'architect', name: 'THE ARCHITECT', title: 'Master of Territory',
+    emoji: '🏛️', color: '#ff8c28', tier: 3,
+    difficulty: 'grandmaster', mode: 'normal', aiAsP1: true,
+    preDialogue: [
+      '"Every cell on this board is already mine."',
+      '"You just don\'t know it yet."',
+      '"I claimed it the moment you sat down."',
+    ],
+    postWinDialogue: 'Impossible. I modeled every partition. Every partition.',
+    postLoseDialogue: 'You felt it, didn\'t you? The board closing around you. That was me.',
+  },
+  {
+    id: 'ironatlas', name: 'IRON ATLAS', title: 'Lord of the Horizon',
+    emoji: '⚙️', color: '#ff5050', tier: 3,
+    difficulty: 'grandmaster', mode: 'mirror_war', aiAsP1: true,
+    preDialogue: [
+      '"You beat The Architect on a small board."',
+      '"Now face me on the only board that matters."',
+      '"Twenty by twelve. One hundred and twenty cells each. No mercy."',
+    ],
+    postWinDialogue: 'The horizon... moved.',
+    postLoseDialogue: 'I control the horizon. The horizon doesn\'t negotiate.',
+  },
+  // ── ACT V: FINAL CIRCUIT (Legendary) ────────────────────────────
+  {
+    id: 'phantom', name: 'PHANTOM', title: 'The Fork Master',
+    emoji: '👻', color: '#ff2855', tier: 4,
+    difficulty: 'legendary', mode: 'normal', aiAsP1: true,
+    preDialogue: [
+      '"You\'ve come a long way."',
+      '"But you\'ve never faced someone who already knows your next three moves."',
+      '"The fork is already set. You just can\'t see it."',
+    ],
+    postWinDialogue: 'You saw the fork. No one sees the fork.',
+    postLoseDialogue: 'Did you see it coming? You didn\'t. You never do.',
+  },
+  {
+    id: 'fracture', name: 'THE FRACTURE', title: 'Circuit\'s Undefeated Champion',
+    emoji: '💠', color: '#ff2855', tier: 4,
+    difficulty: 'legendary', mode: 'mirror_war', aiAsP1: true,
+    preDialogue: [
+      '"You actually made it."',
+      '"Eleven opponents. Three modes. All cleared."',
+      '"But the circuit doesn\'t end until someone breaks me. And no one has."',
+    ],
+    postWinDialogue: '...The circuit is yours.',
+    postLoseDialogue: 'The Fracture Circuit remains undefeated. As it always has.',
+  },
+];
+
+// ── Story Progress (localStorage) ──────────────────────────────────
+const STORY_PROGRESS_KEY = 'pb_fracture_circuit_v1';
+
+function loadStoryProgress() {
+  try {
+    const raw = localStorage.getItem(STORY_PROGRESS_KEY);
+    if (raw) {
+      const saved = JSON.parse(raw);
+      return {
+        cleared: new Set(saved.cleared || []),
+        unlocked: new Set(saved.unlocked || [0]),
+        completed: saved.completed || 0,
+      };
+    }
+  } catch {}
+  return { cleared: new Set(), unlocked: new Set([0]), completed: 0 };
+}
+
+function saveStoryProgress() {
+  try {
+    localStorage.setItem(STORY_PROGRESS_KEY, JSON.stringify({
+      cleared: [...storyProgress.cleared],
+      unlocked: [...storyProgress.unlocked],
+      completed: storyProgress.completed,
+    }));
+  } catch {}
+}
+
+const storyProgress = reactive(loadStoryProgress());
+
+// ── Story Mode State ────────────────────────────────────────────────
+// storyFight: the pre-fight cinematic overlay
+const storyFight = reactive({ active: false, chapter: null, index: -1 });
+
+// storyResult: the post-fight result overlay
+const storyResult = reactive({
+  active: false, won: false,
+  quote: '', chapterName: '', chapterIndex: -1,
+  nextChapter: null, nextIndex: -1,
+});
+
+// Track whether the current AI game is a story chapter
+const storyMode = reactive({ active: false, chapterIndex: -1 });
+
+// ── Start a Story Chapter ───────────────────────────────────────────
+function startStoryChapter(idx) {
+  const ch = STORY_CHAPTERS[idx];
+  if (!ch) return;
+  uiClick();
+  storyFight.chapter = ch;
+  storyFight.index = idx;
+  storyFight.active = true;
+}
+
+function launchStoryChapterGame() {
+  const ch = storyFight.chapter;
+  const idx = storyFight.index;
+  storyFight.active = false;
+
+  storyMode.active = true;
+  storyMode.chapterIndex = idx;
+
+  aiDifficulty.value = ch.difficulty;
+  aiPlayer.value = ch.aiAsP1 ? 1 : 2;
+  aiRound.value = 1;
+  aiScore.p1 = 0;
+  aiScore.p2 = 0;
+  stopPolling();
+  myPlayer.value = null;
+
+  if (ch.mode === 'normal') {
+    _startAiGame();
+  } else if (ch.mode === 'blind_draft') {
+    _startStoryBlindDraft();
+  } else if (ch.mode === 'mirror_war') {
+    _startStoryMirrorWar();
+  }
+}
+
+function _startStoryBlindDraft() {
+  screen.value = 'ai';
+  const seed = Math.floor(Math.random() * 0xFFFFFFFF);
+  const { picks1, picks2 } = randomSplitPieces(ALL_PIECE_KEYS, seed);
+  game.boardW = 10;
+  game.boardH = 6;
+  game.allowFlip = allowFlip.value;
+  game.startPlacementDirect(picks1, picks2, 10, 6);
+  tryPlayGameBgm();
+}
+
+function _startStoryMirrorWar() {
+  screen.value = 'ai';
+  game.boardW = 20;
+  game.boardH = 12;
+  game.allowFlip = allowFlip.value;
+  game.startPlacementDirect(ALL_PIECE_KEYS, ALL_PIECE_KEYS, 20, 12);
+  game.battleClockInitSec = 480;
+  game.battleClockSec = { 1: 480, 2: 480 };
+  tryPlayGameBgm();
+}
+
+// ── Handle Story Win/Loss ───────────────────────────────────────────
+function handleStoryResult(humanWon) {
+  const idx = storyMode.chapterIndex;
+  const ch = STORY_CHAPTERS[idx];
+  storyMode.active = false;
+  storyMode.chapterIndex = -1;
+
+  if (humanWon) {
+    // Mark chapter cleared
+    storyProgress.cleared.add(idx);
+    // Unlock next chapter
+    const nextIdx = idx + 1;
+    if (nextIdx < STORY_CHAPTERS.length) {
+      storyProgress.unlocked.add(nextIdx);
+    }
+    // Update completed count
+    storyProgress.completed = storyProgress.cleared.size;
+    saveStoryProgress();
+
+    const nextCh = nextIdx < STORY_CHAPTERS.length ? STORY_CHAPTERS[nextIdx] : null;
+    storyResult.won = true;
+    storyResult.quote = ch.postWinDialogue;
+    storyResult.chapterName = ch.name;
+    storyResult.chapterIndex = idx;
+    storyResult.nextChapter = nextCh;
+    storyResult.nextIndex = nextIdx;
+    setTimeout(() => { storyResult.active = true; }, 900);
+  } else {
+    storyResult.won = false;
+    storyResult.quote = ch.postLoseDialogue;
+    storyResult.chapterName = ch.name;
+    storyResult.chapterIndex = idx;
+    storyResult.nextChapter = null;
+    storyResult.nextIndex = -1;
+    setTimeout(() => { storyResult.active = true; }, 900);
+  }
+}
+
+function closeStoryResult() {
+  storyResult.active = false;
+}
+
 const aiDifficulty = ref('dumbie');
 
 // aiPlayer: which player number the AI controls (1 for grandmaster+, 2 for others)
@@ -8394,6 +8865,378 @@ onBeforeUnmount(() => {
 .vsAiClose:hover{
   color: rgba(255,255,255,0.8);
   border-color: rgba(255,255,255,0.25);
+}
+
+/* ============================================================
+   FRACTURE CIRCUIT — STORY MODE
+   ============================================================ */
+
+/* Solo menu button */
+.fractureCircuitBtn {
+  width: 100%;
+  background: none;
+  border: none;
+  padding: 0;
+  cursor: pointer;
+  margin-bottom: 6px;
+}
+.fcBtnInner {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 14px 18px;
+  border-radius: 18px;
+  border: 1px solid rgba(255, 215, 0, 0.25);
+  background: linear-gradient(135deg, rgba(255,180,0,0.08), rgba(255,40,80,0.08));
+  overflow: hidden;
+  transition: border-color .2s, background .2s, transform .15s;
+}
+.fcBtnInner:hover {
+  border-color: rgba(255, 215, 0, 0.5);
+  background: linear-gradient(135deg, rgba(255,180,0,0.15), rgba(255,40,80,0.14));
+  transform: scale(1.02);
+}
+.fcBtnGlow {
+  position: absolute; inset: 0;
+  background: radial-gradient(ellipse 80% 120% at 0% 50%, rgba(255,200,0,0.12), transparent 60%);
+  pointer-events: none;
+}
+.fcBtnIcon { font-size: 28px; z-index: 1; }
+.fcBtnText { flex: 1; text-align: left; z-index: 1; }
+.fcBtnTitle {
+  font-size: 15px; font-weight: 900;
+  letter-spacing: 3px; text-transform: uppercase;
+  background: linear-gradient(90deg, #ffd700, #ff8c28, #ff2855);
+  -webkit-background-clip: text; background-clip: text; color: transparent;
+}
+.fcBtnSub { font-size: 11px; letter-spacing: 2px; opacity: .5; margin-top: 2px; }
+.fcBtnProgress { text-align: right; z-index: 1; }
+.fcBtnProgressNum { display: block; font-size: 18px; font-weight: 900; color: #ffd700; }
+.fcBtnProgressLabel { font-size: 9px; letter-spacing: 2px; opacity: .45; }
+
+/* ── Story screen shell ─────────────────────────────────────── */
+.fcShell {
+  padding: 20px 16px 40px;
+  max-width: 600px;
+  margin: 0 auto;
+  overflow-y: auto;
+}
+.fcHeader {
+  position: relative;
+  text-align: center;
+  padding: 20px 0 24px;
+  overflow: hidden;
+}
+.fcHeaderGlow {
+  position: absolute; inset: -40px;
+  background: radial-gradient(ellipse 80% 60% at 50% 0%, rgba(255,180,0,0.18), transparent 65%);
+  filter: blur(24px); pointer-events: none;
+}
+.fcHeaderBolt { font-size: 36px; position: relative; }
+.fcHeaderTitle {
+  font-size: 26px; font-weight: 900; letter-spacing: 5px;
+  text-transform: uppercase; position: relative;
+  background: linear-gradient(90deg, #ffd700, #ff8c28, #ff2855);
+  -webkit-background-clip: text; background-clip: text; color: transparent;
+  margin-top: 4px;
+}
+.fcHeaderSub { font-size: 11px; letter-spacing: 3px; opacity: .45; margin-top: 4px; position: relative; }
+.fcHeaderProgress { margin-top: 16px; position: relative; }
+.fcProgressBar {
+  height: 4px; background: rgba(255,255,255,0.08); border-radius: 4px;
+  overflow: hidden; margin-bottom: 6px;
+}
+.fcProgressFill {
+  height: 100%;
+  background: linear-gradient(90deg, #ffd700, #ff8c28, #ff2855);
+  border-radius: 4px;
+  transition: width .6s cubic-bezier(.22,1,.36,1);
+}
+.fcProgressText { font-size: 11px; letter-spacing: 2px; opacity: .5; }
+
+/* ── Chapter list ───────────────────────────────────────────── */
+.fcChapterList { display: flex; flex-direction: column; gap: 0; position: relative; }
+
+/* Vertical connector line between cards */
+.fcChapterList::before {
+  content: '';
+  position: absolute;
+  left: 28px; top: 30px; bottom: 30px; width: 2px;
+  background: linear-gradient(180deg,
+    rgba(79,255,120,.4), rgba(80,170,255,.4), rgba(80,170,255,.4),
+    rgba(160,80,255,.4), rgba(160,80,255,.4), rgba(160,80,255,.4),
+    rgba(255,140,40,.4), rgba(255,140,40,.4),
+    rgba(255,40,80,.4), rgba(255,40,80,.4)
+  );
+  opacity: .3;
+}
+
+.fcChapterCard {
+  position: relative;
+  display: flex; align-items: center; gap: 14px;
+  padding: 14px 16px 14px 14px;
+  border-radius: 16px;
+  border: 1px solid rgba(255,255,255,0.06);
+  background: rgba(255,255,255,0.02);
+  cursor: pointer;
+  transition: transform .15s, border-color .15s, background .15s, box-shadow .15s;
+  margin-bottom: 6px;
+  overflow: visible;
+}
+.fcChapterCard.fcLocked { opacity: .4; cursor: not-allowed; filter: grayscale(.7); }
+.fcChapterCard:not(.fcLocked):hover {
+  transform: translateX(6px) scale(1.01);
+  border-color: rgba(var(--fc-t, 255,255,255), .35);
+  background: rgba(var(--fc-t, 255,255,255), .07);
+  box-shadow: 0 0 24px rgba(var(--fc-t, 255,255,255), .12), 0 4px 20px rgba(0,0,0,.4);
+}
+.fcChapterCard.fcActive {
+  border-color: rgba(255, 215, 0, 0.4) !important;
+  background: rgba(255, 200, 0, 0.07) !important;
+  box-shadow: 0 0 20px rgba(255,200,0,.14);
+}
+.fcChapterCard.fcCleared { opacity: .75; }
+.fcChapterCard.fcCleared:not(:hover) { filter: saturate(.7); }
+
+/* tier accent colors */
+.fcChapterCard.fcTier0 { --fc-t: 79,255,120; }
+.fcChapterCard.fcTier1 { --fc-t: 80,170,255; }
+.fcChapterCard.fcTier2 { --fc-t: 160,80,255; }
+.fcChapterCard.fcTier3 { --fc-t: 255,140,40; }
+.fcChapterCard.fcTier4 { --fc-t: 255,40,80; }
+
+.fcCardGlow {
+  position: absolute; inset: 0; border-radius: 16px;
+  background: radial-gradient(ellipse 120% 200% at 0% 50%, rgba(var(--fc-t,255,255,255),.06), transparent 60%);
+  pointer-events: none;
+}
+.fcCardNum {
+  font-size: 11px; font-weight: 900; letter-spacing: 1px;
+  opacity: .25; width: 22px; flex-shrink: 0; z-index: 1;
+}
+.fcCardEmoji { font-size: 24px; flex-shrink: 0; z-index: 1; }
+.fcCardBody { flex: 1; z-index: 1; }
+.fcCardName {
+  font-size: 14px; font-weight: 900; letter-spacing: 2.5px;
+  text-transform: uppercase;
+  color: rgba(var(--fc-t,255,255,255), .92);
+}
+.fcCardTitle { font-size: 11px; opacity: .5; margin-top: 2px; letter-spacing: .5px; }
+.fcCardBadges { display: flex; gap: 6px; margin-top: 6px; flex-wrap: wrap; }
+.fcCardArrow {
+  font-size: 12px; opacity: .4; z-index: 1;
+  transition: opacity .15s, transform .15s;
+}
+.fcChapterCard:not(.fcLocked):hover .fcCardArrow {
+  opacity: .9; transform: translateX(4px);
+  color: rgb(var(--fc-t, 255,255,255));
+}
+.fcCardConnector { display: none; } /* connector handled by ::before pseudo */
+.fcClearedBadge {
+  position: absolute; top: -8px; right: 14px;
+  background: rgba(79,255,120,.18);
+  border: 1px solid rgba(79,255,120,.4);
+  color: #4fff78; font-size: 9px; font-weight: 900;
+  letter-spacing: 2px; padding: 2px 8px;
+  border-radius: 6px; z-index: 2;
+}
+
+/* Mode & diff badges (shared) */
+.fcModeBadge, .fcDiffBadge {
+  font-size: 9px; font-weight: 900; letter-spacing: 1.5px;
+  padding: 2px 7px; border-radius: 5px;
+  text-transform: uppercase;
+}
+.fcModenormal     { background: rgba(80,170,255,.15); color: #50aaff; border: 1px solid rgba(80,170,255,.3); }
+.fcModeblind_draft{ background: rgba(160,80,255,.15); color: #c860ff; border: 1px solid rgba(160,80,255,.3); }
+.fcModemirror_war { background: rgba(255,80,50,.15);  color: #ff6040; border: 1px solid rgba(255,80,50,.3); }
+.fcDiffdumbie      { background: rgba(79,255,120,.12); color: #4fff78; border: 1px solid rgba(79,255,120,.25); }
+.fcDiffelite       { background: rgba(80,170,255,.12); color: #50aaff; border: 1px solid rgba(80,170,255,.25); }
+.fcDifftactician   { background: rgba(160,80,255,.12); color: #a050ff; border: 1px solid rgba(160,80,255,.25); }
+.fcDiffgrandmaster { background: rgba(255,140,40,.12); color: #ff8c28; border: 1px solid rgba(255,140,40,.25); }
+.fcDifflegendary   { background: rgba(255,40,80,.12);  color: #ff2855; border: 1px solid rgba(255,40,80,.25); }
+
+/* Champion banner */
+.fcChampionBanner {
+  position: relative; text-align: center;
+  margin-top: 20px; padding: 28px 20px;
+  border-radius: 20px;
+  border: 1px solid rgba(255,215,0,.4);
+  background: linear-gradient(135deg, rgba(255,200,0,.1), rgba(255,80,0,.1));
+  overflow: hidden;
+}
+.fcChampionGlow {
+  position: absolute; inset: -30px;
+  background: radial-gradient(ellipse, rgba(255,200,0,.2), transparent 70%);
+  filter: blur(20px); pointer-events: none;
+}
+.fcChampionCrown { font-size: 40px; position: relative; }
+.fcChampionTitle {
+  font-size: 18px; font-weight: 900; letter-spacing: 4px;
+  background: linear-gradient(90deg, #ffd700, #ff8c28);
+  -webkit-background-clip: text; background-clip: text; color: transparent;
+  margin-top: 8px; position: relative;
+}
+.fcChampionSub { font-size: 13px; opacity: .5; margin-top: 4px; position: relative; }
+
+/* ── Pre-fight cinematic overlay ────────────────────────────── */
+.fcFightFade-enter-active { animation: fcFightIn .3s cubic-bezier(.22,1,.36,1); }
+.fcFightFade-leave-active { animation: fcFightIn .2s ease-in reverse; }
+@keyframes fcFightIn {
+  from { opacity: 0; transform: scale(.96) translateY(16px); }
+  to   { opacity: 1; transform: scale(1) translateY(0); }
+}
+
+.fcFightOverlay {
+  position: fixed; inset: 0; z-index: 80;
+  display: flex; align-items: center; justify-content: center;
+  padding: 20px;
+}
+.fcFightBg {
+  position: absolute; inset: 0;
+  background:
+    radial-gradient(ellipse 100% 80% at 50% 0%, rgba(var(--fc-color,255,180,0), .15), transparent 60%),
+    rgba(4,4,18,.94);
+  backdrop-filter: blur(20px);
+}
+.fcFightCard {
+  position: relative; z-index: 1;
+  width: min(440px, 100%);
+  background: rgba(255,255,255,.04);
+  border: 1px solid rgba(255,255,255,.1);
+  border-radius: 24px;
+  padding: 32px 28px;
+  text-align: center;
+  animation: fcFightCardIn .4s .05s cubic-bezier(.22,1,.36,1) both;
+}
+@keyframes fcFightCardIn {
+  from { transform: translateY(24px); opacity: 0; }
+  to   { transform: translateY(0); opacity: 1; }
+}
+.fcFightGlow {
+  position: absolute; inset: -40px;
+  background: radial-gradient(ellipse 80% 60% at 50% 0%, rgba(255,180,0,.12), transparent 65%);
+  filter: blur(20px); pointer-events: none;
+}
+.fcFightChNum {
+  font-size: 10px; letter-spacing: 4px; opacity: .35; margin-bottom: 12px;
+  text-transform: uppercase;
+}
+.fcFightEmoji { font-size: 64px; line-height: 1; margin-bottom: 12px; }
+.fcFightName {
+  font-size: 28px; font-weight: 900; letter-spacing: 5px;
+  background: linear-gradient(90deg, #ffd700, #ff8c28, #ff2855);
+  -webkit-background-clip: text; background-clip: text; color: transparent;
+}
+.fcFightCharTitle { font-size: 12px; opacity: .45; letter-spacing: 2px; margin-top: 4px; }
+.fcFightBadges { display: flex; gap: 8px; justify-content: center; margin: 14px 0; flex-wrap: wrap; }
+.fcFightDialogue {
+  margin: 18px 0 22px;
+  display: flex; flex-direction: column; gap: 8px;
+}
+.fcFightLine {
+  font-size: 13px; font-style: italic; opacity: .75; letter-spacing: .3px;
+  animation: fcLineIn .4s ease-out both;
+}
+@keyframes fcLineIn {
+  from { opacity: 0; transform: translateY(6px); }
+  to   { opacity: .75; transform: translateY(0); }
+}
+.fcFightBeginBtn {
+  display: flex; align-items: center; justify-content: center; gap: 10px;
+  width: 100%; padding: 14px 20px;
+  background: linear-gradient(135deg, rgba(255,180,0,.18), rgba(255,40,80,.18));
+  border: 1px solid rgba(255,180,0,.4);
+  border-radius: 14px;
+  color: #fff; font-size: 14px; font-weight: 900; letter-spacing: 3px;
+  cursor: pointer; transition: background .15s, transform .1s, box-shadow .15s;
+}
+.fcFightBeginBtn:hover {
+  background: linear-gradient(135deg, rgba(255,180,0,.28), rgba(255,40,80,.28));
+  transform: scale(1.02);
+  box-shadow: 0 0 28px rgba(255,180,0,.2);
+}
+.fcFightBeginArrow { font-size: 16px; }
+
+/* ── Post-fight result overlay ───────────────────────────────── */
+.fcResultOverlay {
+  position: fixed; inset: 0; z-index: 80;
+  background: rgba(4,4,18,.88);
+  backdrop-filter: blur(18px);
+  display: flex; align-items: center; justify-content: center;
+  padding: 20px;
+}
+.fcResultCard {
+  position: relative;
+  width: min(400px, 100%);
+  border-radius: 24px;
+  border: 1px solid rgba(255,255,255,.1);
+  background: rgba(255,255,255,.04);
+  padding: 28px 24px;
+  text-align: center;
+  animation: fcFightCardIn .35s cubic-bezier(.22,1,.36,1);
+}
+.fcResultWin  { border-color: rgba(79,255,120,.3); }
+.fcResultLose { border-color: rgba(255,80,50,.25); }
+.fcResultGlow {
+  position: absolute; inset: -30px;
+  filter: blur(20px); pointer-events: none;
+  border-radius: 50%;
+}
+.fcResultWin  .fcResultGlow { background: radial-gradient(ellipse, rgba(79,255,120,.15), transparent 65%); }
+.fcResultLose .fcResultGlow { background: radial-gradient(ellipse, rgba(255,80,50,.12), transparent 65%); }
+.fcResultEmoji { font-size: 44px; line-height: 1; margin-bottom: 8px; }
+.fcResultBig {
+  font-size: 11px; letter-spacing: 4px; opacity: .4; text-transform: uppercase; margin-bottom: 2px;
+}
+.fcResultName {
+  font-size: 22px; font-weight: 900; letter-spacing: 4px;
+  color: rgba(255,255,255,.9); margin-bottom: 14px;
+}
+.fcResultQuote {
+  font-size: 13px; font-style: italic; opacity: .65;
+  line-height: 1.5; margin-bottom: 20px;
+  padding: 12px 16px;
+  background: rgba(255,255,255,.04);
+  border-radius: 12px;
+  border: 1px solid rgba(255,255,255,.06);
+}
+.fcResultNextPreview {
+  margin-bottom: 20px; padding: 10px 14px;
+  background: rgba(255,215,0,.06);
+  border: 1px solid rgba(255,215,0,.18);
+  border-radius: 12px;
+}
+.fcResultNextLabel { font-size: 9px; letter-spacing: 3px; opacity: .4; }
+.fcResultNextName { font-size: 16px; font-weight: 900; letter-spacing: 3px; color: #ffd700; }
+.fcResultNextTitle { font-size: 11px; opacity: .4; margin-top: 2px; }
+.fcResultComplete { margin-bottom: 20px; }
+.fcResultCompleteIcon { font-size: 36px; }
+.fcResultCompleteText {
+  font-size: 14px; font-weight: 900; letter-spacing: 3px;
+  background: linear-gradient(90deg, #ffd700, #ff8c28);
+  -webkit-background-clip: text; background-clip: text; color: transparent;
+  margin-top: 6px;
+}
+.fcResultActions { display: flex; flex-direction: column; gap: 8px; }
+.fcResultBtn {
+  width: 100%; padding: 12px; border-radius: 12px;
+  font-size: 12px; font-weight: 900; letter-spacing: 2.5px;
+  cursor: pointer; transition: transform .12s, opacity .12s;
+}
+.fcResultBtn:hover { transform: scale(1.02); }
+.fcResultBtnPrimary {
+  background: linear-gradient(135deg, rgba(80,170,255,.2), rgba(80,100,255,.2));
+  border: 1px solid rgba(80,170,255,.4); color: #80ccff;
+}
+.fcResultBtnGold {
+  background: linear-gradient(135deg, rgba(255,200,0,.18), rgba(255,120,0,.18));
+  border: 1px solid rgba(255,200,0,.4); color: #ffd700;
+}
+.fcResultBtnSoft {
+  background: rgba(255,255,255,.04);
+  border: 1px solid rgba(255,255,255,.1); color: rgba(255,255,255,.5);
 }
 
 /* ============================================================
