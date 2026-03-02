@@ -149,16 +149,6 @@ const boardEl = ref(null);
 const hover = ref(null);
 const targetCell = ref(null);
 
-// ── Read legacy-visuals setting from <html> class ────────────────────────────
-const isLegacy = computed(() => document.documentElement.classList.contains('legacy-visuals'));
-// Re-evaluate when legacyVisuals changes (classList mutation)
-const _legacyTick = ref(0);
-if (typeof MutationObserver !== 'undefined') {
-  const _mo = new MutationObserver(() => { _legacyTick.value++; });
-  _mo.observe(document.documentElement, { attributes: true, attributeFilter: ['class'] });
-}
-const legacy = computed(() => { void _legacyTick.value; return document.documentElement.classList.contains('legacy-visuals'); });
-
 // Detect touch device for mobile-specific staging behavior
 const isTouchDevice = typeof window !== 'undefined' &&
   ('ontouchstart' in window || navigator.maxTouchPoints > 0);
@@ -732,7 +722,7 @@ function cellInlineStyle(cell) {
   if (game.phase === "draft") {
     if (!cell.v?.pieceKey) return null;
 
-    const s = getPieceStyle(cell.v.pieceKey, legacy.value);
+    const s = getPieceStyle(cell.v.pieceKey);
     if (s.skin) {
       return {
         backgroundImage: `url(${s.skin})`,
@@ -743,14 +733,11 @@ function cellInlineStyle(cell) {
           : "brightness(0.92) saturate(1.05)",
       };
     }
-    return {
-      backgroundColor: s.color,
-      '--piece-glow': s.glow,
-    };
+    return { backgroundColor: s.color };
   }
 
   if (cell.v && cell.v.pieceKey) {
-    const s = getPieceStyle(cell.v.pieceKey, legacy.value);
+    const s = getPieceStyle(cell.v.pieceKey);
     if (s.skin) {
       return {
         backgroundImage: `url(${s.skin})`,
@@ -758,10 +745,7 @@ function cellInlineStyle(cell) {
         backgroundPosition: "center",
       };
     }
-    return {
-      backgroundColor: s.color,
-      '--piece-glow': s.glow,
-    };
+    return { backgroundColor: s.color };
   }
   return null;
 }
@@ -777,7 +761,7 @@ function cellTitle(cell) {
 }
 
 function ghostBlockStyle(b) {
-  const s = getPieceStyle(game.selectedPieceKey, legacy.value);
+  const s = getPieceStyle(game.selectedPieceKey);
 
   const leftPct = (b.x / game.boardW) * 100;
   const topPct = (b.y / game.boardH) * 100;
@@ -790,7 +774,6 @@ function ghostBlockStyle(b) {
     width: `${wPct}%`,
     height: `${hPct}%`,
     transition: "left 55ms linear, top 55ms linear",
-    '--piece-glow': s.glow,
   };
 
   if (s.skin) {
@@ -806,344 +789,8 @@ function ghostBlockStyle(b) {
 </script>
 
 <style scoped>
-/* ═══════════════════════════════════════════════════════════════
-   NEW THEME: "Crystal Grid" — holographic dark board, glowing tiles
-═══════════════════════════════════════════════════════════════ */
-
-.neonFrame {
-  position: absolute;
-  inset: -6px;
-  border-radius: 20px;
-  /* Thin iridescent rim */
-  background:
-    linear-gradient(#0000, #0000) padding-box,
-    linear-gradient(
-      135deg,
-      rgba(139,92,246,0.40) 0%,
-      rgba(34,211,238,0.30) 30%,
-      rgba(251,146,60,0.25) 60%,
-      rgba(139,92,246,0.35) 100%
-    ) border-box;
-  border: 1.5px solid transparent;
-  box-shadow:
-    0 0 40px rgba(139,92,246,0.08),
-    0 0 80px rgba(34,211,238,0.05),
-    0 32px 80px rgba(0,0,0,0.90);
-  pointer-events: none;
-  z-index: 0;
-  animation: frameDrift 6s ease-in-out infinite;
-}
-@keyframes frameDrift {
-  0%,100% { opacity: 0.80; }
-  50%      { opacity: 1.00; }
-}
-
-/* Corner accent dots */
-.neonFrame::before,
-.neonFrame::after {
-  content: "";
-  position: absolute;
-  width: 8px; height: 8px;
-  border-radius: 50%;
-  background: rgba(139,92,246,0.6);
-  box-shadow: 0 0 12px rgba(139,92,246,0.8);
-}
-.neonFrame::before { top: 4px; left: 4px; }
-.neonFrame::after  { bottom: 4px; right: 4px; background: rgba(34,211,238,0.6); box-shadow: 0 0 12px rgba(34,211,238,0.8); }
-
-.scanlines {
-  position: absolute; inset: 0;
-  border-radius: 18px;
-  background: repeating-linear-gradient(
-    to bottom,
-    rgba(255,255,255,0.03), rgba(255,255,255,0.03) 1px,
-    transparent 5px, transparent 9px
-  );
-  opacity: 0.14; mix-blend-mode: overlay;
-  pointer-events: none; z-index: 1;
-  display: none; /* hidden in new theme */
-}
-
-.board {
-  position: relative; z-index: 2;
-  width: 100%; height: 100%;
-  display: grid;
-  gap: 3px;
-  padding: 10px;
-  border-radius: 14px;
-  touch-action: pan-x pan-y;
-
-  /* Deep space background with subtle vignette */
-  background:
-    radial-gradient(ellipse 80% 60% at 50% 50%, rgba(99,102,241,0.04), transparent 70%),
-    #05060f;
-  border: 1px solid rgba(99,102,241,0.12);
-  box-shadow:
-    inset 0 0 0 1px rgba(255,255,255,0.03),
-    inset 0 2px 12px rgba(0,0,0,0.90),
-    inset 0 -6px 20px rgba(0,0,0,0.70);
-}
-
-/* Empty cells — deep dark wells with faint grid glow */
-.cell {
-  position: relative;
-  border-radius: 4px;
-  cursor: pointer;
-  border: 1px solid rgba(99,102,241,0.08);
-  background: rgba(255,255,255,0.015);
-  box-shadow:
-    inset 0 1px 3px rgba(0,0,0,0.80);
-  transition: background 100ms ease, border-color 100ms ease;
-}
-
-.cell:hover {
-  background: rgba(139,92,246,0.10);
-  border-color: rgba(139,92,246,0.25);
-}
-
-/* Placed tiles — glowing crystal blocks */
-.cell.placed {
-  border-radius: 4px;
-  border-top:    1px solid rgba(255,255,255,0.55);
-  border-left:   1px solid rgba(255,255,255,0.28);
-  border-right:  1px solid rgba(0,0,0,0.40);
-  border-bottom: 1px solid rgba(0,0,0,0.55);
-  box-shadow:
-    0 0 8px color-mix(in srgb, var(--piece-glow, #818CF8) 35%, transparent),
-    0 2px 8px rgba(0,0,0,0.85),
-    inset 0 1px 0 rgba(255,255,255,0.45);
-  overflow: hidden;
-  transition: filter 100ms ease;
-}
-
-/* Top-left glass specular */
-.cell.placed::before {
-  content: "";
-  position: absolute; inset: 0;
-  border-radius: inherit;
-  background: linear-gradient(
-    140deg,
-    rgba(255,255,255,0.55) 0%,
-    rgba(255,255,255,0.22) 20%,
-    rgba(255,255,255,0.06) 42%,
-    transparent 60%
-  );
-  pointer-events: none;
-  z-index: 1;
-}
-
-/* Bottom-right shadow facet */
-.cell.placed::after {
-  content: "";
-  position: absolute;
-  bottom: 0; right: 0;
-  width: 50%; height: 45%;
-  border-radius: 0 0 4px 0;
-  background: linear-gradient(
-    225deg,
-    rgba(0,0,0,0.28) 0%,
-    transparent 70%
-  );
-  pointer-events: none;
-  z-index: 2;
-}
-
-.cell.placed:hover { filter: brightness(1.15) saturate(1.1); }
-
-/* Ghost outlines */
-.cell.ghost-ok  { outline: 2px solid rgba(52,211,153,0.92); outline-offset: -1px; }
-.cell.ghost-bad { outline: 2px solid rgba(251,113,133,0.92); outline-offset: -1px; }
-
-.board.draftMode .cell { cursor: pointer; }
-
-/* Draft cells */
-.cell.draft {
-  border: 1px solid rgba(99,102,241,0.10);
-  background: rgba(99,102,241,0.03);
-}
-
-.cell.drafted {
-  cursor: default;
-  transform: none !important;
-  filter: brightness(0.52) saturate(0.45);
-  opacity: 0.80;
-}
-.cell.drafted:hover { filter: brightness(0.54) saturate(0.45); }
-
-/* Corner P1/P2 tags */
-.cornerTag {
-  position: absolute; top: 6px; left: 6px;
-  font-size: 10px; font-weight: 1000; letter-spacing: 0.08em;
-  padding: 2px 6px; border-radius: 999px;
-  border: 1px solid rgba(255,255,255,0.18);
-  background: rgba(5,6,15,0.70);
-  box-shadow: 0 4px 10px rgba(0,0,0,0.40);
-  pointer-events: none; z-index: 3;
-}
-.cornerTag.p1 { color: rgba(96, 165, 250, 0.98); }
-.cornerTag.p2 { color: rgba(251, 113, 133, 0.98); }
-
-/* Ghost overlay */
-.ghostOverlay {
-  position: absolute; inset: 10px;
-  border-radius: 8px;
-  pointer-events: none; z-index: 999;
-  filter: drop-shadow(0 8px 24px rgba(0,0,0,0.80));
-}
-.ghostOverlay.bad { opacity: 0.65; }
-
-/* Ghost blocks — same crystal look */
-.ghostBlock {
-  position: absolute;
-  border-radius: 4px;
-  border-top:    1px solid rgba(255,255,255,0.45);
-  border-left:   1px solid rgba(255,255,255,0.22);
-  border-right:  1px solid rgba(0,0,0,0.35);
-  border-bottom: 1px solid rgba(0,0,0,0.50);
-  box-shadow:
-    0 0 10px color-mix(in srgb, var(--piece-glow, #818CF8) 40%, transparent),
-    0 3px 10px rgba(0,0,0,0.80),
-    inset 0 1px 0 rgba(255,255,255,0.40);
-  overflow: hidden;
-}
-.ghostBlock::before {
-  content: "";
-  position: absolute; inset: 0;
-  background: linear-gradient(
-    140deg,
-    rgba(255,255,255,0.50) 0%,
-    rgba(255,255,255,0.18) 24%,
-    rgba(255,255,255,0.04) 46%,
-    transparent 64%
-  );
-  pointer-events: none;
-}
-
-/* ── Ghost overlay staged style ── */
-.ghostOverlay.staged { opacity: 0.94; }
-.ghostOverlay.staged.ok  { filter: drop-shadow(0 0 18px rgba(52,211,153,0.55)) drop-shadow(0 8px 24px rgba(0,0,0,0.80)); }
-.ghostOverlay.staged.bad { opacity: 0.62; }
-
-/* ═══════════════════════════════════════════════════════════════
-   LEGACY OVERRIDES — activated by :global(.legacy-visuals) on <html>
-   Restores the original neon-rainbow board look
-═══════════════════════════════════════════════════════════════ */
-
-:global(.legacy-visuals) .neonFrame {
-  inset: -10px;
-  border-radius: 22px;
-  background:
-    linear-gradient(#0000, #0000) padding-box,
-    conic-gradient(
-      from 180deg,
-      rgba(0,255,255,0.65),
-      rgba(255,0,255,0.65),
-      rgba(255,255,0,0.55),
-      rgba(0,255,160,0.60),
-      rgba(0,255,255,0.65)
-    ) border-box;
-  border: 2px solid transparent;
-  box-shadow:
-    0 0 22px rgba(0,255,255,0.18),
-    0 0 38px rgba(255,0,255,0.16),
-    0 0 52px rgba(255,255,0,0.10),
-    0 16px 50px rgba(0,0,0,0.65);
-  filter: saturate(1.15);
-  opacity: 0.92;
-  animation: neonPulse 3.2s ease-in-out infinite;
-}
-:global(.legacy-visuals) .neonFrame::before,
-:global(.legacy-visuals) .neonFrame::after { display: none; }
-@keyframes neonPulse {
-  0%,100% { transform: translateY(0); filter: saturate(1.12); opacity: 0.88; }
-  50%      { transform: translateY(-1px); filter: saturate(1.25); opacity: 0.98; }
-}
-
-:global(.legacy-visuals) .scanlines { display: block; }
-
-:global(.legacy-visuals) .board {
-  gap: 3px;
-  border-radius: 16px;
-  background:
-    radial-gradient(900px 360px at 50% 30%, rgba(0,255,255,0.08), rgba(0,0,0,0) 55%),
-    radial-gradient(900px 420px at 40% 85%, rgba(255,0,255,0.07), rgba(0,0,0,0) 58%),
-    linear-gradient(180deg, rgba(12,14,24,0.95), rgba(6,7,12,0.96));
-  border: 1px solid rgba(255,255,255,0.10);
-  box-shadow:
-    inset 0 1px 0 rgba(255,255,255,0.12),
-    inset 0 -18px 40px rgba(0,0,0,0.55),
-    inset 0 0 0 1px rgba(0,255,255,0.07);
-}
-
-:global(.legacy-visuals) .cell {
-  border-radius: 7px;
-  border: 1px solid rgba(255,255,255,0.07);
-  background: linear-gradient(180deg, rgba(255,255,255,0.04), rgba(0,0,0,0.02));
-  box-shadow:
-    inset 0 1px 0 rgba(255,255,255,0.10),
-    inset 0 -2px 0 rgba(0,0,0,0.25);
-}
-
-:global(.legacy-visuals) .cell:hover {
-  transform: translateY(-1px);
-  filter: brightness(1.08);
-  box-shadow:
-    0 6px 14px rgba(0,0,0,0.40),
-    inset 0 1px 0 rgba(255,255,255,0.14),
-    inset 0 -2px 0 rgba(0,0,0,0.25);
-}
-
-:global(.legacy-visuals) .cell.placed {
-  border-radius: 7px;
-  border: 1px solid rgba(255,255,255,0.16);
-  box-shadow:
-    0 10px 18px rgba(0,0,0,0.45),
-    0 0 10px rgba(255,255,255,0.06),
-    inset 0 1px 0 rgba(255,255,255,0.22),
-    inset 0 -4px 0 rgba(0,0,0,0.30);
-}
-
-:global(.legacy-visuals) .cell.placed::before,
-:global(.legacy-visuals) .cell.placed::after { display: none; }
-
-:global(.legacy-visuals) .cell.draft {
-  border-radius: 7px;
-  border: 1px solid rgba(255,255,255,0.14);
-  background: transparent;
-  box-shadow:
-    inset 0 1px 0 rgba(255,255,255,0.20),
-    inset 0 -6px 10px rgba(0,0,0,0.35);
-}
-
-:global(.legacy-visuals) .ghostOverlay {
-  filter:
-    drop-shadow(0 18px 32px rgba(0,0,0,0.60))
-    drop-shadow(0 0 12px rgba(0,255,255,0.10));
-}
-
-:global(.legacy-visuals) .ghostBlock {
-  border-radius: 9px;
-  border: 1px solid rgba(0,0,0,0.55);
-  box-shadow:
-    0 14px 22px rgba(0,0,0,0.50),
-    0 0 14px rgba(255,255,255,0.07),
-    inset 0 1px 0 rgba(255,255,255,0.26),
-    inset 0 -6px 0 rgba(0,0,0,0.34);
-}
-:global(.legacy-visuals) .ghostBlock::before {
-  background: linear-gradient(
-    to bottom,
-    rgba(255,255,255,0.26),
-    rgba(255,255,255,0.08) 35%,
-    rgba(0,0,0,0.12)
-  );
-}
-
-:global(.legacy-visuals) .ghostOverlay.staged.ok {
-  filter: drop-shadow(0 0 18px rgba(0,255,170,0.45)) drop-shadow(0 18px 32px rgba(0,0,0,0.60));
-}
-
-/* ─── warn toast, corner tags — unchanged in both themes ─── */.boardWrap {
+/* board styles (same as your last version) */
+.boardWrap {
   display: flex;
   flex-direction: column;
   gap: 0;
@@ -1198,27 +845,33 @@ function ghostBlockStyle(b) {
 
 .neonFrame {
   position: absolute;
-  inset: -6px;
-  border-radius: 20px;
+  inset: -10px;
+  border-radius: 22px;
   background:
     linear-gradient(#0000, #0000) padding-box,
-    linear-gradient(
-      135deg,
-      rgba(160,160,220,0.22) 0%,
-      rgba(70,70,110,0.08) 50%,
-      rgba(160,160,220,0.20) 100%
+    conic-gradient(
+      from 180deg,
+      rgba(0,255,255,0.65),
+      rgba(255,0,255,0.65),
+      rgba(255,255,0,0.55),
+      rgba(0,255,160,0.60),
+      rgba(0,255,255,0.65)
     ) border-box;
-  border: 1.5px solid transparent;
+  border: 2px solid transparent;
   box-shadow:
-    0 32px 100px rgba(0,0,0,0.90),
-    0 8px 32px rgba(0,0,0,0.60),
-    0 -2px 20px rgba(0,0,0,0.40),
-    inset 0 1px 0 rgba(255,255,255,0.05);
-  animation: none;
-  opacity: 1;
-  filter: none;
+    0 0 22px rgba(0, 255, 255, 0.18),
+    0 0 38px rgba(255, 0, 255, 0.16),
+    0 0 52px rgba(255, 255, 0, 0.10),
+    0 16px 50px rgba(0,0,0,0.65);
+  filter: saturate(1.15);
+  opacity: 0.92;
+  animation: neonPulse 3.2s ease-in-out infinite;
   pointer-events: none;
   z-index: 0;
+}
+@keyframes neonPulse {
+  0%, 100% { transform: translateY(0); filter: saturate(1.12); opacity: 0.88; }
+  50% { transform: translateY(-1px); filter: saturate(1.25); opacity: 0.98; }
 }
 
 .scanlines {
@@ -1236,7 +889,6 @@ function ghostBlockStyle(b) {
   mix-blend-mode: overlay;
   pointer-events: none;
   z-index: 1;
-  display: none; /* hidden in new theme — restored in legacy mode */
 }
 
 .board {
