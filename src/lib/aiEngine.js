@@ -726,7 +726,8 @@ function boardSplitBonus(abs, preBoard, simBoard, W, H, ap, hp) {
  * SYSTEM 5: PIECE-SPECIFIC OPENING BOOK
  *
  * Replaces the naive center-bias with real opening theory derived from the
- * territorial structure of a 10×6 board. Key discoveries:
+ * territorial structure of a 10×6 board, scaled for larger boards like 15×8.
+ * Key discoveries:
  *
  * ══ P-PIECE ══
  * Best opening: mid-height on either vertical edge (cols 0-1 or 8-9, rows 1-4).
@@ -773,11 +774,16 @@ function boardSplitBonus(abs, preBoard, simBoard, W, H, ap, hp) {
  * @param {string} mode             - 'defensive' (GM) or 'aggressive' (Legendary)
  */
 function p1OpeningBonus(abs, W, H, placedCount, mode, pieceKey, aiHand) {
-  // Apply opening theory for first 3 placements (moves 0, 2, 4 for P1)
-  if (placedCount > 4) return 0;
+  // Opening theory applies for first ~5 moves on 10×6, longer on bigger boards.
+  // Scale cutoff by board area relative to baseline 60-cell board.
+  const openingCutoff = Math.round(4 * Math.max(1.0, (W * H) / 60));
+  if (placedCount > openingCutoff) return 0;
 
-  const cx = (W - 1) / 2; // 4.5
-  const cy = (H - 1) / 2; // 2.5
+  const cx = (W - 1) / 2;
+  const cy = (H - 1) / 2;
+  // Radial scale: center bonuses calibrated for 10×6 corner distance (~5 cells).
+  // For 15×8 corner distance is ~7.8 — scale threshold accordingly.
+  const radialScale = Math.sqrt(W * H / 60);
   const pk = pieceKey || '';
   const hand = aiHand || [];
 
@@ -977,7 +983,7 @@ function p1OpeningBonus(abs, W, H, placedCount, mode, pieceKey, aiHand) {
     // T genuinely benefits from center — 3 branches reach all directions
     for (const [x,y] of abs) {
       const radial = Math.sqrt((x-cx)*(x-cx)+(y-cy)*(y-cy));
-      bonus += Math.max(0, 5.0 - radial) * 20.0;
+      bonus += Math.max(0, 5.0 * radialScale - radial) * 20.0;
     }
     if (spansSeam) bonus += 80.0;
   }
@@ -988,7 +994,7 @@ function p1OpeningBonus(abs, W, H, placedCount, mode, pieceKey, aiHand) {
   else if (pk === 'Y' || pk === 'X' || pk === 'F') {
     for (const [x,y] of abs) {
       const radial = Math.sqrt((x-cx)*(x-cx)+(y-cy)*(y-cy));
-      bonus += Math.max(0, 4.5 - radial) * 18.0;
+      bonus += Math.max(0, 4.5 * radialScale - radial) * 18.0;
     }
     if (spansSeam) bonus += 60.0;
   }
@@ -1202,7 +1208,7 @@ function pincerAttackScore(abs, simBoard, W, H, ap, hp) {
 
   const threatenedZones = [];
   for (const reg of regions) {
-    if (reg.length < 5 || reg.length > 20) continue;
+    if (reg.length < 5 || reg.length > 35) continue;
     let adjacentToNewPiece = false;
     let aiTouches = 0, hpTouches = 0;
 
@@ -1255,13 +1261,20 @@ function getDynamicWeights(board, W, H, ap, hp, placedCount, totalPieces) {
   const lead = t.ap - t.hp; // positive = AI winning
   const progress = Math.min(1.0, placedCount / Math.max(totalPieces * 2, 1));
 
+  // Scale territory thresholds relative to board size.
+  // Baseline is the standard 10×6 = 60 cell board.
+  // 15×8 = 120 cells → thresholds double so "lead > 8" becomes "lead > 16".
+  const boardScale = Math.max(1.0, (W * H) / 60);
+  const comfortThresh = 8  * boardScale;
+  const slightThresh  = 4  * boardScale;
+
   // Aggression factor: 1.0 = neutral, >1 = more aggressive, <1 = more defensive
   let aggression;
-  if (lead > 8)      aggression = 0.6;  // comfortable lead → defend
-  else if (lead > 4) aggression = 0.8;  // slight lead → cautious
-  else if (lead < -8) aggression = 1.5; // losing badly → all-out attack
-  else if (lead < -4) aggression = 1.2; // slight deficit → press
-  else               aggression = 1.0;  // even → balanced
+  if (lead > comfortThresh)       aggression = 0.6;  // comfortable lead → defend
+  else if (lead > slightThresh)   aggression = 0.8;  // slight lead → cautious
+  else if (lead < -comfortThresh) aggression = 1.5;  // losing badly → all-out attack
+  else if (lead < -slightThresh)  aggression = 1.2;  // slight deficit → press
+  else                             aggression = 1.0;  // even → balanced
 
   // Game phase weights
   const earlyBoost   = progress < 0.3 ? 1.4 : 1.0; // territory matters more early
@@ -1465,21 +1478,21 @@ function sealingFinisherBonus(abs, preBoard, simBoard, W, H, ap, hp) {
 
 /**
  * Mirror war weight multiplier.
- * On a 20×12 board the territory numbers are ~4× larger, and the strategy
- * shifts: corners matter more, seam theory doesn't apply, and piece
- * reservation is even more critical (12 pieces each, longer game).
+ * On a 15×8 board the territory numbers are ~2× larger, and the strategy
+ * shifts: corners matter more, seam theory applies but with wider seam,
+ * and piece reservation is even more critical (12 pieces each, longer game).
  */
-function isMirrorWar(W, H) { return W === 20 && H === 12; }
+function isMirrorWar(W, H) { return W === 15 && H === 8; }
 
 function getMirrorWarWeights(baseWeights) {
   if (!baseWeights._isMW) return baseWeights; // identity if not mirror war
   return {
     ...baseWeights,
-    territory:  baseWeights.territory  * 0.7,  // Voronoi numbers are larger, scale down
+    territory:  baseWeights.territory  * 0.85, // Voronoi numbers are larger, scale down slightly
     seal:       baseWeights.seal       * 1.4,  // sealing is even more important
     articulate: baseWeights.articulate * 1.5,  // board splits have huge impact on big board
     cluster:    baseWeights.cluster    * 1.3,  // isolation is catastrophic on big board
-    opening:    0,                              // opening theory N/A on 20×12
+    opening:    baseWeights.opening    * 0.8,  // opening theory still applies on 15×8, just softer
   };
 }
 
@@ -1494,6 +1507,16 @@ export function createAiEngine({ game, aiPlayer, humanPlayer, aiDifficulty, PENT
   const _moveCache = new Map();
   const _moveCountCache = new Map();
   const _feasibleCache = new Map();
+
+  // Evict oldest entries when a cache exceeds this size.
+  // A Mirror War game has ~24 placements; each turn generates many unique board states.
+  // Without eviction these Maps grow unboundedly, leaking memory across the session.
+  const CACHE_MAX = 400;
+  function _evict(map) {
+    if (map.size <= CACHE_MAX) return;
+    // Delete the first (oldest) entry — Map preserves insertion order
+    map.delete(map.keys().next().value);
+  }
 
   // ── FORK FOLLOW-THROUGH STATE (Legendary only) ────────────────────
   // After Legendary creates a fork (two simultaneous threats), we store
@@ -1579,7 +1602,7 @@ export function createAiEngine({ game, aiPlayer, humanPlayer, aiDifficulty, PENT
       }
     }
     _moveCache.set(_key, moves);
-    return moves;
+    _evict(_moveCache);
   }
 
   function getAllValidMoves() {
@@ -1635,7 +1658,7 @@ export function createAiEngine({ game, aiPlayer, humanPlayer, aiDifficulty, PENT
       }
     }
     _feasibleCache.set(_k, feasible);
-    return feasible;
+    _evict(_feasibleCache);
   }
 
   function countTotalMoves(board, boardW, boardH, playerNum, remaining, placedCount, allowFlip) {
@@ -1644,7 +1667,7 @@ export function createAiEngine({ game, aiPlayer, humanPlayer, aiDifficulty, PENT
     if (_c !== undefined) return _c;
     const v = movesOnBoard(playerNum, board, boardW, boardH, remaining, placedCount, allowFlip).length;
     _moveCountCache.set(_k, v);
-    return v;
+    _evict(_moveCountCache);
   }
 
   /** Quick score (used for lookahead pruning). 🔥 SUPERCHARGED weights for GM/Legendary beam quality. */
@@ -1917,7 +1940,10 @@ function movesTactician(moves) {
   const oppFeasibleBefore = countFeasiblePieces(board, boardW, boardH, hp, remaining, placedCount, allowFlip);
 
   // Pass 1: connectivity-first beam — connected moves always ranked above disconnected
-  const prescored = connectivityBeam(moves, board, boardW, boardH, ap, hp, 26);
+  // Scale beam down on larger boards (Mirror War 15×8 has ~2x the moves of 10×6)
+  // to keep evaluation time reasonable on the main thread.
+  const tacBeam = isMirrorWar(boardW, boardH) ? 16 : 26;
+  const prescored = connectivityBeam(moves, board, boardW, boardH, ap, hp, tacBeam);
 
   let best = null, bestScore = -Infinity;
   for (const { m } of prescored) {
@@ -1996,7 +2022,10 @@ function movesGrandmaster(moves) {
   const oppFeasibleBefore = countFeasiblePieces(board, boardW, boardH, hp, remaining, placedCount, allowFlip);
 
   // Wide connectivity-first beam
-  const prescored = connectivityBeam(moves, board, boardW, boardH, ap, hp, 50);
+  // Reduced for Mirror War (15×8) — the larger board means ~2x more moves to score,
+  // so we cap the beam to avoid multi-second main thread blocks.
+  const gmBeam = _mwGM ? 30 : 50;
+  const prescored = connectivityBeam(moves, board, boardW, boardH, ap, hp, gmBeam);
 
   let best = null, bestScore = -Infinity;
   for (const { m } of prescored) {
@@ -2449,7 +2478,9 @@ function movesLegendary(moves) {
   const oppFeasibleBefore = countFeasiblePieces(board, boardW, boardH, hp, remaining, placedCount, allowFlip);
 
   // Widest beam — explore more options than any other difficulty
-  const prescored = connectivityBeam(moves, board, boardW, boardH, ap, hp, 60);
+  // Reduced for Mirror War to prevent multi-second UI freezes on the main thread.
+  const legBeam = _mwLeg ? 36 : 60;
+  const prescored = connectivityBeam(moves, board, boardW, boardH, ap, hp, legBeam);
 
   let best = null, bestScore = -Infinity;
   let bestMove = null; // track for fork recording after selection

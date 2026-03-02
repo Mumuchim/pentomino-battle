@@ -732,12 +732,15 @@ export const useGameStore = defineStore("game", {
       this.board = makeEmptyBoard(w, h);
 
       // Rebuild draftBoard for new dimensions (board component still reads it).
-      // Guard: only run the solver when the pieces exactly tile the board.
-      // For Mirror War (20×12 = 240 cells, 24 picks × 5 = 120 ≠ 240) the board
-      // cannot be tiled — calling the backtracker would hang the browser tab.
+      // Guard: only run the solver when the pieces exactly tile the board AND
+      // the total piece count is small enough to be feasible.
+      // Mirror War (15×8 = 120 cells, 24 picks × 5 = 120) satisfies the cell-count
+      // check but uses 24 pieces — a 24-piece backtracking tiling is computationally
+      // infeasible and will hang the browser tab. Cap to 12 pieces maximum.
       const totalCells = w * h;
-      const totalPieceCells = (picks1.length + picks2.length) * 5;
-      const canTile = totalCells === totalPieceCells;
+      const totalPieces = picks1.length + picks2.length;
+      const totalPieceCells = totalPieces * 5;
+      const canTile = totalCells === totalPieceCells && totalPieces <= 12;
       this.draftBoard = canTile
         ? computeDraftTiling(w, h, this.allowFlip, false)
             .map(row => row.map(cell => (cell ? { pieceKey: cell.pieceKey } : null)))
