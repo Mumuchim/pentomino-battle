@@ -200,8 +200,6 @@ export const useGameStore = defineStore("game", {
       enableHoverPreview: true,
       lockLandscape: false,
       requireSubmit: true, // When true: mobile drops stage the piece; Submit commits. When false: drop = instant place.
-      // Shared hover cell (synced by Board.vue) so Controls.vue Space key can confirm hover position
-      hoverCell: null, // { x, y } | null
     },
 
     // Custom drag (for touch + mouse). Board updates drag.target.
@@ -215,6 +213,9 @@ export const useGameStore = defineStore("game", {
 
     // Board cell size in px — written by Board.vue ResizeObserver, read by App.vue drag ghost
     boardCellPx: 0,
+
+    // Shared hover cell (written by Board.vue, read by Controls.vue for Space-key confirm)
+    hoverCell: null, // { x, y } | null
 
     // Mobile staged placement: piece dropped on board but not yet confirmed
     pendingPlace: null, // { x, y } | null
@@ -262,11 +263,6 @@ export const useGameStore = defineStore("game", {
       if (!state.selectedPieceKey) return [];
       const base = PENTOMINOES[state.selectedPieceKey];
       return transformCells(base, state.rotation, state.flipped);
-    },
-
-    // Optional: show how many drafted
-    draftedTotal(state) {
-      return state.picks[1].length + state.picks[2].length;
     },
   },
 
@@ -451,7 +447,6 @@ export const useGameStore = defineStore("game", {
       if (this.pool.length === 0) {
         this.phase = "place";
 
-        // placement board starts empty
 
         // reset battle clocks (per-player timer from lobby or default 3 min)
         const initSec = this.battleClockInitSec || 180;
@@ -784,7 +779,6 @@ export const useGameStore = defineStore("game", {
     // ----- BATTLE CLOCK (PLACE PHASE) -----
     tickBattleClock(now = Date.now()) {
       if (this.phase !== "place") return false;
-      if (this.phase === "gameover") return false;
 
       // Only tick when a turn is actually running
       if (!this.turnStartedAt) return false;

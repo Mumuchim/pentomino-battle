@@ -16,19 +16,19 @@ const DIRS = [[1,0],[-1,0],[0,1],[0,-1]];
 const PIECE_ROLES = {
   FLEXIBLE: new Set(['P','L','N','T','Y']),
   LINEAR:   new Set(['I']),
-  FILLER:   new Set(['Z','S']),
+  FILLER:   new Set(['Z']),          // S was an alias for Z — removed
   BLOCKER:  new Set(['X','W','F','U']),
 };
 
-const VERSATILE_PIECES = new Set(['I','L','T','Y','N','S','Z','P']);
+const VERSATILE_PIECES = new Set(['I','L','T','Y','N','Z','P']);  // removed phantom 'S'
 const TRICKY_PIECES    = new Set(['F','W','X','U','V']);
 const UNPAIRABLE       = new Set(['X','W','F','U']);
-const SHAPE_SCORE      = { I:5, L:5, Y:5, N:4, T:4, S:4, Z:4, P:3, W:3, F:2, U:2, X:1, V:2 };
+const SHAPE_SCORE      = { I:5, L:5, Y:5, N:4, T:4, Z:4, P:3, W:3, F:2, U:2, X:1, V:2 };  // removed S:4
 
 const SYNERGY_PAIRS = {
-  P: ['Z','S','L','N'], Z: ['P','S'], S: ['P','Z'],
+  P: ['Z','L','N'], Z: ['P'],        // removed 'S' references — S was a phantom duplicate of Z
   L: ['P','N'], N: ['P','L'],
-  I: ['I','L','Y','N','S','Z'], T: ['Y'], Y: ['T','N'],
+  I: ['I','L','Y','N','Z'], T: ['Y'], Y: ['T','N'],
 };
 
 // ─────────────────────────────────────────────────────────────────────
@@ -50,9 +50,10 @@ function floodFillRegions(board, W, H) {
       if (board[y][x] !== null || visited.has(k)) continue;
       const region = [];
       const q = [[x, y]];
+      let qi = 0;
       visited.add(k);
-      while (q.length) {
-        const [cx, cy] = q.shift();
+      while (qi < q.length) {
+        const [cx, cy] = q[qi++];   // O(1) index advance instead of O(n) q.shift()
         region.push([cx, cy]);
         for (const [ox, oy] of DIRS) {
           const nx = cx+ox, ny = cy+oy;
@@ -104,9 +105,9 @@ function voronoiTerritory(board, W, H, ap, hp) {
         if (nx < 0 || ny < 0 || nx >= W || ny >= H) continue;
         if (board[ny][nx] !== null) continue; // cannot pass through occupied
         const nk = ny * W + nx;
-        const nd = cd + 1;
-        if (nd < dist[nk]) {
-          dist[nk] = nd;
+        // Only enqueue if not yet visited (Infinity = unvisited)
+        if (dist[nk] === Infinity) {
+          dist[nk] = cd + 1;
           q.push([nx, ny]);
         }
       }
@@ -224,8 +225,14 @@ function zoneSealBonus(regions, board, simBoard, W, H, hp) {
 
     // Narrow corridor sealed
     const xs = reg.map(([x]) => x), ys = reg.map(([,y]) => y);
-    const span   = Math.max(Math.max(...xs) - Math.min(...xs) + 1, Math.max(...ys) - Math.min(...ys) + 1);
-    const narrow = Math.min(Math.max(...xs) - Math.min(...xs) + 1, Math.max(...ys) - Math.min(...ys) + 1);
+    const minX = xs.reduce((a, b) => a < b ? a : b, Infinity);
+    const maxX = xs.reduce((a, b) => a > b ? a : b, -Infinity);
+    const minY = ys.reduce((a, b) => a < b ? a : b, Infinity);
+    const maxY = ys.reduce((a, b) => a > b ? a : b, -Infinity);
+    const spanX  = maxX - minX + 1;
+    const spanY  = maxY - minY + 1;
+    const span   = Math.max(spanX, spanY);
+    const narrow = Math.min(spanX, spanY);
     if (narrow <= 2 && span >= 4 && !oppCanReach) bonus += span * 4.0;
   }
   return bonus;
@@ -468,26 +475,55 @@ function findArticulationPoints(board, W, H) {
 
   const disc = new Array(n).fill(-1);
   const low  = new Array(n).fill(0);
+  const childCount = new Array(n).fill(0);
   const isAP = new Set(); // indices of articulation points
   let timer = 0;
 
-  function dfs(u, parent) {
-    disc[u] = low[u] = timer++;
-    let childCount = 0;
-    for (const v of adj[u]) {
-      if (disc[v] === -1) {
-        childCount++;
-        dfs(v, u);
-        low[u] = Math.min(low[u], low[v]);
-        if (parent === -1 && childCount > 1)   isAP.add(u);
-        if (parent !== -1 && low[v] >= disc[u]) isAP.add(u);
-      } else if (v !== parent) {
-        low[u] = Math.min(low[u], disc[v]);
+  // Iterative Tarjan — avoids JS call-stack overflow on large boards.
+  // Stack frames: { u, parent, adjIdx }
+  const stack = [];
+  for (let root = 0; root < n; root++) {
+    if (disc[root] !== -1) continue;
+    disc[root] = low[root] = timer++;
+    stack.push({ u: root, parent: -1, adjIdx: 0 });
+
+    while (stack.length > 0) {
+      const top = stack[stack.length - 1];
+      const { u } = top;
+      let pushed = false;
+
+      while (top.adjIdx < adj[u].length) {
+        const v = adj[u][top.adjIdx++];
+        if (v === top.parent) continue;
+
+        if (disc[v] === -1) {
+          // Tree edge: push child
+          childCount[u]++;
+          disc[v] = low[v] = timer++;
+          stack.push({ u: v, parent: u, adjIdx: 0 });
+          pushed = true;
+          break;
+        } else {
+          // Back edge: update low
+          low[u] = Math.min(low[u], disc[v]);
+        }
+      }
+
+      if (!pushed) {
+        // All neighbours of u processed — pop and propagate to parent
+        stack.pop();
+        const p = top.parent;
+        if (p === -1) {
+          // u is a DFS root: AP iff it has more than one DFS-tree child
+          if (childCount[u] > 1) isAP.add(u);
+        } else {
+          low[p] = Math.min(low[p], low[u]);
+          // p is AP if u cannot reach any ancestor of p without passing through p
+          if (low[u] >= disc[p]) isAP.add(p);
+        }
       }
     }
   }
-
-  for (let i = 0; i < n; i++) if (disc[i] === -1) dfs(i, -1);
 
   // Convert back to coord key set
   const result = new Set();
@@ -616,8 +652,10 @@ function opponentShapeReadScore(simBoard, W, H, hp, remainingHpPieces, placedCou
     const regSet = new Set(reg.map(([x,y]) => y*W+x));
     // Bounding box
     const xs = reg.map(([x]) => x), ys = reg.map(([,y]) => y);
-    const x0 = Math.min(...xs), y0 = Math.min(...ys);
-    const x1 = Math.max(...xs), y1 = Math.max(...ys);
+    const x0 = xs.reduce((a, b) => a < b ? a : b, Infinity);
+    const y0 = ys.reduce((a, b) => a < b ? a : b, Infinity);
+    const x1 = xs.reduce((a, b) => a > b ? a : b, -Infinity);
+    const y1 = ys.reduce((a, b) => a > b ? a : b, -Infinity);
     const rW = x1-x0+1, rH = y1-y0+1;
 
     // Check how many opponent pieces CANNOT fit in this region
@@ -675,9 +713,7 @@ function boardSplitBonus(abs, preBoard, simBoard, W, H, ap, hp) {
   let bonus = 0;
   for (const reg of regsAfter) {
     if (reg.length < 5) continue;
-    // Who is closer to this region's cells on average?
-    const t = voronoiTerritory(simBoard, W, H, ap, hp);
-    // Compute territory for this specific region
+    // Determine ownership by counting adjacent occupied cells per player
     let aiCells = 0, hpCells = 0;
     for (const [x, y] of reg) {
       // Count occupied neighbors to gauge "ownership"
@@ -794,8 +830,10 @@ function p1OpeningBonus(abs, W, H, placedCount, mode, pieceKey, aiHand) {
 
   // ── Helper: bounding box ─────────────────────────────────────────
   const xs = abs.map(([x])=>x), ys = abs.map(([,y])=>y);
-  const minX=Math.min(...xs), maxX=Math.max(...xs);
-  const minY=Math.min(...ys), maxY=Math.max(...ys);
+  const minX = xs.reduce((a, b) => a < b ? a : b, Infinity);
+  const maxX = xs.reduce((a, b) => a > b ? a : b, -Infinity);
+  const minY = ys.reduce((a, b) => a < b ? a : b, Infinity);
+  const maxY = ys.reduce((a, b) => a > b ? a : b, -Infinity);
   const spanX = maxX - minX + 1;
   const spanY = maxY - minY + 1;
 
@@ -1000,9 +1038,9 @@ function p1OpeningBonus(abs, W, H, placedCount, mode, pieceKey, aiHand) {
   }
 
   // ════════════════════════════════════════════════════════════════
-  //  Z / S: Diagonal seam straddle
+  //  Z: Diagonal seam straddle (S was a phantom alias — Z handles both chiralities via flip)
   // ════════════════════════════════════════════════════════════════
-  else if (pk === 'Z' || pk === 'S') {
+  else if (pk === 'Z') {
     if (spansSeam) bonus += 100.0;
     if (onVertEdge && spansSeam) bonus += 60.0;
   }
@@ -1064,8 +1102,8 @@ function comboSetupBonus(abs, simBoard, W, H, ap, hp, aiHandKeys, placedCount) {
         bonus += 180.0; // 6-cell zone adjacent to us = potential infeasibility trap!
         // Extra if it's 2×3 shaped (the ideal trap)
         const regXs = reg.map(([x])=>x), regYs = reg.map(([,y])=>y);
-        const rW = Math.max(...regXs)-Math.min(...regXs)+1;
-        const rH = Math.max(...regYs)-Math.min(...regYs)+1;
+        const rW = regXs.reduce((a,b)=>a>b?a:b,-Infinity) - regXs.reduce((a,b)=>a<b?a:b,Infinity) + 1;
+        const rH = regYs.reduce((a,b)=>a>b?a:b,-Infinity) - regYs.reduce((a,b)=>a<b?a:b,Infinity) + 1;
         if ((rW===2&&rH===3)||(rW===3&&rH===2)) bonus += 120.0;
       }
     }
@@ -1079,8 +1117,8 @@ function comboSetupBonus(abs, simBoard, W, H, ap, hp, aiHandKeys, placedCount) {
     for (const reg of regions) {
       if (reg.length < 10 || reg.length > 15) continue;
       const regXs = reg.map(([x])=>x), regYs = reg.map(([,y])=>y);
-      const rW = Math.max(...regXs)-Math.min(...regXs)+1;
-      const rH = Math.max(...regYs)-Math.min(...regYs)+1;
+      const rW = regXs.reduce((a,b)=>a>b?a:b,-Infinity) - regXs.reduce((a,b)=>a<b?a:b,Infinity) + 1;
+      const rH = regYs.reduce((a,b)=>a>b?a:b,-Infinity) - regYs.reduce((a,b)=>a<b?a:b,Infinity) + 1;
       const isRectangular = rW*rH === reg.length; // no holes
       if (isRectangular && (rW===2||rH===2) && reg.length%5===0) {
         // Perfect rectangular zone, divisible by 5, width 2 = I+L/V can tile it
@@ -1379,10 +1417,16 @@ function identifyKeyPieces(hand, board, W, H, ap, allowFlip, PENTS, xformFn) {
   // Inherent endgame value — some pieces are universally better closers
   const inherentValue = {
     I: 22, P: 20, L: 18, Y: 17, N: 15, V: 16, T: 13,
-    Z: 11, S: 11, W: 9, F: 7, U: 7, X: 5,
+    Z: 11, W: 9, F: 7, U: 7, X: 5,
   };
   for (const pk of hand) {
     scores.set(pk, scores.get(pk) + (inherentValue[pk] || 5));
+  }
+
+  // Merge explicit zone-closure reservation — pieces needed to tile owned zones get a big boost
+  const closureExtra = zoneClosureReservation(hand, board, W, H, ap, undefined, allowFlip, PENTS, xformFn);
+  for (const pk of hand) {
+    scores.set(pk, scores.get(pk) + (closureExtra.get(pk) || 0));
   }
 
   return scores;
@@ -1391,11 +1435,14 @@ function identifyKeyPieces(hand, board, W, H, ap, allowFlip, PENTS, xformFn) {
 /**
  * Penalises using a key/critical piece when expendable alternatives exist.
  * Returns a negative number (penalty) or 0.
+ *
+ * Threshold lowered from 20 → 13 so L/Y/V/N class pieces are also protected,
+ * not just I/P. This makes the AI genuinely hold its closers until the right moment.
  */
 function pieceReservationPenalty(pk, hand, keyScores, piecesPlaced, totalHandSize) {
   if (hand.length <= 3) return 0; // endgame — must use everything
   const myScore = keyScores.get(pk) || 0;
-  if (myScore < 20) return 0; // not a key piece
+  if (myScore < 13) return 0; // not a key piece (lowered from 20)
 
   // Are there pieces with meaningfully lower reservation scores?
   const expendableAlts = hand.filter(k => k !== pk && (keyScores.get(k) || 0) < myScore * 0.55);
@@ -1406,7 +1453,7 @@ function pieceReservationPenalty(pk, hand, keyScores, piecesPlaced, totalHandSiz
   const earlyFactor = Math.max(0, 1.0 - progress * 1.6);
   if (earlyFactor <= 0) return 0;
 
-  return -(myScore * earlyFactor * 3.8);
+  return -(myScore * earlyFactor * 4.5); // increased multiplier from 3.8 → 4.5
 }
 
 /**
@@ -1494,6 +1541,92 @@ function getMirrorWarWeights(baseWeights) {
     cluster:    baseWeights.cluster    * 1.3,  // isolation is catastrophic on big board
     opening:    baseWeights.opening    * 0.8,  // opening theory still applies on 15×8, just softer
   };
+}
+
+/**
+ * ZONE-CLOSURE RESERVATION
+ *
+ * Identifies which pieces in the AI's hand are NEEDED to tile AI-owned
+ * sealed (or near-sealed) zones. Returns a per-piece "closure score" —
+ * higher = more essential to save for the endgame.
+ *
+ * Unlike identifyKeyPieces (which looks at all empty regions), this
+ * specifically targets zones that:
+ *   a) Are fully or nearly enclosed by AI pieces + board walls, AND
+ *   b) Have size that exactly matches a combination of AI's remaining pieces.
+ *
+ * When a zone of exactly N*5 cells exists and only K pieces can tile it,
+ * those K pieces must be reserved. Using them elsewhere breaks the seal.
+ *
+ * Returns Map<pieceKey, number> — extra reservation bonus to add to keyScores.
+ */
+function zoneClosureReservation(hand, board, W, H, ap, hp, allowFlip, PENTS, xformFn) {
+  const extra = new Map();
+  for (const pk of hand) extra.set(pk, 0);
+  if (hand.length <= 2) return extra; // endgame: no point
+
+  const regions = floodFillRegions(board, W, H);
+  const flipOptions = allowFlip ? [false, true] : [false];
+
+  for (const reg of regions) {
+    const sz = reg.length;
+    if (sz < 5 || sz > hand.length * 5) continue;   // can't be filled by remaining pieces
+    if (sz % 5 !== 0) continue;                      // must be tileable
+
+    // Is this region "owned" by AI? Count border occupants.
+    let aiEdges = 0, hpEdges = 0, wallEdges = 0;
+    for (const [x, y] of reg) {
+      for (const [ox, oy] of DIRS) {
+        const nx = x + ox, ny = y + oy;
+        if (nx < 0 || ny < 0 || nx >= W || ny >= H) { wallEdges++; continue; }
+        const p = board[ny][nx]?.player;
+        if (p === ap)  aiEdges++;
+        else if (p === hp) hpEdges++;
+      }
+    }
+
+    // Only care about AI-dominated zones (opponent has no border access)
+    if (hpEdges > 0) continue;           // opponent can still enter → not our zone
+    if (aiEdges + wallEdges === 0) continue; // totally open → skip
+
+    // Build regSet for fast lookup
+    const regSet = new Set(reg.map(([x, y]) => y * W + x));
+
+    // Find which pieces in hand can fit in this region
+    const fitting = [];
+    for (const pk of hand) {
+      let canFit = false;
+      outerFit: for (const flip of flipOptions) {
+        for (let rot = 0; rot < 4; rot++) {
+          const shape = xformFn(PENTS[pk], rot, flip);
+          for (const [bx, by] of reg) {
+            let valid = true;
+            for (const [dx, dy] of shape) {
+              if (!regSet.has((by + dy) * W + (bx + dx))) { valid = false; break; }
+            }
+            if (valid) { canFit = true; break outerFit; }
+          }
+        }
+      }
+      if (canFit) fitting.push(pk);
+    }
+
+    if (fitting.length === 0) continue;
+
+    // Urgency: zone that needs exactly as many pieces as can fit = critical closure
+    const piecesNeeded = sz / 5;
+    const urgencyMult = fitting.length <= piecesNeeded
+      ? 8.0   // CRITICAL: only barely enough pieces to close this zone
+      : fitting.length <= piecesNeeded * 2
+        ? 4.0  // KEY: limited options
+        : 1.5; // USEFUL: several options exist
+
+    const zoneValue = sz * urgencyMult;
+    for (const pk of fitting) {
+      extra.set(pk, extra.get(pk) + zoneValue);
+    }
+  }
+  return extra;
 }
 
 // ─────────────────────────────────────────────────────────────────────
@@ -1603,6 +1736,7 @@ export function createAiEngine({ game, aiPlayer, humanPlayer, aiDifficulty, PENT
     }
     _moveCache.set(_key, moves);
     _evict(_moveCache);
+    return moves;
   }
 
   function getAllValidMoves() {
@@ -1628,21 +1762,22 @@ export function createAiEngine({ game, aiPlayer, humanPlayer, aiDifficulty, PENT
           seenOrients.add(oKey);
           for (let ay = 0; ay < boardH; ay++) {
             for (let ax = 0; ax < boardW; ax++) {
+              // Bounds + overlap check
               let valid = true;
-              const abs = [];
               for (const [dx, dy] of shape) {
                 const x = ax+dx, y = ay+dy;
                 if (x < 0 || y < 0 || x >= boardW || y >= boardH || board[y][x] !== null) {
                   valid = false; break;
                 }
-                abs.push([x, y]);
               }
               if (!valid) continue;
+              // Touch check (inline — no need to build an abs array)
               if (placedCount > 0) {
                 let touches = false;
-                tO: for (const [x, y] of abs) {
+                tO: for (const [dx, dy] of shape) {
+                  const px = ax+dx, py = ay+dy;
                   for (const [ox, oy] of DIRS) {
-                    const nx = x+ox, ny = y+oy;
+                    const nx = px+ox, ny = py+oy;
                     if (nx >= 0 && ny >= 0 && nx < boardW && ny < boardH && board[ny][nx] !== null) {
                       touches = true; break tO;
                     }
@@ -1659,6 +1794,7 @@ export function createAiEngine({ game, aiPlayer, humanPlayer, aiDifficulty, PENT
     }
     _feasibleCache.set(_k, feasible);
     _evict(_feasibleCache);
+    return feasible;
   }
 
   function countTotalMoves(board, boardW, boardH, playerNum, remaining, placedCount, allowFlip) {
@@ -1668,6 +1804,7 @@ export function createAiEngine({ game, aiPlayer, humanPlayer, aiDifficulty, PENT
     const v = movesOnBoard(playerNum, board, boardW, boardH, remaining, placedCount, allowFlip).length;
     _moveCountCache.set(_k, v);
     _evict(_moveCountCache);
+    return v;
   }
 
   /** Quick score (used for lookahead pruning). 🔥 SUPERCHARGED weights for GM/Legendary beam quality. */
@@ -1809,13 +1946,13 @@ function connectivityBeam(moves, board, boardW, boardH, ap, hp, beamSize) {
 
       // SEALING FINISHER: big bonus for completing a zone seal
       // This is the most important endgame signal — close the door
-      score += sealingFinisherBonus(m.abs, board, sim, boardW, boardH, ap, hp) * 2.8;
+      score += sealingFinisherBonus(m.abs, board, sim, boardW, boardH, ap, hp) * 3.8;  // was 2.8
 
       // Territory seal score: reward regions already sealed by AI
-      score += territorySealScore(sim, boardW, boardH, ap, hp) * 1.2;
+      score += territorySealScore(sim, boardW, boardH, ap, hp) * 1.8;  // was 1.2
 
       // Zone seal transitions: reward cutting off opponent from open regions
-      score += zoneSealBonus(regions, board, sim, boardW, boardH, hp) * 1.5;
+      score += zoneSealBonus(regions, board, sim, boardW, boardH, hp) * 2.0;  // was 1.5
 
       // Piece reservation: even in endgame, avoid wasting key pieces if alternatives exist
       if (keyPiecesEG) {
@@ -2014,9 +2151,18 @@ function movesGrandmaster(moves) {
   // ── KEY PIECE RESERVATION ─────────────────────────────────────────
   // Identify closers (pieces that uniquely seal territory zones) so we
   // don't spend them early when expendable alternatives exist.
+  // Also merges explicit zone-closure scores (pieces needed to tile owned zones).
   const keyPiecesGM = identifyKeyPieces(
     remaining[ap] || [], board, boardW, boardH, ap, allowFlip, PENTOMINOES, transformCells
   );
+
+  // ── ZONE-CLOSURE EXTRA: pieces that fit AI-sealed territories get boosted ──
+  const closureGM = zoneClosureReservation(
+    remaining[ap] || [], board, boardW, boardH, ap, hp, allowFlip, PENTOMINOES, transformCells
+  );
+  for (const [pk, v] of closureGM) {
+    keyPiecesGM.set(pk, (keyPiecesGM.get(pk) || 0) + v * 1.5);
+  }
 
   const oppMobilityBefore = countTotalMoves(board, boardW, boardH, hp, remaining, placedCount, allowFlip);
   const oppFeasibleBefore = countFeasiblePieces(board, boardW, boardH, hp, remaining, placedCount, allowFlip);
@@ -2465,6 +2611,14 @@ function movesLegendary(moves) {
   const keyPiecesLeg = identifyKeyPieces(
     remaining[ap] || [], board, boardW, boardH, ap, allowFlip, PENTOMINOES, transformCells
   );
+
+  // ── ZONE-CLOSURE EXTRA: pieces needed to tile AI-owned zones are heavily protected ──
+  const closureLeg = zoneClosureReservation(
+    remaining[ap] || [], board, boardW, boardH, ap, hp, allowFlip, PENTOMINOES, transformCells
+  );
+  for (const [pk, v] of closureLeg) {
+    keyPiecesLeg.set(pk, (keyPiecesLeg.get(pk) || 0) + v * 2.0);  // Legendary protects harder
+  }
 
   // ── FORK FOLLOW-THROUGH: detect if we have an open zone to claim ──
   // This is the most important signal: if we forked last turn and the

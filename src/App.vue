@@ -192,7 +192,7 @@
               </button>
             </template>
             <template v-else>
-              <button class="hpBtn" @mouseenter="uiHover" @click="uiHover(); openAuthModal('login')">
+              <button class="hpBtn" @mouseenter="uiHover" @click="uiClick(); openAuthModal('login')">
                 <img :src="hpLoginBtnUrl" class="hpBtnImg" alt="LOGIN" />
               </button>
               <button class="hpBtn" @mouseenter="uiHover" @click="uiClick(); playAsGuest()">
@@ -979,6 +979,25 @@
               </label>
             </div>
 
+            <div class="vsStyleCard">
+              <div class="vsStyleCardTitle">APPEARANCE</div>
+              <div class="vsStyleRowLabel" style="font-size:11px;opacity:0.5;margin-bottom:8px;letter-spacing:1px;">BOARD &amp; PIECE STYLE</div>
+              <label class="vsStyleRow">
+                <span class="vsStyleRowLabel">
+                  Crystal Grid <span style="font-size:9px;padding:2px 6px;border-radius:4px;background:rgba(139,92,246,0.18);color:#c084fc;font-weight:700;letter-spacing:1px;margin-left:4px;">NEW</span>
+                  <span style="font-size:10px;opacity:0.55;font-weight:500;display:block;margin-top:2px;">Holographic tiles, glowing pieces, iridescent frame</span>
+                </span>
+                <input type="checkbox" class="vsStyleCheck" :checked="!legacyVisuals" @change="legacyVisuals = false" />
+              </label>
+              <label class="vsStyleRow">
+                <span class="vsStyleRowLabel">
+                  Legacy Style
+                  <span style="font-size:10px;opacity:0.55;font-weight:500;display:block;margin-top:2px;">Original neon rainbow frame &amp; flat tiles</span>
+                </span>
+                <input type="checkbox" class="vsStyleCheck" :checked="legacyVisuals" @change="legacyVisuals = true" />
+              </label>
+            </div>
+
             <div class="vsStyleFinePrint">Default board: <b>10×6</b> (Mirror War uses 15×8). Tip: Q rotate · E flip</div>
           </div>
         </div>
@@ -1014,8 +1033,9 @@
             <div
               class="turnBanner"
               :class="{
-                tbP1: game.phase !== 'gameover' && (game.phase === 'draft' ? game.draftTurn : game.currentPlayer) === 1,
-                tbP2: game.phase !== 'gameover' && (game.phase === 'draft' ? game.draftTurn : game.currentPlayer) === 2,
+                tbP1: screen !== 'puzzle' && game.phase !== 'gameover' && (game.phase === 'draft' ? game.draftTurn : game.currentPlayer) === 1,
+                tbP2: screen !== 'puzzle' && game.phase !== 'gameover' && (game.phase === 'draft' ? game.draftTurn : game.currentPlayer) === 2,
+                tbPuzzle: screen === 'puzzle' && game.phase !== 'gameover',
                 tbEnd: game.phase === 'gameover',
                 tbYours: isOnline && myPlayer && (game.phase === 'draft' ? game.draftTurn : game.currentPlayer) === myPlayer,
               }"
@@ -1119,21 +1139,35 @@
 
           <!-- ── PUZZLE HUD: pieces remaining + cells covered ── -->
           <div v-if="screen === 'puzzle' && game.phase !== 'gameover'" class="puzzleHud">
-            <div class="puzzleHudStat">
-              <span class="puzzleHudLabel">PIECES LEFT</span>
-              <span class="puzzleHudValue">{{ game.remaining?.[1]?.length ?? 0 }}</span>
+            <div class="puzzleHudHeader">
+              <span class="puzzleHudTitle">🧩 ZEN PUZZLE</span>
+              <button class="puzzleFinishBtn" @click="handlePuzzleEnd">FINISH</button>
             </div>
-            <div class="puzzleHudStat">
-              <span class="puzzleHudLabel">CELLS COVERED</span>
-              <span class="puzzleHudValue">{{ puzzleCellsCovered }} <span class="puzzleHudOf">/ 60</span></span>
+            <div class="puzzleHudStats">
+              <div class="puzzleHudStat">
+                <span class="puzzleHudValue">{{ game.remaining?.[1]?.length ?? 0 }}</span>
+                <span class="puzzleHudLabel">PIECES LEFT</span>
+              </div>
+              <div class="puzzleHudDivider"></div>
+              <div class="puzzleHudStat">
+                <span class="puzzleHudValue">{{ puzzleCellsCovered }}<span class="puzzleHudOf">/60</span></span>
+                <span class="puzzleHudLabel">CELLS COVERED</span>
+              </div>
+              <div class="puzzleHudDivider"></div>
+              <div class="puzzleHudStat">
+                <span class="puzzleHudValue">{{ Math.round(puzzleCellsCovered / 60 * 100) }}<span class="puzzleHudOf">%</span></span>
+                <span class="puzzleHudLabel">COMPLETE</span>
+              </div>
             </div>
-            <button class="puzzleFinishBtn" @click="handlePuzzleEnd">FINISH PUZZLE</button>
+            <div class="puzzleProgressBar">
+              <div class="puzzleProgressFill" :style="{ width: (puzzleCellsCovered / 60 * 100) + '%' }"></div>
+            </div>
           </div>
 
           <DraftPanel v-if="game.phase === 'draft'" />
 
           <section v-else class="panel">
-            <h2 class="panelTitle">{{ screen === 'puzzle' ? 'Your Pieces' : `Player ${game.currentPlayer} Pieces` }}</h2>
+            <h2 class="panelTitle" v-if="screen !== 'puzzle'">{{ `Player ${game.currentPlayer} Pieces` }}</h2>
             <PiecePicker :isOnline="isOnline" :myPlayer="myPlayer" :canAct="canAct" />
 
             <div class="divider"></div>
@@ -1517,10 +1551,15 @@
           </div>
 
           <!-- CTA -->
-          <button class="fcFightBeginBtn" @mouseenter="uiHover" @click="launchStoryChapterGame()">
-            <span class="fcFightBeginText">ACCEPT THE CHALLENGE</span>
-            <span class="fcFightBeginArrow">▶</span>
-          </button>
+          <div class="fcFightActions">
+            <button class="fcFightDeclineBtn" @mouseenter="uiHover" @click="uiClick(); declineStoryChapter()">
+              <span>✕ DECLINE</span>
+            </button>
+            <button class="fcFightBeginBtn" @mouseenter="uiHover" @click="uiClick(); launchStoryChapterGame()">
+              <span class="fcFightBeginText">ACCEPT THE CHALLENGE</span>
+              <span class="fcFightBeginArrow">▶</span>
+            </button>
+          </div>
         </div>
       </div>
     </Transition>
@@ -1741,6 +1780,20 @@
                 <span class="toggleThumb"></span>
               </button>
             </label>
+            <label class="field fieldToggle">
+              <span>
+                <b>Legacy Visuals</b>
+                <span class="fieldDesc">Use original neon rainbow board style</span>
+              </span>
+              <button
+                class="toggleBtn"
+                :class="{ active: legacyVisuals }"
+                @click="legacyVisuals = !legacyVisuals"
+                :aria-pressed="legacyVisuals"
+              >
+                <span class="toggleThumb"></span>
+              </button>
+            </label>
           </div>
           </div>
 
@@ -1899,6 +1952,20 @@ function confirmLogOut() {
 // ────────────────────────────────────────────────────────────────────────────
 
 const allowFlip = ref(true);
+
+// ── Visual Theme ─────────────────────────────────────────────────────────────
+// false = new "Polished Stone" theme (default)
+// true  = legacy neon theme (opt-in from Settings)
+const legacyVisuals = ref(false);
+
+function _applyLegacyVisualsClass(v) {
+  document.documentElement.classList.toggle('legacy-visuals', !!v);
+}
+
+watch(legacyVisuals, v => {
+  _applyLegacyVisualsClass(v);
+  try { localStorage.setItem('pb_legacy_visuals', v ? '1' : '0'); } catch {}
+});
 const guestName = ref("GUEST");
 const displayName = computed(() => guestName.value);
 
@@ -2152,7 +2219,6 @@ const guestAvatarUrl = new URL("./assets/guest_avatar.png", import.meta.url).hre
 const hpLogoUrl         = new URL("./assets/hp_logo.png",          import.meta.url).href;
 const hpTitleUrl        = new URL("./assets/hp_title.png",         import.meta.url).href;
 const hpTaglineUrl      = new URL("./assets/hp_tagline.png",       import.meta.url).href;
-const hpRectangle1Url   = new URL("./assets/hp_rectangle1.png",    import.meta.url).href;
 const hpWatchTutorialUrl= new URL("./assets/hp_watch_tutorial.png",import.meta.url).href;
 const playBtnUrl        = new URL("./assets/play_btn.png",          import.meta.url).href;
 
@@ -2245,6 +2311,11 @@ function loadAudioPrefs() {
     const s = Number(localStorage.getItem("pb_sfx_vol"));
     if (Number.isFinite(b)) bgmVolumeUi.value = Math.max(0, Math.min(100, Math.round(b)));
     if (Number.isFinite(s)) sfxVolumeUi.value = Math.max(0, Math.min(100, Math.round(s)));
+    // Load visual theme preference
+    if (localStorage.getItem('pb_legacy_visuals') === '1') {
+      legacyVisuals.value = true;
+      _applyLegacyVisualsClass(true);
+    }
   } catch {}
 }
 function saveAudioPrefs() {
@@ -6990,6 +7061,14 @@ function launchStoryChapterGame() {
   }
 }
 
+function declineStoryChapter() {
+  storyFight.active = false;
+  storyFight.chapter = null;
+  storyFight.index = -1;
+  // Return to the story/circuit screen
+  screen.value = 'story';
+}
+
 function _startStoryBlindDraft() {
   screen.value = 'ai';
   const seed = Math.floor(Math.random() * 0xFFFFFFFF);
@@ -8028,21 +8107,20 @@ onBeforeUnmount(() => {
   position: fixed;
   pointer-events: none;
   z-index: 99999;
-  opacity: 0.82;
+  opacity: 0.85;
   filter:
-    drop-shadow(0 10px 26px rgba(0,0,0,0.65))
-    drop-shadow(0 0 10px rgba(255,255,255,0.10));
+    drop-shadow(0 12px 30px rgba(0,0,0,0.70))
+    drop-shadow(0 2px 8px rgba(0,0,0,0.50));
   will-change: left, top;
 }
 
 .cursorGhostBlock {
-  border-radius: 9px;
-  border: 1px solid rgba(0,0,0,0.55);
+  border-radius: 3px;
+  border: 1px solid rgba(255,255,255,0.22);
   box-shadow:
-    0 14px 22px rgba(0,0,0,0.50),
-    0 0 14px rgba(255,255,255,0.07),
-    inset 0 1px 0 rgba(255,255,255,0.26),
-    inset 0 -6px 0 rgba(0,0,0,0.34);
+    0 6px 20px rgba(0,0,0,0.60),
+    inset 0 1px 0 rgba(255,255,255,0.40),
+    inset 0 -2px 0 rgba(0,0,0,0.45);
   overflow: hidden;
   position: relative;
 }
@@ -8050,14 +8128,36 @@ onBeforeUnmount(() => {
 .cursorGhostBlock::before {
   content: "";
   position: absolute;
+  top: 0; left: 0; right: 0;
+  height: 48%;
+  background: linear-gradient(
+    180deg,
+    rgba(255,255,255,0.36) 0%,
+    rgba(255,255,255,0.10) 60%,
+    transparent 100%
+  );
+  pointer-events: none;
+}
+
+/* Legacy drag ghost */
+.legacy-visuals .cursorGhostBlock {
+  border-radius: 9px !important;
+  border: 1px solid rgba(0,0,0,0.55) !important;
+  box-shadow:
+    0 14px 22px rgba(0,0,0,0.50),
+    0 0 14px rgba(255,255,255,0.07),
+    inset 0 1px 0 rgba(255,255,255,0.26),
+    inset 0 -6px 0 rgba(0,0,0,0.34) !important;
+}
+.legacy-visuals .cursorGhostBlock::before {
+  top: 0; left: 0; right: 0; height: auto;
   inset: 0;
   background: linear-gradient(
     to bottom,
     rgba(255,255,255,0.26),
     rgba(255,255,255,0.08) 35%,
     rgba(0,0,0,0.12)
-  );
-  pointer-events: none;
+  ) !important;
 }
 
 .btn.ghost{
@@ -9386,7 +9486,30 @@ onBeforeUnmount(() => {
   to   { opacity: 1; transform: translateX(0); }
 }
 
-/* ── CTA button ──────────────────────────────────────────────── */
+/* ── CTA buttons ─────────────────────────────────────────────── */
+.fcFightActions {
+  display: flex;
+  gap: 10px;
+  align-items: stretch;
+}
+.fcFightDeclineBtn {
+  display: flex; align-items: center; justify-content: center;
+  padding: 15px 16px;
+  background: rgba(255,255,255,0.04);
+  border: 1px solid rgba(255,255,255,0.14);
+  border-radius: 12px;
+  color: rgba(255,255,255,0.45); font-size: 11px; font-weight: 700; letter-spacing: 2px;
+  cursor: pointer; transition: background .18s, color .18s, border-color .18s, transform .1s;
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+.fcFightDeclineBtn:hover {
+  background: rgba(255,60,60,0.12);
+  border-color: rgba(255,60,60,0.35);
+  color: rgba(255,100,100,0.9);
+  transform: scale(1.02);
+}
+.fcFightDeclineBtn:active { transform: scale(.97); }
 .fcFightBeginBtn {
   display: flex; align-items: center; justify-content: center; gap: 10px;
   width: 100%; padding: 15px 20px;
@@ -10227,6 +10350,16 @@ onBeforeUnmount(() => {
   border-radius: 16px;
 }
 /* P1 = cyan */
+/* Puzzle mode = teal/green neutral tone */
+.turnBanner.tbPuzzle{
+  border-color: rgba(61,255,160,0.25);
+  box-shadow: 0 0 0 1px rgba(61,255,160,0.06) inset, 0 8px 32px rgba(0,0,0,0.40);
+}
+.turnBanner.tbPuzzle .tbGlow{
+  background: radial-gradient(ellipse 140% 100% at 0% 50%, rgba(61,255,160,0.10), transparent 65%);
+  opacity: 1;
+}
+.turnBanner.tbPuzzle .tbMain{ color: rgba(61,255,160,0.90); }
 .turnBanner.tbP1{
   border-color: rgba(0,229,255,0.30);
   box-shadow: 0 0 0 1px rgba(0,229,255,0.08) inset, 0 8px 32px rgba(0,0,0,0.40);
@@ -10495,41 +10628,76 @@ onBeforeUnmount(() => {
 /* ── Puzzle Mode HUD ────────────────────────────────────────── */
 .puzzleHud {
   display: flex;
-  align-items: center;
+  flex-direction: column;
   gap: 10px;
-  padding: 10px 14px;
+  padding: 12px 14px;
   background: rgba(255,255,255,0.04);
-  border: 1px solid rgba(255,255,255,0.08);
-  border-radius: 10px;
+  border: 1px solid rgba(61,255,160,0.15);
+  border-radius: 12px;
   margin-bottom: 10px;
-  flex-wrap: wrap;
+}
+.puzzleHudHeader {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+.puzzleHudTitle {
+  font-family: "Orbitron", sans-serif;
+  font-size: 10px;
+  font-weight: 900;
+  letter-spacing: 2px;
+  color: rgba(61,255,160,0.80);
+  text-transform: uppercase;
+}
+.puzzleHudStats {
+  display: flex;
+  align-items: center;
+  gap: 0;
+}
+.puzzleHudDivider {
+  width: 1px;
+  height: 32px;
+  background: rgba(255,255,255,0.10);
+  margin: 0 12px;
 }
 .puzzleHudStat {
   display: flex;
   flex-direction: column;
   align-items: center;
   flex: 1;
-  min-width: 72px;
 }
 .puzzleHudLabel {
   font-family: "Orbitron", sans-serif;
-  font-size: 8px;
+  font-size: 7px;
   letter-spacing: 1.5px;
   font-weight: 900;
-  color: rgba(255,255,255,0.35);
+  color: rgba(255,255,255,0.30);
   text-transform: uppercase;
+  margin-top: 2px;
 }
 .puzzleHudValue {
   font-family: "Orbitron", sans-serif;
-  font-size: 20px;
+  font-size: 22px;
   font-weight: 900;
   color: rgba(255,255,255,0.90);
-  line-height: 1.15;
+  line-height: 1.1;
 }
 .puzzleHudOf {
-  font-size: 12px;
+  font-size: 11px;
   font-weight: 600;
   color: rgba(255,255,255,0.35);
+}
+.puzzleProgressBar {
+  height: 4px;
+  background: rgba(255,255,255,0.08);
+  border-radius: 999px;
+  overflow: hidden;
+}
+.puzzleProgressFill {
+  height: 100%;
+  background: linear-gradient(90deg, #3dffa0, #00e5ff);
+  border-radius: 999px;
+  transition: width 0.4s ease;
 }
 .puzzleFinishBtn {
   font-family: "Orbitron", sans-serif;

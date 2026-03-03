@@ -205,8 +205,9 @@ export async function joinByCode(code) {
 
   if (error) throw new Error(`Lobby "${c}" not found.`);
 
-  if (isLobbyStale(lobby))       throw new Error("That lobby has expired.");
+  // Check explicit closure first (gives a specific message) before the generic stale check
   if (lobby.status === "closed") throw new Error("That lobby is closed.");
+  if (isLobbyStale(lobby))       throw new Error("That lobby has expired.");
 
   // Already the host — return immediately without modifying anything
   if (lobby.host_id === me) return { lobby, role: "host" };

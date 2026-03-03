@@ -92,9 +92,8 @@ function onKeyDown(e) {
 
     const hovered = game.hoverCell;
     if (hovered && game.canPlaceAt(hovered.x, hovered.y)) {
-      // Instantly stage the hovered cell and commit — cursor confirms placement.
-      game.pendingPlace = { x: hovered.x, y: hovered.y };
-      onPcSubmit();
+      // Stage via the store action (runs canPlaceAt validation) then commit
+      if (game.stagePlacement(hovered.x, hovered.y)) onPcSubmit();
     } else if (isPendingValid.value) {
       // No hover (cursor left board) — commit the last staged position.
       onPcSubmit();
