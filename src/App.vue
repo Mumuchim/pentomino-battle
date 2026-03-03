@@ -282,7 +282,6 @@
                 <button class="pbMiniBtn primary qmPickerBtn" @mouseenter="uiHover" @click="uiClick(); qmPickerOpen = false; startBlindDraftMode()">PLAY</button>
               </div>
             </div>
-            <button class="pbMiniBtn qmPickerBack" @mouseenter="uiHover" @click="uiClick(); qmPickerOpen = false">← BACK</button>
           </div>
 
           <!-- NORMAL MENU BUTTONS (hidden while picker is open) -->
@@ -339,7 +338,6 @@
                 <button class="pbMiniBtn primary qmPickerBtn" @mouseenter="uiHover" @click="uiClick(); startCouchBlindDraft()">PLAY</button>
               </div>
             </div>
-            <button class="pbMiniBtn qmPickerBack" @mouseenter="uiHover" @click="uiClick(); couchPickerOpen = false">← BACK</button>
           </div>
 
           <!-- NORMAL SOLO BUTTONS -->
@@ -408,7 +406,7 @@
                   {{ ch.mode === 'normal' ? 'STANDARD' : ch.mode === 'blind_draft' ? 'BLIND DRAFT' : 'MIRROR WAR' }}
                 </span>
                 <span class="fcDiffBadge" :class="`fcDiff${ch.difficulty}`">
-                  {{ ch.difficulty.toUpperCase() }}
+                  {{ {dumbie:'EASY',elite:'NORMAL',tactician:'HARD',grandmaster:'MASTER',legendary:'ULTIMATE'}[ch.difficulty] || ch.difficulty.toUpperCase() }}
                 </span>
               </div>
             </div>
@@ -976,25 +974,6 @@
                 <span class="vsStyleRowLabel">SFX Volume</span>
                 <input type="range" min="0" max="100" step="1" v-model.number="sfxVolumeUi" class="vsStyleSlider" />
                 <span class="vsStyleSliderVal">{{ sfxVolumeUi }}%</span>
-              </label>
-            </div>
-
-            <div class="vsStyleCard">
-              <div class="vsStyleCardTitle">APPEARANCE</div>
-              <div class="vsStyleRowLabel" style="font-size:11px;opacity:0.5;margin-bottom:8px;letter-spacing:1px;">BOARD &amp; PIECE STYLE</div>
-              <label class="vsStyleRow">
-                <span class="vsStyleRowLabel">
-                  Crystal Grid <span style="font-size:9px;padding:2px 6px;border-radius:4px;background:rgba(139,92,246,0.18);color:#c084fc;font-weight:700;letter-spacing:1px;margin-left:4px;">NEW</span>
-                  <span style="font-size:10px;opacity:0.55;font-weight:500;display:block;margin-top:2px;">Holographic tiles, glowing pieces, iridescent frame</span>
-                </span>
-                <input type="checkbox" class="vsStyleCheck" :checked="!legacyVisuals" @change="legacyVisuals = false" />
-              </label>
-              <label class="vsStyleRow">
-                <span class="vsStyleRowLabel">
-                  Legacy Style
-                  <span style="font-size:10px;opacity:0.55;font-weight:500;display:block;margin-top:2px;">Original neon rainbow frame &amp; flat tiles</span>
-                </span>
-                <input type="checkbox" class="vsStyleCheck" :checked="legacyVisuals" @change="legacyVisuals = true" />
               </label>
             </div>
 
@@ -1689,7 +1668,7 @@
           </div>
           <div class="unlockLabel">NEW RANK UNLOCKED</div>
           <div class="unlockRankName">
-            {{ unlockAnim.rank === 'elite' ? 'ELITE' : unlockAnim.rank === 'tactician' ? 'TACTICIAN' : unlockAnim.rank === 'grandmaster' ? 'GRANDMASTER' : 'LEGENDARY' }}
+            {{ unlockAnim.rank === 'elite' ? 'NORMAL' : unlockAnim.rank === 'tactician' ? 'HARD' : unlockAnim.rank === 'grandmaster' ? 'MASTER' : 'ULTIMATE' }}
           </div>
           <div class="unlockRankDesc">
             {{ unlockAnim.rank === 'elite' ? 'Sharpened Strategist' : unlockAnim.rank === 'tactician' ? 'Master of Patterns' : unlockAnim.rank === 'grandmaster' ? 'The Territorial God' : 'Beyond Human Reach' }}
@@ -1731,7 +1710,7 @@
           <div class="lcGlowRing"></div>
           <div class="lcCrown">👑</div>
           <div class="lcSuperLabel">ALL STAGES CLEARED</div>
-          <div class="lcTitle">LEGENDARY<br>CONQUERED</div>
+          <div class="lcTitle">ULTIMATE<br>CONQUERED</div>
           <div class="lcDivider"></div>
           <div class="lcQuote">"Beyond Human Reach —<br>You proved them wrong."</div>
           <div class="unlockActions" style="margin-top:28px;">
@@ -2853,7 +2832,7 @@ function navTo(newScreen) {
 }
 const modeLabel = computed(() => {
   if (screen.value === "ai") {
-    const labels = { dumbie: "Dumbie", elite: "Elite", tactician: "Tactician", grandmaster: "Grandmaster", legendary: "Legendary" };
+    const labels = { dumbie: "Easy", elite: "Normal", tactician: "Hard", grandmaster: "Master", legendary: "Ultimate" };
     const roundStr = aiRound.value > 1 ? ` · R${aiRound.value}` : '';
     return `VS AI · ${labels[aiDifficulty.value] || "Dumbie"}${roundStr}`;
   }
@@ -5206,7 +5185,7 @@ watch(
         // and already provides Main Menu / Play Again / Next Battle actions.
         if (newStageUnlocked) return;
 
-        const diffLabel = { dumbie:'Dumbie', elite:'Elite', tactician:'Tactician', grandmaster:'Grandmaster', legendary:'Legendary' }[aiDifficulty.value] || aiDifficulty.value;
+        const diffLabel = { dumbie:'Easy', elite:'Normal', tactician:'Hard', grandmaster:'Master', legendary:'Ultimate' }[aiDifficulty.value] || aiDifficulty.value;
         title = humanWon ? "VICTORY" : "DEFEAT";
         tone = humanWon ? "victory" : "bad";
         const nextDiff = getNextRank(aiDifficulty.value);
@@ -6604,6 +6583,10 @@ function confirmInGame({ title, message, yesLabel = "YES", noLabel = "NO", onYes
 }
 
 function goBack() {
+  // If a sub-picker is open, close it first (replaces the removed inline BACK button)
+  if (qmPickerOpen.value)    { uiClick(); qmPickerOpen.value = false; return; }
+  if (couchPickerOpen.value) { uiClick(); couchPickerOpen.value = false; return; }
+
   // Multiplayer sub-screens
   if (["lobby", "ranked"].includes(screen.value)) {
     navTo("multiplayer");
@@ -6821,7 +6804,7 @@ function handlePuzzleEnd() {
 const STORY_CHAPTERS = [
   // ── TIER 1: THE BOTTOM (Dumbie) ──────────────────────────────────
   {
-    id: 'dumbie', name: 'DUMBIE', title: 'Rank #12 · Last Place Regular',
+    id: 'dumbie', name: 'EASY', title: 'Rank #12 · Last Place Regular',
     emoji: '⬜', color: '#C0C0C0', tier: 0,
     personality: 'Oblivious Optimist',
     difficulty: 'dumbie', mode: 'normal', aiAsP1: false,
@@ -6848,7 +6831,7 @@ const STORY_CHAPTERS = [
   },
   // ── TIER 2: FIRST REAL WALL (Elite) ──────────────────────────────
   {
-    id: 'elite', name: 'ELITE', title: 'Rank #10 · The Gatekeeper',
+    id: 'elite', name: 'NORMAL', title: 'Rank #10 · The Gatekeeper',
     emoji: '🟩', color: '#69FF47', tier: 1,
     personality: 'Condescending Gatekeeper',
     difficulty: 'elite', mode: 'blind_draft', aiAsP1: false,
@@ -6888,7 +6871,7 @@ const STORY_CHAPTERS = [
   },
   // ── TIER 3: THE MIND GAMES (Tactician) ───────────────────────────
   {
-    id: 'tactician', name: 'TACTICIAN', title: 'Rank #7 · The Disruptor',
+    id: 'tactician', name: 'HARD', title: 'Rank #7 · The Disruptor',
     emoji: '🔷', color: '#4FC3F7', tier: 2,
     personality: 'Philosophical Sadist',
     difficulty: 'tactician', mode: 'blind_draft', aiAsP1: false,
@@ -7200,7 +7183,7 @@ const unlockAnim = reactive({ active: false, rank: '' });
 
 // Challenge animation state (shown when replaying after clearing all stages)
 const challengeAnim = reactive({ active: false, rank: '' });
-const RANK_LABELS = { dumbie:'DUMBIE', elite:'ELITE', tactician:'TACTICIAN', grandmaster:'GRANDMASTER', legendary:'LEGENDARY' };
+const RANK_LABELS = { dumbie:'EASY', elite:'NORMAL', tactician:'HARD', grandmaster:'MASTER', legendary:'ULTIMATE' };
 const RANK_DESC = { dumbie:'The Rookie Crusher', elite:'Sharpened Strategist', tactician:'Master of Patterns', grandmaster:'The Territorial God', legendary:'Beyond Human Reach' };
 
 function getNextRank(current) {
