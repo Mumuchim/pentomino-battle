@@ -47,7 +47,6 @@ coverage
 *.njsproj
 *.sln
 *.sw?
-*.zip
 /*.zip
 *.zip
 /*.7z
