@@ -53,6 +53,7 @@
           v-if="ghostOverlay.visible"
           class="ghostOverlay"
           :class="{ ok: ghostOverlay.ok, bad: !ghostOverlay.ok, staged: ghostOverlay.staged }"
+          :style="ghostOverlayGridStyle"
           aria-hidden="true"
         >
           <div
@@ -159,7 +160,7 @@ const boardDragging = ref(false);
 let stagedAt = 0;
 
 // Must match .board padding in CSS
-const BOARD_PADDING = 10;
+const BOARD_PADDING = 8;
 // Leave a little breathing room around the board so it never feels "flattened".
 const SIZER_MARGIN = 14;
 
@@ -179,15 +180,41 @@ function recomputeSizer() {
   const w = Math.floor(cell * game.boardW);
   const h = Math.floor(cell * game.boardH);
   sizerPx.value = { w, h };
-  // Share cell size so App.vue can size the drag ghost to match board cells
-  game.boardCellPx = Math.max(10, Math.floor(cell));
+  // Subtract padding so ghost matches actual rendered cell size (not sizer cell)
+  const gridW = w - BOARD_PADDING * 2;
+  const gridH = h - BOARD_PADDING * 2;
+  const gap = 2; // must match .board { gap: 2px }
+  const actualCell = Math.min(
+    (gridW - (game.boardW - 1) * gap) / game.boardW,
+    (gridH - (game.boardH - 1) * gap) / game.boardH
+  );
+  game.boardCellPx = Math.max(10, Math.floor(actualCell));
 }
 
 const sizerStyle = computed(() => {
   const w = sizerPx.value.w;
   const h = sizerPx.value.h;
   if (!w || !h) return {};
-  return { width: `${w}px`, height: `${h}px` };
+  const cellPx = game.boardCellPx || 32;
+  const bevel = Math.max(1, Math.round(cellPx * 0.02));
+  return { width: `${w}px`, height: `${h}px`, '--cell-bevel': `${bevel}px` };
+});
+
+// Exact (unrounded) cell dimensions derived from sizerPx so ghost block
+// positions match the CSS grid's 1fr columns/rows precisely.
+const exactCellSize = computed(() => {
+  const w = sizerPx.value.w;
+  const h = sizerPx.value.h;
+  const gap = 2;
+  if (!w || !h) {
+    const c = game.boardCellPx || 32;
+    return { cellW: c, cellH: c, stepX: c + gap, stepY: c + gap };
+  }
+  const innerW = w - BOARD_PADDING * 2;
+  const innerH = h - BOARD_PADDING * 2;
+  const cellW = (innerW - (game.boardW - 1) * gap) / game.boardW;
+  const cellH = (innerH - (game.boardH - 1) * gap) / game.boardH;
+  return { cellW, cellH, stepX: cellW + gap, stepY: cellH + gap };
 });
 
 onMounted(() => {
@@ -482,6 +509,7 @@ function spawnFlyClone(pieceKey, player, fromEl) {
   node.style.pointerEvents = "none";
   node.style.zIndex = "999999";
   node.style.display = "grid";
+  node.style.gap = "2px";
   node.style.transformOrigin = "center center";
 
   let maxX = 0, maxY = 0;
@@ -499,10 +527,11 @@ function spawnFlyClone(pieceKey, player, fromEl) {
     const block = document.createElement("div");
     block.style.width = `${cell}px`;
     block.style.height = `${cell}px`;
-    block.style.borderRadius = "6px";
-    block.style.border = "1px solid rgba(255,255,255,0.2)";
+    block.style.borderRadius = "8%";
+    block.style.border = "1px solid rgba(0,0,0,0.30)";
+    const bevel = Math.max(1, Math.round(cell * 0.02));
     block.style.boxShadow =
-      "0 6px 12px rgba(0,0,0,0.5), inset 0 1px 0 rgba(255,255,255,0.3)";
+      `inset 0 -${bevel}px 0 rgba(0,0,0,0.25), inset 0 1px 0 rgba(255,255,255,0.15)`;
 
     if (s.skin) {
       block.style.backgroundImage = `url(${s.skin})`;
@@ -730,7 +759,7 @@ function cellInlineStyle(cell) {
         backgroundPosition: "center",
         filter: cell.v.draftedBy
           ? "brightness(0.55) saturate(0.65)"
-          : "brightness(0.92) saturate(1.05)",
+          : "none",
       };
     }
     return { backgroundColor: s.color };
@@ -762,17 +791,14 @@ function cellTitle(cell) {
 
 function ghostBlockStyle(b) {
   const s = getPieceStyle(game.selectedPieceKey);
-
-  const leftPct = (b.x / game.boardW) * 100;
-  const topPct = (b.y / game.boardH) * 100;
-  const wPct = (1 / game.boardW) * 100;
-  const hPct = (1 / game.boardH) * 100;
+  const { cellW, cellH, stepX, stepY } = exactCellSize.value;
 
   const base = {
-    left: `${leftPct}%`,
-    top: `${topPct}%`,
-    width: `${wPct}%`,
-    height: `${hPct}%`,
+    position: 'absolute',
+    left: `${b.x * stepX}px`,
+    top: `${b.y * stepY}px`,
+    width: `${cellW}px`,
+    height: `${cellH}px`,
     transition: "left 55ms linear, top 55ms linear",
   };
 
@@ -786,6 +812,8 @@ function ghostBlockStyle(b) {
   }
   return { ...base, backgroundColor: s.color };
 }
+
+const ghostOverlayGridStyle = computed(() => ({}));
 </script>
 
 <style scoped>
@@ -836,6 +864,7 @@ function ghostBlockStyle(b) {
 
 .boardSizer{
   position: relative;
+  overflow: visible;
   /*
     JS sets width/height so the board scales *uniformly* (contain)
     and never gets "flattened".
@@ -845,33 +874,15 @@ function ghostBlockStyle(b) {
 
 .neonFrame {
   position: absolute;
-  inset: -10px;
+  inset: -8px;
   border-radius: 22px;
-  background:
-    linear-gradient(#0000, #0000) padding-box,
-    conic-gradient(
-      from 180deg,
-      rgba(0,255,255,0.65),
-      rgba(255,0,255,0.65),
-      rgba(255,255,0,0.55),
-      rgba(0,255,160,0.60),
-      rgba(0,255,255,0.65)
-    ) border-box;
-  border: 2px solid transparent;
+  background: #1a1a1d;
+  border: 3px solid rgba(255,255,255,0.10);
   box-shadow:
-    0 0 22px rgba(0, 255, 255, 0.18),
-    0 0 38px rgba(255, 0, 255, 0.16),
-    0 0 52px rgba(255, 255, 0, 0.10),
-    0 16px 50px rgba(0,0,0,0.65);
-  filter: saturate(1.15);
-  opacity: 0.92;
-  animation: neonPulse 3.2s ease-in-out infinite;
+    0 8px 28px rgba(0,0,0,0.70),
+    0 2px 6px rgba(0,0,0,0.50);
   pointer-events: none;
   z-index: 0;
-}
-@keyframes neonPulse {
-  0%, 100% { transform: translateY(0); filter: saturate(1.12); opacity: 0.88; }
-  50% { transform: translateY(-1px); filter: saturate(1.25); opacity: 0.98; }
 }
 
 .scanlines {
@@ -898,8 +909,8 @@ function ghostBlockStyle(b) {
   width: 100%;
   height: 100%;
   display: grid;
-  gap: 3px;
-  padding: 10px;
+  gap: 2px;
+  padding: 8px;
 
   border-radius: 16px;
 
@@ -907,47 +918,68 @@ function ghostBlockStyle(b) {
      the browser's native pinch-to-zoom gesture on the surrounding shell. */
   touch-action: pan-x pan-y;
 
+  /* Dark ebony wood — fine grain, near-black neutral */
   background:
-    radial-gradient(900px 360px at 50% 30%, rgba(0,255,255,0.08), rgba(0,0,0,0) 55%),
-    radial-gradient(900px 420px at 40% 85%, rgba(255,0,255,0.07), rgba(0,0,0,0) 58%),
-    linear-gradient(180deg, rgba(12,14,24,0.95), rgba(6,7,12,0.96));
-
-  border: 1px solid rgba(255,255,255,0.10);
-
+    repeating-linear-gradient(
+      92deg,
+      transparent 0px,
+      rgba(255,255,255,0.025) 1px,
+      transparent 2px,
+      transparent 10px
+    ),
+    repeating-linear-gradient(
+      88deg,
+      transparent 0px,
+      rgba(0,0,0,0.08) 1px,
+      transparent 2px,
+      transparent 16px
+    ),
+    linear-gradient(
+      170deg,
+      #141416 0%,
+      #1a1a1c 35%,
+      #111113 65%,
+      #0e0e10 100%
+    );
+  border: none;
   box-shadow:
-    inset 0 1px 0 rgba(255,255,255,0.12),
-    inset 0 -18px 40px rgba(0,0,0,0.55),
-    inset 0 0 0 1px rgba(0,255,255,0.07);
+    inset 0 0 60px rgba(0,0,0,0.35),
+    inset 1px 1px 0 rgba(255,255,255,0.04),
+    inset -1px -1px 0 rgba(0,0,0,0.50);
 }
 
 .cell {
   position: relative;
-  border-radius: 7px;
+  border-radius: 8%;
   cursor: pointer;
-  border: 1px solid rgba(255,255,255,0.07);
-  background: linear-gradient(180deg, rgba(255,255,255,0.04), rgba(0,0,0,0.02));
+  /* Wood slot — routed into the surface */
+  border: 1px solid rgba(0,0,0,0.60);
+  border-bottom-color: rgba(255,255,255,0.05);
+  border-right-color: rgba(255,255,255,0.04);
+  background: rgba(0,0,0,0.35);
   box-shadow:
-    inset 0 1px 0 rgba(255,255,255,0.10),
-    inset 0 -2px 0 rgba(0,0,0,0.25);
-  transition: transform 120ms ease, filter 120ms ease, box-shadow 120ms ease;
+    inset 0 2px 4px rgba(0,0,0,0.55),
+    inset 0 1px 0 rgba(0,0,0,0.70);
+  overflow: hidden;
+  transition: filter 120ms ease;
 }
 
 .cell:hover {
-  transform: translateY(-1px);
-  filter: brightness(1.08);
-  box-shadow:
-    0 6px 14px rgba(0,0,0,0.40),
-    inset 0 1px 0 rgba(255,255,255,0.14),
-    inset 0 -2px 0 rgba(0,0,0,0.25);
+  filter: brightness(1.15);
 }
 
 .cell.placed {
-  border: 1px solid rgba(255,255,255,0.16);
+  border: 1px solid rgba(0,0,0,0.30);
   box-shadow:
-    0 10px 18px rgba(0,0,0,0.45),
-    0 0 10px rgba(255,255,255,0.06),
-    inset 0 1px 0 rgba(255,255,255,0.22),
-    inset 0 -4px 0 rgba(0,0,0,0.30);
+    inset 0 calc(-1 * var(--cell-bevel, 3px)) 0 rgba(0,0,0,0.25),
+    inset 0 1px 0 rgba(255,255,255,0.18),
+    0 4px 10px rgba(0,0,0,0.60),
+    0 1px 3px rgba(0,0,0,0.40);
+}
+
+/* Logo-style: flat face, no gradient overlay on placed pieces */
+.cell.placed::before {
+  display: none;
 }
 
 .cell.ghost-ok { outline: 2px solid rgba(0,255,170,0.85); }
@@ -956,10 +988,17 @@ function ghostBlockStyle(b) {
 .board.draftMode .cell { cursor: pointer; }
 
 .cell.draft {
-  border: 1px solid rgba(255,255,255,0.14);
+  border: 1px solid rgba(0,0,0,0.30);
   box-shadow:
-    inset 0 1px 0 rgba(255,255,255,0.20),
-    inset 0 -6px 10px rgba(0,0,0,0.35);
+    inset 0 calc(-1 * var(--cell-bevel, 3px)) 0 rgba(0,0,0,0.25),
+    inset 0 1px 0 rgba(255,255,255,0.18),
+    0 4px 10px rgba(0,0,0,0.60),
+    0 1px 3px rgba(0,0,0,0.40);
+}
+
+/* Logo-style: flat face, no gradient overlay */
+.cell.draft::before {
+  display: none;
 }
 
 /* Drafted pieces: dim + locked */
@@ -995,10 +1034,11 @@ function ghostBlockStyle(b) {
 
 .ghostOverlay {
   position: absolute;
-  inset: 10px;
+  inset: 8px;
   border-radius: 12px;
   pointer-events: none;
   z-index: 999;
+  overflow: visible;
   filter:
     drop-shadow(0 18px 32px rgba(0,0,0,0.60))
     drop-shadow(0 0 12px rgba(0,255,255,0.10));
@@ -1006,26 +1046,17 @@ function ghostBlockStyle(b) {
 .ghostOverlay.bad { opacity: 0.78; }
 
 .ghostBlock {
-  position: absolute;
-  border-radius: 9px;
-  border: 1px solid rgba(0,0,0,0.55);
+  border-radius: 8%;
+  border: 1px solid rgba(0,0,0,0.30);
   box-shadow:
-    0 14px 22px rgba(0,0,0,0.50),
-    0 0 14px rgba(255,255,255,0.07),
-    inset 0 1px 0 rgba(255,255,255,0.26),
-    inset 0 -6px 0 rgba(0,0,0,0.34);
+    inset 0 calc(-1 * var(--cell-bevel, 3px)) 0 rgba(0,0,0,0.25),
+    inset 0 1px 0 rgba(255,255,255,0.18),
+    0 4px 10px rgba(0,0,0,0.60),
+    0 1px 3px rgba(0,0,0,0.40);
   overflow: hidden;
 }
 .ghostBlock::before {
-  content: "";
-  position: absolute;
-  inset: 0;
-  background: linear-gradient(
-    to bottom,
-    rgba(255,255,255,0.26),
-    rgba(255,255,255,0.08) 35%,
-    rgba(0,0,0,0.12)
-  );
+  display: none;
 }
 
 
@@ -1191,6 +1222,6 @@ function ghostBlockStyle(b) {
 }
 
 .flyClone { will-change: transform, opacity, filter; }
-.flyClone.p1 { outline: 2px solid rgba(78, 201, 255, 0.25); }
-.flyClone.p2 { outline: 2px solid rgba(255, 107, 107, 0.25); }
+.flyClone.p1 { }
+.flyClone.p2 { }
 </style>

@@ -105,7 +105,22 @@ function onResize() {
 onMounted(() => {
   onResize();
   window.addEventListener("resize", onResize, { passive: true });
+  window.addEventListener("pointerdown", onGlobalPointerDown, { passive: true });
 });
+
+// Deselect piece when clicking outside the board and outside the picker panel
+function onGlobalPointerDown(e) {
+  if (!game.selectedPieceKey) return;
+  if (game.phase !== 'place') return;
+
+  // Allow clicks on the board (handled there) and on picker chips (handled above)
+  const board = document.querySelector('.boardSizer');
+  const picker = document.querySelector('.picker');
+  if (board?.contains(e.target)) return;
+  if (picker?.contains(e.target)) return;
+
+  game.clearSelection();
+}
 
 function canSelect(player) {
   if (game.phase !== "place") return false;
@@ -116,6 +131,11 @@ function canSelect(player) {
 
 function onPick(player, key) {
   if (!canSelect(player)) return;
+  // Clicking the already-selected piece deselects it
+  if (game.selectedPieceKey === key) {
+    game.clearSelection();
+    return;
+  }
   game.selectPiece(key);
 }
 
@@ -328,6 +348,7 @@ function onPiecePointerUp(e) {
 onBeforeUnmount(() => {
   cleanupPointerListeners();
   try { window.removeEventListener("resize", onResize); } catch {}
+  try { window.removeEventListener("pointerdown", onGlobalPointerDown); } catch {}
 });
 
 </script>

@@ -1759,20 +1759,7 @@
                 <span class="toggleThumb"></span>
               </button>
             </label>
-            <label class="field fieldToggle">
-              <span>
-                <b>Legacy Visuals</b>
-                <span class="fieldDesc">Use original neon rainbow board style</span>
-              </span>
-              <button
-                class="toggleBtn"
-                :class="{ active: legacyVisuals }"
-                @click="legacyVisuals = !legacyVisuals"
-                :aria-pressed="legacyVisuals"
-              >
-                <span class="toggleThumb"></span>
-              </button>
-            </label>
+
           </div>
           </div>
 
@@ -1932,19 +1919,7 @@ function confirmLogOut() {
 
 const allowFlip = ref(true);
 
-// ── Visual Theme ─────────────────────────────────────────────────────────────
-// false = new "Polished Stone" theme (default)
-// true  = legacy neon theme (opt-in from Settings)
-const legacyVisuals = ref(false);
 
-function _applyLegacyVisualsClass(v) {
-  document.documentElement.classList.toggle('legacy-visuals', !!v);
-}
-
-watch(legacyVisuals, v => {
-  _applyLegacyVisualsClass(v);
-  try { localStorage.setItem('pb_legacy_visuals', v ? '1' : '0'); } catch {}
-});
 const guestName = ref("GUEST");
 const displayName = computed(() => guestName.value);
 
@@ -2123,15 +2098,30 @@ function closeInGameSettings() {
 
 // Remove fullscreen
 
+// ── Global mouse position tracking (for click-select cursor ghost) ───────────
+const mousePos = ref({ x: 0, y: 0 });
+function onGlobalMouseMove(e) {
+  mousePos.value = { x: e.clientX, y: e.clientY };
+}
+
 // ── Unified cursor-following drag ghost ─────────────────────────────────────
 // Visible only while dragging AND cursor is NOT over the board (the board's own
 // green/red ghostOverlay handles the on-board visual — this one covers everything else).
-const cursorGhostVisible = computed(() =>
-  !!(game.drag?.active && game.drag?.pieceKey && !game.drag?.target?.inside)
-);
+// Visible while:
+// (a) dragging and cursor is NOT over the board, OR
+// (b) a piece is click-selected (no drag) and cursor is NOT over the board
+const cursorGhostVisible = computed(() => {
+  if (!game.selectedPieceKey || game.phase !== 'place') return false;
+  if (game.drag?.active) {
+    // Drag mode: hide when board overlay takes over
+    return !game.drag?.target?.inside;
+  }
+  // Click-select mode: show whenever piece is selected and not hovering board
+  return !game.hoverCell;
+});
 
 const cursorGhostBlocks = computed(() => {
-  if (!game.drag?.pieceKey) return [];
+  if (!game.selectedPieceKey) return [];
   return (game.selectedCells || []).map(([x, y]) => ({ x, y }));
 });
 
@@ -2141,12 +2131,19 @@ const _cgBounds = computed(() => {
   return boundsOf(cells.map(b => [b.x, b.y]));
 });
 
-const _cgCell = computed(() => Math.max(22, game.boardCellPx || 32));
-const _cgGap = 3;
+const _cgCell = computed(() => {
+  // Prefer the live board cell size; fall back to measuring a real cell from DOM
+  if (game.boardCellPx > 0) return game.boardCellPx;
+  const cell = document.querySelector('.board .cell');
+  if (cell) return cell.getBoundingClientRect().width || 32;
+  return 32;
+});
+const _cgGap = 2;
 
 const cursorGhostContainerStyle = computed(() => {
-  const cx = game.drag?.x ?? 0;
-  const cy = game.drag?.y ?? 0;
+  // Use drag coords during drag, raw mouse coords during click-select
+  const cx = game.drag?.active ? (game.drag?.x ?? 0) : mousePos.value.x;
+  const cy = game.drag?.active ? (game.drag?.y ?? 0) : mousePos.value.y;
   const cell = _cgCell.value;
   const gap = _cgGap;
   const cols = _cgBounds.value.w;
@@ -2170,10 +2167,16 @@ const cursorGhostContainerStyle = computed(() => {
 });
 
 function cursorGhostBlockStyle(b) {
-  const s = getPieceStyle(game.drag?.pieceKey || '');
+  const s = getPieceStyle(game.selectedPieceKey || game.drag?.pieceKey || '');
+  const cell = _cgCell.value;
+  const bevel = Math.max(1, Math.round(cell * 0.02));
+  const radius = Math.round(cell * 0.08);
   const base = {
     gridColumn: b.x + 1,
     gridRow: b.y + 1,
+    borderRadius: `${radius}px`,
+    border: '1px solid rgba(0,0,0,0.30)',
+    boxShadow: `inset 0 -${bevel}px 0 rgba(0,0,0,0.25), inset 0 1px 0 rgba(255,255,255,0.18), 0 4px 10px rgba(0,0,0,0.60), 0 1px 3px rgba(0,0,0,0.40)`,
   };
   if (s.skin) {
     return { ...base, backgroundImage: `url(${s.skin})`, backgroundSize: 'cover', backgroundPosition: 'center' };
@@ -2290,11 +2293,6 @@ function loadAudioPrefs() {
     const s = Number(localStorage.getItem("pb_sfx_vol"));
     if (Number.isFinite(b)) bgmVolumeUi.value = Math.max(0, Math.min(100, Math.round(b)));
     if (Number.isFinite(s)) sfxVolumeUi.value = Math.max(0, Math.min(100, Math.round(s)));
-    // Load visual theme preference
-    if (localStorage.getItem('pb_legacy_visuals') === '1') {
-      legacyVisuals.value = true;
-      _applyLegacyVisualsClass(true);
-    }
   } catch {}
 }
 function saveAudioPrefs() {
@@ -7493,6 +7491,7 @@ onMounted(() => {
   try { window.setTimeout(() => maybeWarnMobile(), 900); } catch {}
   window.addEventListener("resize", onViewportChange, { passive: true });
   window.addEventListener("orientationchange", onViewportChange, { passive: true });
+  window.addEventListener("mousemove", onGlobalMouseMove, { passive: true });
 
   // Esc opens in-game settings.
   escHandler = (e) => {
@@ -7590,6 +7589,7 @@ onBeforeUnmount(() => {
   _cancelAiTimer();
   try { window.removeEventListener("resize", onViewportChange); } catch {}
   try { window.removeEventListener("orientationchange", onViewportChange); } catch {}
+  try { window.removeEventListener("mousemove", onGlobalMouseMove); } catch {}
   try { if (escHandler) window.removeEventListener("keydown", escHandler); } catch {}
   try { if (_fitRaf) cancelAnimationFrame(_fitRaf); } catch {}
   stopPolling();
@@ -7928,8 +7928,8 @@ onBeforeUnmount(() => {
   flex-wrap: wrap;
 }
 .logoMark {
-  width: 44px;
-  height: 44px;
+  width: 48px;
+  height: 48px;
   display: grid;
   place-items: center;
   background: transparent;
@@ -7946,8 +7946,8 @@ onBeforeUnmount(() => {
 }
 
 .logoImg{
-  width: 26px;
-  height: 26px;
+  width: 42px;
+  height: 42px;
   object-fit: contain;
   image-rendering: auto;
   border-radius: 6px;
@@ -8091,56 +8091,17 @@ onBeforeUnmount(() => {
   pointer-events: none;
   z-index: 99999;
   opacity: 0.85;
-  filter:
-    drop-shadow(0 12px 30px rgba(0,0,0,0.70))
-    drop-shadow(0 2px 8px rgba(0,0,0,0.50));
   will-change: left, top;
 }
 
 .cursorGhostBlock {
-  border-radius: 3px;
-  border: 1px solid rgba(255,255,255,0.22);
-  box-shadow:
-    0 6px 20px rgba(0,0,0,0.60),
-    inset 0 1px 0 rgba(255,255,255,0.40),
-    inset 0 -2px 0 rgba(0,0,0,0.45);
+  /* border-radius set inline to match board cell size exactly */
   overflow: hidden;
   position: relative;
 }
 
 .cursorGhostBlock::before {
-  content: "";
-  position: absolute;
-  top: 0; left: 0; right: 0;
-  height: 48%;
-  background: linear-gradient(
-    180deg,
-    rgba(255,255,255,0.36) 0%,
-    rgba(255,255,255,0.10) 60%,
-    transparent 100%
-  );
-  pointer-events: none;
-}
-
-/* Legacy drag ghost */
-.legacy-visuals .cursorGhostBlock {
-  border-radius: 9px !important;
-  border: 1px solid rgba(0,0,0,0.55) !important;
-  box-shadow:
-    0 14px 22px rgba(0,0,0,0.50),
-    0 0 14px rgba(255,255,255,0.07),
-    inset 0 1px 0 rgba(255,255,255,0.26),
-    inset 0 -6px 0 rgba(0,0,0,0.34) !important;
-}
-.legacy-visuals .cursorGhostBlock::before {
-  top: 0; left: 0; right: 0; height: auto;
-  inset: 0;
-  background: linear-gradient(
-    to bottom,
-    rgba(255,255,255,0.26),
-    rgba(255,255,255,0.08) 35%,
-    rgba(0,0,0,0.12)
-  ) !important;
+  display: none;
 }
 
 .btn.ghost{

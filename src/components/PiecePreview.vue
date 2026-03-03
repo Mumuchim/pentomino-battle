@@ -50,12 +50,17 @@ const blockRadius = computed(() => {
   return Math.max(2, Math.min(6, r));
 });
 
+// Bevel thickness: ~8% of cell height, matching the logo proportions
+const bevelPx = computed(() => Math.max(1, Math.round(props.cell * 0.02)));
+
 function blockStyle(b) {
   const s = style.value;
+  const bevel = bevelPx.value;
   const base = {
     gridColumn: b.x + 1,
     gridRow: b.y + 1,
-    borderRadius: `${blockRadius.value}px`,
+    borderRadius: '8%',
+    boxShadow: `inset 0 -${bevel}px 0 rgba(0,0,0,0.25), inset 0 1px 0 rgba(255,255,255,0.18), 0 4px 10px rgba(0,0,0,0.60), 0 1px 3px rgba(0,0,0,0.40)`,
   };
 
   if (s.skin) {
@@ -75,39 +80,24 @@ function blockStyle(b) {
 .wrap {
   display: grid;
   gap: 2px;
-  padding: 4px;
+  padding: 1px;
   border-radius: 10px;
-  background: rgba(255,255,255,0.03);
-  border: 1px solid rgba(255,255,255,0.08);
 }
 
-/* ✅ true "tile" look like the board */
+/* ✅ Logo-style tile: flat face + proportional bevel (set via inline style) */
 .block {
   width: 100%;
   height: 100%;
 
   position: relative;
-  border: 1px solid rgba(255,255,255,0.14);
-
-  box-shadow:
-    0 8px 14px rgba(0,0,0,0.35),
-    inset 0 1px 0 rgba(255,255,255,0.22),
-    inset 0 -4px 0 rgba(0,0,0,0.30);
+  border-radius: 8%;
+  border: 1px solid rgba(0,0,0,0.30);
 
   overflow: hidden;
 }
 
-/* glossy highlight like board blocks */
+/* No gradient overlay — logo blocks are flat */
 .block::before {
-  content: "";
-  position: absolute;
-  inset: 0;
-  background: linear-gradient(
-    to bottom,
-    rgba(255,255,255,0.22),
-    rgba(255,255,255,0.08) 35%,
-    rgba(0,0,0,0.12)
-  );
-  pointer-events: none;
+  display: none;
 }
 </style>
