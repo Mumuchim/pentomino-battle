@@ -372,7 +372,7 @@ function aiClusterPenalty(simBoard, W, H, ap) {
  * (or reachable within 2 steps from) the AI's main connected component.
  * Only then reward racing into it. This keeps expansion connected.
  */
-function openTerritoryBonus(abs, simBoard, W, H, ap) {
+function openTerritoryBonus(abs, simBoard, W, H, ap, cachedRegions = null) {
   // 1. Find AI's main connected component cells
   const aiCells = [];
   for (let y = 0; y < H; y++)
@@ -398,7 +398,7 @@ function openTerritoryBonus(abs, simBoard, W, H, ap) {
   }
 
   // 2. Find the largest empty region adjacent to the main cluster (or placement)
-  const regions = floodFillRegions(simBoard, W, H);
+  const regions = cachedRegions ?? floodFillRegions(simBoard, W, H);
   if (!regions.length) return 0;
 
   // Build a set of cells adjacent to main cluster + placement cells
@@ -539,15 +539,19 @@ function findArticulationPoints(board, W, H) {
  * An articulation point that splits a 40-cell space vs one that splits a
  * 10-cell space is weighted by the size of the resulting disconnection.
  */
-function articulationCutBonus(abs, preBoard, simBoard, W, H, ap, hp) {
-  const aps = findArticulationPoints(preBoard, W, H);
+function articulationCutBonus(abs, preBoard, simBoard, W, H, ap, hp, precomputedAPs = null, cachedSimRegions = null) {
+  const aps = precomputedAPs ?? findArticulationPoints(preBoard, W, H);
   if (aps.size === 0) return 0;
+
+  // Compute sim-regions once (reused if multiple AP cells are hit)
+  let _regsCache = null;
 
   let bonus = 0;
   for (const [x, y] of abs) {
     if (!aps.has(y * W + x)) continue;
     // Find regions in simBoard — each is a disconnected component created by this cut
-    const regs = floodFillRegions(simBoard, W, H);
+    if (!_regsCache) _regsCache = cachedSimRegions ?? floodFillRegions(simBoard, W, H);
+    const regs = _regsCache;
     // Reward proportional to how lopsided the split is: the smaller region that
     // the opponent is locked into is the "damage" done. Ideal split: equal halves.
     if (regs.length >= 2) {
@@ -579,8 +583,8 @@ function articulationCutBonus(abs, preBoard, simBoard, W, H, ap, hp) {
  *
  * This is the purest expression of "territorial pentomino."
  */
-function territorySealScore(simBoard, W, H, ap, hp) {
-  const regions = floodFillRegions(simBoard, W, H);
+function territorySealScore(simBoard, W, H, ap, hp, cachedRegions = null) {
+  const regions = cachedRegions ?? floodFillRegions(simBoard, W, H);
   let score = 0;
 
   for (const reg of regions) {
@@ -1077,8 +1081,13 @@ function p1OpeningBonus(abs, W, H, placedCount, mode, pieceKey, aiHand) {
  *
  * This function scores how well the CURRENT placement sets up these combos.
  */
-function comboSetupBonus(abs, simBoard, W, H, ap, hp, aiHandKeys, placedCount) {
+function comboSetupBonus(abs, simBoard, W, H, ap, hp, aiHandKeys, placedCount, cachedRegions = null) {
   if (placedCount > 6) return 0; // combos only matter early
+
+  // Compute regions once and reuse across all three combo checks
+  const _lazyRegions = () => cachedRegions ?? floodFillRegions(simBoard, W, H);
+  let _regionsComputed = null;
+  const getRegions = () => { if (!_regionsComputed) _regionsComputed = _lazyRegions(); return _regionsComputed; };
 
   let bonus = 0;
 
@@ -1086,7 +1095,7 @@ function comboSetupBonus(abs, simBoard, W, H, ap, hp, aiHandKeys, placedCount) {
   // Check if our placement creates a region of size 6 adjacent to our piece
   // that the opponent cannot tile (6 % 5 ≠ 0)
   if (aiHandKeys.includes('U') || aiHandKeys.includes('P')) {
-    const regions = floodFillRegions(simBoard, W, H);
+    const regions = getRegions();
     for (const reg of regions) {
       if (reg.length !== 6) continue; // exactly 6 = infeasible for pentominoes!
       // Is this region enclosed by our piece on at least 2 sides?
@@ -1113,7 +1122,7 @@ function comboSetupBonus(abs, simBoard, W, H, ap, hp, aiHandKeys, placedCount) {
   // Check if our placement creates a clean 2×N region we can later tile
   if (aiHandKeys.includes('I') && (aiHandKeys.includes('V') || aiHandKeys.includes('L'))) {
     // Look for empty regions near our piece with width = 2 and length ≥ 5
-    const regions = floodFillRegions(simBoard, W, H);
+    const regions = getRegions();
     for (const reg of regions) {
       if (reg.length < 10 || reg.length > 15) continue;
       const regXs = reg.map(([x])=>x), regYs = reg.map(([,y])=>y);
@@ -1137,7 +1146,7 @@ function comboSetupBonus(abs, simBoard, W, H, ap, hp, aiHandKeys, placedCount) {
 
   // ── COMBO 3: Small infeasible regions (size 1-4) near opponent ───
   // Creating tiny pockets next to opponent cells means they must waste a piece
-  const regions = floodFillRegions(simBoard, W, H);
+  const regions = getRegions();
   for (const reg of regions) {
     if (reg.length >= 5) continue; // only small ones
     let oppAdjacent = false;
@@ -1236,8 +1245,8 @@ function defensiveWallScore(abs, simBoard, W, H, ap, hp) {
  *
  * This is the pentomino equivalent of a chess "fork."
  */
-function pincerAttackScore(abs, simBoard, W, H, ap, hp) {
-  const regions = floodFillRegions(simBoard, W, H);
+function pincerAttackScore(abs, simBoard, W, H, ap, hp, cachedRegions = null) {
+  const regions = cachedRegions ?? floodFillRegions(simBoard, W, H);
   if (regions.length < 2) return 0;
 
   // Find regions that are "threatened" by our new piece
@@ -2173,6 +2182,12 @@ function movesGrandmaster(moves) {
   const gmBeam = _mwGM ? 30 : 50;
   const prescored = connectivityBeam(moves, board, boardW, boardH, ap, hp, gmBeam);
 
+  // ── Pre-compute articulation points ONCE outside the beam loop ──────
+  // findArticulationPoints runs a full Tarjan DFS — O(V+E) on empty-cell graph.
+  // Computing it per-candidate (inside the loop) was 30–50× wasteful since
+  // the PRE-move board doesn't change between candidates.
+  const _preAPs = findArticulationPoints(board, boardW, boardH);
+
   let best = null, bestScore = -Infinity;
   for (const { m } of prescored) {
     const sim = board.map(r => [...r]);
@@ -2198,7 +2213,7 @@ function movesGrandmaster(moves) {
     score += zoneClaimBonus(m.abs, sim, boardW, boardH) * 2.0;
     score += frontierScore(sim, boardW, boardH, ap, hp) * 2.0;
     score += pieceEfficiencyScore(m.abs, sim, boardW, boardH, ap) * 2.0;
-    score += openTerritoryBonus(m.abs, sim, boardW, boardH, ap) * 2.0;
+    score += openTerritoryBonus(m.abs, sim, boardW, boardH, ap, regions) * 2.0;
     score += aiClusterPenalty(sim, boardW, boardH, ap) * 2.0;
 
     // Region-size penalties
@@ -2227,7 +2242,7 @@ function movesGrandmaster(moves) {
     // ── NEW SYSTEM 2: ARTICULATION POINT COVERAGE ────────────────────
     // Placing on board "choke points" splits the empty space into separate zones.
     // GM uses this defensively: cut off opponent's expansion path.
-    score += articulationCutBonus(m.abs, board, sim, boardW, boardH, ap, hp) * 1.8;
+    score += articulationCutBonus(m.abs, board, sim, boardW, boardH, ap, hp, _preAPs, regions) * 1.8;
 
     // ── NEW SYSTEM 3: TERRITORY SEALING ──────────────────────────────
     // Reward creating fully enclosed zones that only AI can fill.
@@ -2247,7 +2262,8 @@ function movesGrandmaster(moves) {
     // ── NEW SYSTEM 6: OPPONENT SHAPE READ (late-game weight) ─────────
     // Check if the regions we create are geometrically unfit for opponent pieces.
     // Apply more strongly in mid/late game when pieces are known.
-    if (dw.progress > 0.2) {
+    // Mirror War raises the threshold: expensive piece-fitting only after 40% progress.
+    if (dw.progress > (_mwGM ? 0.4 : 0.2)) {
       score += opponentShapeReadScore(
         sim, boardW, boardH, hp, remAfter[hp], placedCount+1, allowFlip, PENTOMINOES, transformCells
       ) * dw.lateBoost * 1.2;
@@ -2256,7 +2272,7 @@ function movesGrandmaster(moves) {
     // ── NEW SYSTEM 7: COMBO SETUP BONUS ──────────────────────────────
     // Reward moves that set up P+U infeasibility traps, I+V rectangles, etc.
     // The most powerful territorial combos in the game.
-    score += comboSetupBonus(m.abs, sim, boardW, boardH, ap, hp, remAfter[ap], placedCount) * 1.8;
+    score += comboSetupBonus(m.abs, sim, boardW, boardH, ap, hp, remAfter[ap], placedCount, regions) * 1.8;
 
     // ── KEY PIECE RESERVATION (Grandmaster) ───────────────────────────
     // Penalise spending a "closer" piece early when expendable alternatives
@@ -2272,7 +2288,7 @@ function movesGrandmaster(moves) {
     const oppMoves = movesOnBoard(hp, sim, boardW, boardH, remAfter, placedCount+1, allowFlip);
     let lookaheadValue = 0;
     if (oppMoves.length) {
-      const oppBeam = Math.min(25, oppMoves.length);
+      const oppBeam = Math.min(_mwGM ? 12 : 25, oppMoves.length);
       const oppScored = oppMoves.map(om => {
         const afterOpp = sim.map(r => [...r]);
         for (const [x, y] of om.abs) afterOpp[y][x] = { player: hp, pieceKey: om.pk };
@@ -2294,7 +2310,7 @@ function movesGrandmaster(moves) {
       if (worstBoard) {
         const followMoves = movesOnBoard(ap, worstBoard, boardW, boardH, worstRem, placedCount+2, allowFlip);
         if (followMoves.length) {
-          const followBeam = Math.min(25, followMoves.length);
+          const followBeam = Math.min(_mwGM ? 12 : 25, followMoves.length);
           const followScored = followMoves.map(fm => {
             const afterF = worstBoard.map(r => [...r]);
             for (const [x, y] of fm.abs) afterF[y][x] = { player: ap, pieceKey: fm.pk };
@@ -2313,7 +2329,7 @@ function movesGrandmaster(moves) {
               { [ap]: (worstRem[ap]||[]).filter(pk=>pk!==fm.pk), [hp]: [...(worstRem[hp]||[])] },
               placedCount+3, allowFlip);
             if (oppReply2.length) {
-              const r2scores = oppReply2.slice(0, 8).map(r2m => {
+              const r2scores = oppReply2.slice(0, _mwGM ? 4 : 8).map(r2m => {
                 const afterR2 = afterF.map(row=>[...row]);
                 for (const [x,y] of r2m.abs) afterR2[y][x] = { player: hp, pieceKey: r2m.pk };
                 return quickScore(afterR2, ap, hp, boardW, boardH);
@@ -2636,6 +2652,9 @@ function movesLegendary(moves) {
   const legBeam = _mwLeg ? 36 : 60;
   const prescored = connectivityBeam(moves, board, boardW, boardH, ap, hp, legBeam);
 
+  // ── Pre-compute articulation points ONCE outside the beam loop ──────
+  const _preAPs = findArticulationPoints(board, boardW, boardH);
+
   let best = null, bestScore = -Infinity;
   let bestMove = null; // track for fork recording after selection
   for (const { m } of prescored) {
@@ -2681,19 +2700,21 @@ function movesLegendary(moves) {
       m.pk, remAfter[ap]);
 
     // ── NEW SYSTEM 2: ARTICULATION POINT ATTACK ───────────────────────
-    const apBonus = articulationCutBonus(m.abs, board, sim, boardW, boardH, ap, hp);
+    const apBonus = articulationCutBonus(m.abs, board, sim, boardW, boardH, ap, hp, _preAPs, regions);
 
     // ── NEW SYSTEM 3: PINCER / FORK ATTACK ───────────────────────────
-    const pincerBonus = pincerAttackScore(m.abs, sim, boardW, boardH, ap, hp);
+    const pincerBonus = pincerAttackScore(m.abs, sim, boardW, boardH, ap, hp, regions);
 
     // ── NEW SYSTEM 4: BOARD SPLIT EXPLOITATION ────────────────────────
     const splitBonus = boardSplitBonus(m.abs, board, sim, boardW, boardH, ap, hp);
 
     // ── NEW SYSTEM 5: TERRITORY SEALING ──────────────────────────────
-    const sealTerritoryBonus = territorySealScore(sim, boardW, boardH, ap, hp);
+    const sealTerritoryBonus = territorySealScore(sim, boardW, boardH, ap, hp, regions);
 
     // ── NEW SYSTEM 6: OPPONENT SHAPE READ ────────────────────────────
-    const shapeReadBonus = dw.progress > 0.15
+    // Mirror War raises the threshold to 35% progress before running the
+    // expensive piece-fitting scan (saves ~40% of shape-read calls early game).
+    const shapeReadBonus = dw.progress > (_mwLeg ? 0.35 : 0.15)
       ? opponentShapeReadScore(
           sim, boardW, boardH, hp, remAfter[hp], placedCount+1, allowFlip, PENTOMINOES, transformCells
         ) * aggressiveMultiplier
@@ -2712,7 +2733,7 @@ function movesLegendary(moves) {
     const oppMoves = movesOnBoard(hp, sim, boardW, boardH, remAfter, placedCount+1, allowFlip);
     let lookaheadValue = 0;
     if (oppMoves.length) {
-      const oppBeam = Math.min(35, oppMoves.length);
+      const oppBeam = Math.min(_mwLeg ? 14 : 35, oppMoves.length);
       const oppScored = oppMoves.map(om => {
         const afterOpp = sim.map(r => [...r]);
         for (const [x, y] of om.abs) afterOpp[y][x] = { player: hp, pieceKey: om.pk };
@@ -2734,7 +2755,7 @@ function movesLegendary(moves) {
       if (worstBoard) {
         const followMoves = movesOnBoard(ap, worstBoard, boardW, boardH, worstRem, placedCount+2, allowFlip);
         if (followMoves.length) {
-          const followBeam = Math.min(35, followMoves.length);
+          const followBeam = Math.min(_mwLeg ? 14 : 35, followMoves.length);
           const followScored = followMoves.map(fm => {
             const afterF = worstBoard.map(r => [...r]);
             for (const [x, y] of fm.abs) afterF[y][x] = { player: ap, pieceKey: fm.pk };
@@ -2752,7 +2773,7 @@ function movesLegendary(moves) {
               { [ap]: (worstRem[ap]||[]).filter(pk=>pk!==fm.pk), [hp]: [...(worstRem[hp]||[])] },
               placedCount+3, allowFlip);
             if (oppReply2.length) {
-              const r2scores = oppReply2.slice(0, 10).map(r2m => {
+              const r2scores = oppReply2.slice(0, _mwLeg ? 4 : 10).map(r2m => {
                 const afterR2 = afterF.map(row=>[...row]);
                 for (const [x,y] of r2m.abs) afterR2[y][x] = { player: hp, pieceKey: r2m.pk };
                 return quickScore(afterR2, ap, hp, boardW, boardH);
@@ -2782,7 +2803,7 @@ function movesLegendary(moves) {
       - exposure            *  1.5
       + ownFeasible         * 22.0
       - oppFeasible         * 32.0
-      + openTerritoryBonus(m.abs, sim, boardW, boardH, ap) * 2.0
+      + openTerritoryBonus(m.abs, sim, boardW, boardH, ap, regions) * 2.0
       + aiClusterPenalty(sim, boardW, boardH, ap) * 2.0
       + blunderPenalty
       + openingBonus        *  3.0   // piece-specific opening theory
@@ -2791,7 +2812,7 @@ function movesLegendary(moves) {
       + splitBonus          *  2.0   // board division
       + sealTerritoryBonus  *  1.8   // poison zone creation
       + shapeReadBonus      *  1.5   // geometry denial
-      + comboSetupBonus(m.abs, sim, boardW, boardH, ap, hp, remAfter[ap], placedCount) * 2.2
+      + comboSetupBonus(m.abs, sim, boardW, boardH, ap, hp, remAfter[ap], placedCount, regions) * 2.2
       + followThrough       *  3.5   // ← FORK FOLLOW-THROUGH: claim the open zone
       // ── KEY PIECE RESERVATION ─────────────────────────────────────
       // Penalise using closers early. Legendary consciously saves its

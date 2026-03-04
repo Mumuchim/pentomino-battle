@@ -1032,9 +1032,14 @@
                     <span v-else-if="screen === 'ai' && game.draftTurn === humanPlayer" class="tbYouTag">YOU</span>
                   </span>
                   <span v-else-if="game.phase === 'place'">
-                    <span class="tbPlayerNum">P{{ game.currentPlayer }}</span> TURN
-                    <span v-if="isOnline && myPlayer === game.currentPlayer" class="tbYouTag">YOU</span>
-                    <span v-else-if="screen === 'ai' && game.currentPlayer === humanPlayer" class="tbYouTag">YOU</span>
+                    <template v-if="screen === 'ai' && game.currentPlayer === aiPlayer">
+                      AI THINKING…
+                    </template>
+                    <template v-else>
+                      <span class="tbPlayerNum">P{{ game.currentPlayer }}</span> TURN
+                      <span v-if="isOnline && myPlayer === game.currentPlayer" class="tbYouTag">YOU</span>
+                      <span v-else-if="screen === 'ai' && game.currentPlayer === humanPlayer" class="tbYouTag">YOU</span>
+                    </template>
                   </span>
                   <span v-else>GAME OVER</span>
                 </div>
@@ -1146,7 +1151,7 @@
           <DraftPanel v-if="game.phase === 'draft'" />
 
           <section v-else class="panel">
-            <h2 class="panelTitle" v-if="screen !== 'puzzle'">{{ `Player ${game.currentPlayer} Pieces` }}</h2>
+            <h2 class="panelTitle" v-if="screen !== 'puzzle'">{{ screen === 'ai' && game.phase === 'place' && game.currentPlayer === aiPlayer ? 'AI Pieces' : `Player ${game.currentPlayer} Pieces` }}</h2>
             <PiecePicker :isOnline="isOnline" :myPlayer="myPlayer" :canAct="canAct" />
 
             <div class="divider"></div>
@@ -7320,12 +7325,50 @@ function nextAiRound() {
    This section only wires the reactive context and dispatches moves.
 ========================= */
 
-// Instantiate engine — passes reactive refs so the engine reads live state
+// Instantiate engine on main thread (used only for draft picks + move generation)
 const _ai = createAiEngine({ game, aiPlayer, humanPlayer, aiDifficulty, PENTOMINOES, transformCells, getDraftHistory: getAiDraftHistory });
 
+// ── Web Worker: heavy AI computation runs off the main thread ─────────
+// The worker receives the serialised game state and returns the best move,
+// so choosePlacement() never blocks the UI thread.
+let _aiWorkerInstance = null;
+let _aiWorkerMsgCallback = null; // set per-turn; cleared on cancel or result
+
+function _getOrCreateWorker() {
+  if (!_aiWorkerInstance) {
+    _aiWorkerInstance = new Worker(new URL('./lib/aiWorker.js', import.meta.url), { type: 'module' });
+    _aiWorkerInstance.onmessage = ({ data }) => {
+      if (data.type === 'MOVE_RESULT' && _aiWorkerMsgCallback) {
+        const cb = _aiWorkerMsgCallback;
+        _aiWorkerMsgCallback = null;
+        cb(data.id, data.move);
+      }
+    };
+    _aiWorkerInstance.onerror = (err) => {
+      console.error('[AI Worker] Error:', err);
+      // Fallback: run synchronously on main thread
+      if (_aiWorkerMsgCallback) {
+        const cb = _aiWorkerMsgCallback;
+        _aiWorkerMsgCallback = null;
+        const moves = _ai.getAllValidMoves();
+        const move  = moves.length ? _ai.choosePlacement(moves) : null;
+        cb(-1, move);
+      }
+    };
+  }
+  return _aiWorkerInstance;
+}
+
+// ── Turn coordination ─────────────────────────────────────────────
+// Each AI turn gets a unique token. Stale callbacks (from a cancelled
+// turn) silently discard their results via the token check.
+let _aiTurnToken = 0;
 let _aiTimer = null;
+
 function _cancelAiTimer() {
+  _aiTurnToken++;                                   // invalidates all in-flight callbacks
   if (_aiTimer) { clearTimeout(_aiTimer); _aiTimer = null; }
+  _aiWorkerMsgCallback = null;
 }
 
 // ── Main AI move dispatcher ───────────────────────────────────────
@@ -7334,24 +7377,91 @@ function _doAiMove() {
   if (game.phase === 'gameover') return;
   const ap = aiPlayer.value;
 
+  // ── DRAFT phase: fast pick, short humanising delay, no worker needed ──
   if (game.phase === 'draft' && game.draftTurn === ap) {
-    const pick = _ai.pickDraftPiece();
-    if (pick) game.draftPick(pick);
+    const token = ++_aiTurnToken;
+    const draftDelay = 600 + Math.random() * 700; // 0.6–1.3 s
+    _aiTimer = setTimeout(() => {
+      if (token !== _aiTurnToken) return; // cancelled
+      if (screen.value !== 'ai' || game.phase !== 'draft' || game.draftTurn !== ap) return;
+      const pick = _ai.pickDraftPiece();
+      if (pick) game.draftPick(pick);
+    }, draftDelay);
     return;
   }
 
+  // ── PLACE phase: 3–5 s display delay + worker computation in parallel ──
   if (game.phase === 'place' && game.currentPlayer === ap) {
-    const moves = _ai.getAllValidMoves();
-    if (!moves.length) return;
-    const move = _ai.choosePlacement(moves);
-    if (!move) return;
-    game.selectedPieceKey = move.pk;
-    game.rotation = move.rot;
-    game.flipped = move.flip;
-    game.placeAt(move.ax, move.ay);
-    game.selectedPieceKey = null;
-    game.rotation = 0;
-    game.flipped = false;
+    const token = ++_aiTurnToken;
+
+    // Deep-copy the board so the worker receives a plain serialisable object
+    // (avoids any Pinia/Vue proxy serialisation edge-cases with structuredClone)
+    const boardCopy = game.board.map(row =>
+      row.map(cell => cell === null ? null : { player: cell.player, pieceKey: cell.pieceKey })
+    );
+
+    let workerMove   = null;  // result from the worker
+    let delayElapsed = false; // has the 3-5 s display timer fired?
+    let workerDone   = false; // has the worker returned?
+
+    // When BOTH the delay and the worker are done, apply the move.
+    function tryApply() {
+      if (token !== _aiTurnToken) return;           // this turn was cancelled
+      if (!delayElapsed || !workerDone) return;     // still waiting for one side
+      if (screen.value !== 'ai' || game.phase !== 'place' || game.currentPlayer !== ap) return;
+
+      const move = workerMove;
+      if (!move) return;
+
+      game.selectedPieceKey = move.pk;
+      game.rotation         = move.rot;
+      game.flipped          = move.flip;
+      game.placeAt(move.ax, move.ay);
+      game.selectedPieceKey = null;
+      game.rotation         = 0;
+      game.flipped          = false;
+    }
+
+    // 1) Start the 3–5 second display delay (feels natural & fair to the human)
+    const displayDelay = 3000 + Math.random() * 2000;
+    _aiTimer = setTimeout(() => {
+      if (token !== _aiTurnToken) return;
+      delayElapsed = true;
+      tryApply();
+    }, displayDelay);
+
+    // 2) Dispatch heavy computation to the Web Worker simultaneously.
+    //    The worker usually finishes well before the 3 s timer expires;
+    //    the result just waits until delayElapsed = true before being applied.
+    const worker = _getOrCreateWorker();
+    _aiWorkerMsgCallback = (id, move) => {
+      if (token !== _aiTurnToken) return; // stale result — discard
+      workerMove = move;
+      workerDone = true;
+      tryApply();
+    };
+
+    worker.postMessage({
+      type: 'PICK_MOVE',
+      id:   token,
+      payload: {
+        gameState: {
+          board:       boardCopy,
+          boardW:      game.boardW,
+          boardH:      game.boardH,
+          remaining:   { 1: [...(game.remaining[1] || [])], 2: [...(game.remaining[2] || [])] },
+          placedCount: game.placedCount,
+          allowFlip:   game.allowFlip,
+          phase:       game.phase,
+          picks:       { 1: [...(game.picks?.[1] || [])], 2: [...(game.picks?.[2] || [])] },
+          pool:        [...(game.pool || [])],
+        },
+        aiPlayerNum:   ap,
+        humanPlayerNum: humanPlayer.value,
+        difficulty:    aiDifficulty.value,
+        draftHistory:  getAiDraftHistory(),
+      },
+    });
   }
 }
 
@@ -7366,7 +7476,7 @@ watch(
       (game.phase === 'place' && game.currentPlayer === ap);
     if (isAiTurn) {
       _cancelAiTimer();
-      _aiTimer = setTimeout(_doAiMove, _ai.thinkDelay());
+      _doAiMove(); // delay is now managed inside _doAiMove
     } else {
       _cancelAiTimer();
     }
