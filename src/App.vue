@@ -10,7 +10,7 @@
     </div>
 
     <!-- 🎮 Floating pentomino ambient layer (transparent-bg menu screens) -->
-    <div v-if="isMenuScreen && !['landing','auth','mode','multiplayer','solo'].includes(screen)" class="menuPentoBg" aria-hidden="true">
+    <div v-if="isMenuScreen && !['landing','auth','mode','multiplayer','solo','story'].includes(screen)" class="menuPentoBg" aria-hidden="true">
       <div
         v-for="(piece, i) in bouncingPieces"
         :key="'mp' + i"
@@ -97,7 +97,7 @@
       </div>
     </Transition>
 
-    <header v-if="screen !== 'landing'" class="topbar" :class="{ tetBar: showMenuChrome, hpTopbar: screen === 'auth', mnTopbar: ['mode','multiplayer','solo'].includes(screen), stTopbar: ['settings','credits'].includes(screen), lbTopbar: screen === 'lobby' }" :style="screen === 'auth' ? { '--hp-topbar-img': `url(${hpAuthTopbarUrl})` } : screen === 'mode' ? { '--mn-topbar-img': `url(${menuTopbarUrl})` } : screen === 'multiplayer' ? { '--mn-topbar-img': `url(${mpTopbarUrl})` } : screen === 'solo' ? { '--mn-topbar-img': `url(${soloTopbarUrl})` } : screen === 'settings' ? { '--st-topbar-img': `url(${settingsTopbarUrl})` } : screen === 'credits' ? { '--st-topbar-img': `url(${creditsTopbarUrl})` } : screen === 'lobby' ? { '--lb-topbar-img': `url(${lobbyTopbarNewUrl})` } : {}">
+    <header v-if="screen !== 'landing'" class="topbar" :class="{ tetBar: showMenuChrome, hpTopbar: screen === 'auth', mnTopbar: ['mode','multiplayer','solo'].includes(screen), vsaiTopbarBar: screen === 'story', stTopbar: ['settings','credits'].includes(screen), lbTopbar: screen === 'lobby' }" :style="screen === 'auth' ? { '--hp-topbar-img': `url(${hpAuthTopbarUrl})` } : screen === 'mode' ? { '--mn-topbar-img': `url(${menuTopbarUrl})` } : screen === 'multiplayer' ? { '--mn-topbar-img': `url(${mpTopbarUrl})` } : screen === 'solo' ? { '--mn-topbar-img': `url(${soloTopbarUrl})` } : screen === 'story' ? { '--vsai-topbar-img': `url(${vsaiTopbarUrl})` } : screen === 'settings' ? { '--st-topbar-img': `url(${settingsTopbarUrl})` } : screen === 'credits' ? { '--st-topbar-img': `url(${creditsTopbarUrl})` } : screen === 'lobby' ? { '--lb-topbar-img': `url(${lobbyTopbarNewUrl})` } : {}">
       <!-- TETR.IO-style menu top bar -->
       <template v-if="showMenuChrome">
         <div class="tetBarLeft">
@@ -441,98 +441,88 @@
 
 
       <!-- ══════════════════════════════════════════════════════════
-           FRACTURE CIRCUIT — STORY MODE
+           PENTWELVE — VERSUS AI
       ═══════════════════════════════════════════════════════════ -->
-      <section v-else-if="screen === 'story'" class="menuShell fcShell">
-        <button class="subScreenBackBtn" @click="goBack">← BACK</button>
+      <section v-else-if="screen === 'story'" class="vsaiShell">
 
-        <div class="fcHeader">
-          <div class="fcHeaderGlow"></div>
-          <div class="fcHeaderTitle">PENTWELVE</div>
-          <div class="fcHeaderSub">THE CIRCUIT · {{ storyProgress.completed }} / 12 CLEARED</div>
-          <div class="fcProgressBar">
-            <div class="fcProgressFill" :style="{ width: (storyProgress.completed / 12 * 100) + '%' }"></div>
+        <!-- Back button styled like menu screens -->
+        <button class="vsaiBackBtn" @mouseenter="uiHover" @click="uiClick(); goBack()">← BACK</button>
+
+        <!-- Main content area -->
+        <div class="vsaiContent">
+
+          <!-- Staircase: 6 rows, top = highest rank, bottom = lowest rank -->
+          <div class="vsaiStaircase">
+            <template v-for="(entry, rowIdx) in (storyPage === 'lower' ? storyChaptersReversed.slice(6) : storyChaptersReversed.slice(0, 6))" :key="entry.ch.id">
+              <div
+                class="vsaiRow"
+                :class="{
+                  vsaiRowLocked:  !storyProgress.unlocked.has(entry.idx),
+                  vsaiRowCleared: storyProgress.cleared.has(entry.idx),
+                  vsaiRowActive:  entry.idx === storyProgress.completed
+                }"
+                :style="{ '--row': rowIdx }"
+                @click="storyProgress.unlocked.has(entry.idx) && startStoryChapter(entry.idx)"
+              >
+                <!-- Unlocked: show figma character PNG row -->
+                <img
+                  v-if="storyProgress.unlocked.has(entry.idx)"
+                  :src="vsaiCharUrls[entry.ch.vsaiKey]"
+                  class="vsaiRowImg"
+                  draggable="false"
+                />
+                <!-- Locked: plain dark placeholder bar -->
+                <div v-else class="vsaiRowLock">
+                  <span class="vsaiRowLockNum">{{ String(12 - entry.idx).padStart(2,'0') }}</span>
+                  <span class="vsaiRowLockText">🔒 ???</span>
+                </div>
+                <!-- Active arrow only -->
+                <div v-if="entry.idx === storyProgress.completed && !storyProgress.cleared.has(entry.idx)" class="vsaiRowArrow">▶</div>
+              </div>
+            </template>
           </div>
-        </div>
 
-        <!-- Staircase: rank #12 at left/bottom → rank #1 at right/top -->
-        <div class="fcStairList">
-          <template v-for="(ch, idx) in STORY_CHAPTERS" :key="ch.id">
+        </div><!-- end vsaiContent -->
 
-            <!-- Vertical tier separator (shown at first card of each new tier) -->
-            <div
-              v-if="idx === 0 || STORY_CHAPTERS[idx-1].tier !== ch.tier"
-              class="fcTierDivider"
-              :class="`fcTierDiv${ch.tier}`"
-              :style="{ '--fc-step': idx }"
-            >
-              <div class="fcTierDivLine"></div>
-              <span class="fcTierDivLabel">{{ ['COMMON','UNCOMMON','RARE','MYTHIC','LEGENDARY'][ch.tier] }}</span>
+        <!-- PENTWELVE + LOWER/UPPER SIX labels — anchored to shell, not scrollable -->
+        <div class="vsaiLabel">
+          <img :src="vsaiPentwelveUrl" class="vsaiLabelTitle" draggable="false" />
+          <div class="vsaiLabelSixRow">
+            <img
+              :src="storyPage === 'lower' ? vsaiLowerSixUrl : vsaiUpperSixUrl"
+              class="vsaiLabelSix"
+              draggable="false"
+            />
+          </div>
+          <!-- Progress -->
+          <div class="vsaiProgress">
+            <div class="vsaiProgressTrack">
+              <div class="vsaiProgressFill" :style="{ width: (storyProgress.completed / 12 * 100) + '%' }"></div>
             </div>
-
-            <div
-              class="fcChapterCard"
-              :class="[
-                `fcTier${ch.tier}`,
-                { fcLocked: !storyProgress.unlocked.has(idx), fcCleared: storyProgress.cleared.has(idx), fcActive: idx === storyProgress.completed }
-              ]"
-              :style="{ '--fc-step': idx }"
-              @click="storyProgress.unlocked.has(idx) && startStoryChapter(idx)"
-            >
-              <div class="fcClearedMark" v-if="storyProgress.cleared.has(idx)">✓</div>
-              <div class="fcCardRank">#{{ String(12 - idx).padStart(2,'0') }}</div>
-              <div class="fcCardEmoji">
-                <span v-if="!storyProgress.unlocked.has(idx)">🔒</span>
-                <span v-else>{{ ch.emoji }}</span>
-              </div>
-              <div class="fcCardName">{{ !storyProgress.unlocked.has(idx) ? '???' : ch.name }}</div>
-              <span class="fcRarityChip" :class="`fcRarity${ch.tier}`">
-                {{ ['COM','UNC','RARE','MYTH','LEG'][ch.tier] }}
-              </span>
-              <div class="fcCardBadges" v-if="storyProgress.unlocked.has(idx)">
-                <span class="fcModeBadge" :class="`fcMode${ch.mode}`">
-                  {{ ch.mode === 'normal' ? 'STD' : ch.mode === 'blind_draft' ? 'BLIND' : 'MIRROR' }}
-                </span>
-                <span class="fcDiffBadge" :class="`fcDiff${ch.difficulty}`">
-                  {{ {dumbie:'E',elite:'N',tactician:'H',grandmaster:'M',legendary:'U'}[ch.difficulty] || '?' }}
-                </span>
-              </div>
-              <div class="fcCardArrow" v-if="storyProgress.unlocked.has(idx) && !storyProgress.cleared.has(idx)">▶</div>
-            </div>
-
-          </template>
-        </div>
-
-        <!-- Champion banner -->
-        <div v-if="storyProgress.completed >= 12" class="fcChampionBanner">
-          <div class="fcChampionGlow"></div>
-          <div class="fcChampionCrown">🏆</div>
-          <div class="fcChampionTitle">PENTWELVE CHAMPION</div>
-          <div class="fcChampionSub">You came from nothing. Now you are the standard.</div>
-        </div>
-
-        <!-- Free Battle rematch -->
-        <div v-if="storyProgress.cleared.size > 0" class="fcFreeBattle">
-          <div class="fcFreeBattleTitle">⚔ FREE BATTLE — REMATCH</div>
-          <div class="fcFreeBattleSub">Challenge anyone you've already beaten</div>
-          <div class="fcFreeBattleGrid">
+            <span class="vsaiProgressText">{{ storyProgress.completed }} / 12 CLEARED</span>
+          </div>
+          <!-- Page toggle buttons — below progress bar -->
+          <div class="vsaiControls">
             <button
-              v-for="(ch, idx) in STORY_CHAPTERS"
-              :key="ch.id + '_fb'"
-              v-if="storyProgress.cleared.has(idx)"
-              class="fcFbCard"
-              :class="`fcFbTier${ch.tier}`"
-              @mouseenter="uiHover()"
-              @click="uiClick(); startStoryChapter(idx)"
-            >
-              <div class="fcFbGlow"></div>
-              <div class="fcFbNum">#{{ String(12 - idx).padStart(2,'0') }}</div>
-              <div class="fcFbEmoji">{{ ch.emoji }}</div>
-              <div class="fcFbName">{{ ch.name }}</div>
-              <div class="fcFbMode">{{ ch.mode === 'normal' ? 'STD' : ch.mode === 'blind_draft' ? 'BLIND' : 'MIRROR' }}</div>
-            </button>
+              v-if="storyPage === 'lower' && storyProgress.completed >= 6"
+              class="vsaiSwitchBtn"
+              @mouseenter="uiHover" @click="uiClick(); storyPage = 'upper'"
+            >UPPER SIX ▶</button>
+            <button
+              v-if="storyPage === 'upper'"
+              class="vsaiSwitchBtn"
+              @mouseenter="uiHover" @click="uiClick(); storyPage = 'lower'"
+            >◀ LOWER SIX</button>
           </div>
         </div>
+
+        <!-- Champion overlay -->
+        <div v-if="storyProgress.completed >= 12" class="vsaiChamp">
+          <div class="vsaiChampCrown">🏆</div>
+          <div class="vsaiChampTitle">PENTWELVE CHAMPION</div>
+          <div class="vsaiChampSub">You came from nothing. Now you are the standard.</div>
+        </div>
+
       </section>
 
 
@@ -1415,7 +1405,7 @@
 
 <!-- Menu-style bottom bar (menus) -->
 <!-- TETR.IO-style contextual status bar -->
-<footer v-if="showBottomBar" class="tetBottomBar" :class="{ mnBottomBar: ['mode','multiplayer','solo'].includes(screen), stBottomBar: ['settings','credits'].includes(screen), lbBottomBar: screen === 'lobby' }" :style="screen === 'mode' ? { '--mn-bottombar-img': `url(${menuBottombarUrl})` } : screen === 'multiplayer' ? { '--mn-bottombar-img': `url(${mpBottombarUrl})` } : screen === 'solo' ? { '--mn-bottombar-img': `url(${soloBottombarUrl})` } : screen === 'settings' ? { '--st-bottombar-img': `url(${settingsBottombarUrl})` } : screen === 'credits' ? { '--st-bottombar-img': `url(${creditsBottombarUrl})` } : screen === 'lobby' ? { '--lb-bottombar-img': `url(${lobbyBottombarNewUrl})` } : {}">
+<footer v-if="showBottomBar" class="tetBottomBar" :class="{ mnBottomBar: ['mode','multiplayer','solo'].includes(screen), vsaiBottomBarBar: screen === 'story', stBottomBar: ['settings','credits'].includes(screen), lbBottomBar: screen === 'lobby' }" :style="screen === 'mode' ? { '--mn-bottombar-img': `url(${menuBottombarUrl})` } : screen === 'multiplayer' ? { '--mn-bottombar-img': `url(${mpBottombarUrl})` } : screen === 'solo' ? { '--mn-bottombar-img': `url(${soloBottombarUrl})` } : screen === 'story' ? { '--vsai-bottombar-img': `url(${vsaiBottombarUrl})` } : screen === 'settings' ? { '--st-bottombar-img': `url(${settingsBottombarUrl})` } : screen === 'credits' ? { '--st-bottombar-img': `url(${creditsBottombarUrl})` } : screen === 'lobby' ? { '--lb-bottombar-img': `url(${lobbyBottombarNewUrl})` } : {}">
 
   <!-- LEFT side -->
   <template v-if="['settings','credits','lobby'].includes(screen)">
@@ -2439,6 +2429,26 @@ const hpLoginBtnUrl     = new URL("./assets/hp_login_btn.png",     import.meta.u
 const hpAuthTopbarUrl   = new URL("./assets/hp_auth_topbar.png",   import.meta.url).href;
 const hpAuthBottombarUrl= new URL("./assets/hp_auth_bottombar.png",import.meta.url).href;
 const hpContinueBtnUrl  = new URL("./assets/hp_continue_btn.png",  import.meta.url).href;
+// ── VERSUS AI — PENTWELVE screen assets ───────────────────────────────────────
+const vsaiTopbarUrl     = new URL("./assets/vsai/vsai_topbar.png",    import.meta.url).href;
+const vsaiBottombarUrl  = new URL("./assets/vsai/vsai_bottombar.png", import.meta.url).href;
+const vsaiPentwelveUrl  = new URL("./assets/vsai/PENTWELVE.png",      import.meta.url).href;
+const vsaiLowerSixUrl   = new URL("./assets/vsai/LOWER SIX.png",      import.meta.url).href;
+const vsaiUpperSixUrl   = new URL("./assets/vsai/UPPER SIX.png",      import.meta.url).href;
+const vsaiCharUrls = {
+  '01-zero':   new URL("./assets/vsai/01 - ZERO.png",   import.meta.url).href,
+  '02-grand':  new URL("./assets/vsai/02 - GRAND.png",  import.meta.url).href,
+  '03-mumu':   new URL("./assets/vsai/03 - MUMU.png",   import.meta.url).href,
+  '04-axia':   new URL("./assets/vsai/04 - AXIA.png",   import.meta.url).href,
+  '05-vlad':   new URL("./assets/vsai/05 - VLAD.png",   import.meta.url).href,
+  '06-sefia':  new URL("./assets/vsai/06 - SEFIA.png",  import.meta.url).href,
+  '07-lilica': new URL("./assets/vsai/07 - LILICA.png", import.meta.url).href,
+  '08-teift':  new URL("./assets/vsai/08 - TEIFT.png",  import.meta.url).href,
+  '09-ohmen':  new URL("./assets/vsai/09 - OHMEN.png",  import.meta.url).href,
+  '10-norm':   new URL("./assets/vsai/10 - NORM.png",   import.meta.url).href,
+  '11-cyano':  new URL("./assets/vsai/11 - CYANO.png",  import.meta.url).href,
+  '12-dumbie': new URL("./assets/vsai/12 - DUMBIE.png", import.meta.url).href,
+};
 const menuTopbarUrl     = new URL("./assets/menu_topbar.png",      import.meta.url).href;
 const menuBottombarUrl  = new URL("./assets/menu_bottombar.png",   import.meta.url).href;
 const menuDuonlineBtnUrl  = new URL("./assets/menu_duonline_btn.png",  import.meta.url).href;
@@ -7026,25 +7036,25 @@ function handlePuzzleEnd() {
 // ═══════════════════════════════════════════════════════════════════
 
 const STORY_CHAPTERS = [
-  // ── TIER 1: THE BOTTOM (Dumbie) ──────────────────────────────────
+  // ── LOWER SIX (ranks 12–7) ────────────────────────────────────────
   {
-    id: 'dumbie', name: 'DUMBIE', title: 'Rank #12 · Last Place Regular',
-    emoji: '⬜', color: '#C0C0C0', tier: 0,
-    personality: 'Oblivious Optimist',
+    id: 'dumbie', name: 'DUMBIE', title: 'Walking Tutorial',
+    vsaiKey: '12-dumbie', emoji: '⬜', color: '#00C97B', tier: 0,
+    personality: 'Walking Tutorial',
     difficulty: 'dumbie', mode: 'normal', aiAsP1: false,
     preDialogue: [
-      '"Oh hey! You want to play? Cool, I literally just figured out how the draft works."',
-      '"I lose a lot but I think I\'m getting better. Last week I almost won."',
-      '"Okay so fun fact: I still don\'t totally know what Mirror War is."',
+      '"Wait, which one is the I-piece again? The long one, right?"',
+      '"Okay I definitely know how to play this. I\'ve watched like three videos."',
+      '"If I lose it\'s fine I\'m still learning. If I win that would be INSANE though."',
     ],
     postWinDialogue: 'Okay YEAH but I had a really good feeling about that last piece and I think that threw me off.',
-    postLoseDialogue: 'See?? I said I was getting better! Okay bye good game!!',
+    postLoseDialogue: 'SEE?? I said I was getting better! That was way closer than last time. Okay bye good game!!',
   },
   {
-    id: 'orda', name: 'ORDA', title: 'Rank #11 · Scene Darling',
-    emoji: '🩶', color: '#888888', tier: 0,
-    personality: 'Loveable Narcissist',
-    difficulty: 'dumbie', mode: 'normal', aiAsP1: false,
+    id: 'cyano', name: 'CYANO', title: 'Loverable Narcissist',
+    vsaiKey: '11-cyano', emoji: '🩵', color: '#46C0E8', tier: 0,
+    personality: 'Loverable Narcissist',
+    difficulty: 'dumbie', mode: 'blind_draft', aiAsP1: false,
     preDialogue: [
       '"Oh my god, are people actually watching this match? Hi everyone!"',
       '"I\'m literally #11 in the entire circuit. That\'s top twelve. Do you know how many people play this?"',
@@ -7053,38 +7063,64 @@ const STORY_CHAPTERS = [
     postWinDialogue: 'I am SO sorry to the newcomer, you played well, I just have a natural gift. It\'s a burden really.',
     postLoseDialogue: 'Okay chat... that did NOT just happen. We\'re not posting this one.',
   },
-  // ── TIER 2: FIRST REAL WALL (Elite) ──────────────────────────────
   {
-    id: 'elite', name: 'NORM', title: 'Rank #10 · The Gatekeeper',
-    emoji: '🟩', color: '#69FF47', tier: 1,
-    personality: 'Condescending Gatekeeper',
-    difficulty: 'elite', mode: 'blind_draft', aiAsP1: false,
+    id: 'norm', name: 'NORM', title: 'Peaceful Warlord',
+    vsaiKey: '10-norm', emoji: '🟩', color: '#1E90FF', tier: 1,
+    personality: 'Peaceful Warlord',
+    difficulty: 'elite', mode: 'mirror_war', aiAsP1: false,
     preDialogue: [
-      '"No record. No ranked history. Not even a username anyone recognizes."',
-      '"The scene has standards. This isn\'t a casual game you just walk into."',
-      '"Blind draft. You won\'t know what to pick. You won\'t know why. Let\'s confirm that."',
+      '"I don\'t start things. I just finish them."',
+      '"The circuit isn\'t a stage. You don\'t perform here. You just play."',
+      '"Take your time. I\'m not going anywhere."',
     ],
-    postWinDialogue: '...One match. That doesn\'t make you a player. Come back with a record.',
-    postLoseDialogue: 'Newcomers don\'t belong here. I\'m just maintaining the standard. You\'ll thank me eventually.',
+    postWinDialogue: 'No hard feelings. You were in over your head. That\'s not an insult, it\'s just where you are right now.',
+    postLoseDialogue: 'Hm. You\'re more patient than I expected. Don\'t waste that.',
   },
   {
-    id: 'judev', name: 'JUDEV', title: 'Rank #9 · The Grinder',
-    emoji: '🟢', color: '#2DB53B', tier: 1,
-    personality: 'Stoic Minimalist',
+    id: 'ohmen', name: 'OHMEN', title: 'Stoic Paranoid',
+    vsaiKey: '09-ohmen', emoji: '🟪', color: '#8A6BFF', tier: 1,
+    personality: 'Stoic Paranoid',
     difficulty: 'elite', mode: 'normal', aiAsP1: false,
     preDialogue: [
-      '"I don\'t care who you beat."',
-      '"Results only."',
-      '"Let\'s go."',
+      '"I\'ve seen your replays. You\'re not what people say you are."',
+      '"Everyone has a pattern. Everyone. I\'ll find yours."',
+      '"Don\'t try anything unexpected. I\'ll know before you do."',
     ],
-    postWinDialogue: 'Good.',
-    postLoseDialogue: 'Play cleaner next time.',
+    postWinDialogue: 'I knew. Three pieces in I knew. You confirmed it on the fifth.',
+    postLoseDialogue: 'You broke the pattern. I didn\'t expect that. I\'ll remember it.',
   },
   {
-    id: 'sefia', name: 'SEFIA', title: 'Rank #8 · The Observer',
-    emoji: '🌲', color: '#1A7A2A', tier: 1,
-    personality: 'Unsettling Analyst',
+    id: 'teift', name: 'TEIFT', title: 'Just Depressed',
+    vsaiKey: '08-teift', emoji: '🔷', color: '#9B5DE5', tier: 1,
+    personality: 'Just Depressed',
+    difficulty: 'elite', mode: 'blind_draft', aiAsP1: false,
+    preDialogue: [
+      '"Oh. You\'re here. Okay."',
+      '"I don\'t really care how this goes. I just had nothing else to do."',
+      '"Don\'t read too much into this. I show up. I play. That\'s it."',
+    ],
+    postWinDialogue: 'Oh. I won. ...Cool.',
+    postLoseDialogue: 'Doesn\'t matter. Nothing really does.',
+  },
+  {
+    id: 'lilica', name: 'LILICA', title: 'Indecisive Beauty',
+    vsaiKey: '07-lilica', emoji: '🩷', color: '#FF47A3', tier: 1,
+    personality: 'Indecisive Beauty',
     difficulty: 'elite', mode: 'mirror_war', aiAsP1: false,
+    preDialogue: [
+      '"Okay wait should I go aggressive or defensive — I literally cannot decide—"',
+      '"You know what, aggressive. No wait. Okay. Aggressive. Final answer. Maybe."',
+      '"I\'ve been going back and forth on my whole strategy for like two days. Let\'s just see what happens."',
+    ],
+    postWinDialogue: 'WAIT I WON?? I didn\'t even have a plan!! Okay no I totally had a plan. Kind of. Go keep going!!',
+    postLoseDialogue: 'Ugh I KNEW I should\'ve gone defensive. I literally said that to myself. Okay rematch someday.',
+  },
+  // ── UPPER SIX (ranks 6–1) ─────────────────────────────────────────
+  {
+    id: 'sefia', name: 'SEFIA', title: 'Dangerous Cutie',
+    vsaiKey: '06-sefia', emoji: '🌸', color: '#FF4D6D', tier: 2,
+    personality: 'Dangerous Cutie',
+    difficulty: 'tactician', mode: 'normal', aiAsP1: false,
     preDialogue: [
       '"You tilt your head left when you\'re deciding between two pieces. Did you know that?"',
       '"You\'ve placed the I-piece in the bottom-right corner three times across your last four games."',
@@ -7093,91 +7129,62 @@ const STORY_CHAPTERS = [
     postWinDialogue: 'You changed your pattern. That was the only right move. I\'ll update my notes.',
     postLoseDialogue: 'You built inward. Again. Bottom-right corner. I wrote it down before the game started.',
   },
-  // ── TIER 3: THE MIND GAMES (Tactician) ───────────────────────────
   {
-    id: 'tactician', name: 'TEIFT', title: 'Rank #7 · The Disruptor',
-    emoji: '🔷', color: '#4FC3F7', tier: 2,
-    personality: 'Philosophical Sadist',
+    id: 'vlad', name: 'VLAD', title: 'Vegetarian Vampire',
+    vsaiKey: '05-vlad', emoji: '🧛', color: '#E63B2E', tier: 2,
+    personality: 'Vegetarian Vampire',
     difficulty: 'tactician', mode: 'blind_draft', aiAsP1: false,
     preDialogue: [
-      '"Winning is boring. Do you know what\'s interesting? Watching someone realize they were losing the whole time."',
-      '"I don\'t play to take territory. I play to take yours."',
-      '"You\'ll place a piece, think it was smart, and it\'ll be the reason you lose. That\'s my favorite part."',
+      '"I want to be clear: yes, I\'m a vampire. No, I don\'t drink blood. I\'m vegetarian."',
+      '"People always expect me to be menacing. And I am. I just also care very deeply about ethical eating."',
+      '"Don\'t let the fangs distract you. I certainly won\'t be distracted by your jugular."',
     ],
-    postWinDialogue: 'Hm. You held your shape under pressure. That\'s rare. Ruin it by thinking it was luck.',
-    postLoseDialogue: 'You lost the moment you played your second piece. I just waited for you to figure that out.',
+    postWinDialogue: 'I have lived for centuries and I have never once needed to drink blood to win. Remember that.',
+    postLoseDialogue: 'You bested me. Remarkable. I\'ll be thinking about this over my lentil soup tonight.',
   },
   {
-    id: 'lilica', name: 'LILICA', title: 'Rank #6 · The Prodigy',
-    emoji: '🔵', color: '#1565C0', tier: 2,
-    personality: 'Cheerfully Dangerous',
-    difficulty: 'tactician', mode: 'normal', aiAsP1: false,
-    preDialogue: [
-      '"Oh WOW you made it this far!! That\'s actually impressive, genuinely!"',
-      '"I haven\'t lost a standard match in two months and I\'m honestly really curious if you\'re the one."',
-      '"No like I mean it — I\'m excited. Okay. Okay let\'s GO."',
-    ],
-    postWinDialogue: 'OKAY. OKAY! That happened! You actually did that!! Go — go keep going — don\'t stop!!',
-    postLoseDialogue: 'Aww! You were so close though! You had me for like two whole turns. That was genuinely fun~',
-  },
-  {
-    id: 'drift', name: 'DRIFT', title: 'Rank #5 · ???',
-    emoji: '🟣', color: '#CE93D8', tier: 2,
-    personality: 'Unknown',
-    difficulty: 'tactician', mode: 'blind_draft', aiAsP1: false,
-    preDialogue: [
-      '"..."',
-      '"..."',
-      '"..."',
-    ],
-    postWinDialogue: '.',
-    postLoseDialogue: '...',
-  },
-  // ── TIER 4: THE IMMOVABLE (Grandmaster) ──────────────────────────
-  {
-    id: 'grand', name: 'GRAND', title: 'Rank #4 · The Immovable',
-    emoji: '🟪', color: '#6A1B9A', tier: 3,
-    personality: 'Weight of Legacy',
-    difficulty: 'grandmaster', mode: 'mirror_war', aiAsP1: true,
-    preDialogue: [
-      '"Top four. Three years without dropping a single rank."',
-      '"I\'ve seen players arrive full of momentum. I\'ve seen them leave quieter."',
-      '"I\'m not here to intimidate you. The record does that."',
-    ],
-    postWinDialogue: 'Three years. You\'re the first. Whatever comes next — you earned the right to find out.',
-    postLoseDialogue: 'You were close. Closer than most. That\'s not nothing. But it\'s not enough.',
-  },
-  {
-    id: 'axia', name: 'AXIA', title: 'Rank #3 · The Theorist',
-    emoji: '🟡', color: '#FFB300', tier: 3,
-    personality: 'Cold Scientific Narcissist',
+    id: 'axia', name: 'AXIA', title: 'Mysterious Extrovert',
+    vsaiKey: '04-axia', emoji: '🟡', color: '#F5A623', tier: 3,
+    personality: 'Mysterious Extrovert',
     difficulty: 'grandmaster', mode: 'normal', aiAsP1: true,
     preDialogue: [
-      '"I modeled your last seven matches. Statistically you have a 23% chance of winning today."',
-      '"That\'s not an insult. 23% is above average for a first-time top-three challenger."',
-      '"I just find it useful to be precise. Numbers don\'t have feelings about being correct."',
+      '"I\'ve been SO excited to meet you!! I\'ve heard literally everything about you."',
+      '"I know this seems like small talk but I promise I\'m paying very close attention."',
+      '"People think I\'m easy to read. I love that for me."',
     ],
-    postWinDialogue: '...Interesting. The model was wrong. I\'ll need more data. You\'re an outlier.',
-    postLoseDialogue: '23%. That was always the number. The model is almost never wrong. You were in the 77%.',
+    postWinDialogue: 'That was so fun!! Also I knew exactly what you were doing from piece three. Amazing match though!!',
+    postLoseDialogue: 'Okay WOW. I did not see that coming and I see everything coming. You\'re fascinating. Genuinely.',
   },
-  // ── TIER 5: THE TOP (Legendary) ──────────────────────────────────
   {
-    id: 'mumu', name: 'MUMU', title: 'Rank #2 · The Wildcard',
-    emoji: '🟠', color: '#E65100', tier: 4,
-    personality: 'Chaotic Menace',
-    difficulty: 'legendary', mode: 'normal', aiAsP1: true,
+    id: 'mumu', name: 'MUMU', title: 'Pentobattle Creator',
+    vsaiKey: '03-mumu', emoji: '🟠', color: '#F5A623', tier: 3,
+    personality: 'Pentobattle Creator',
+    difficulty: 'grandmaster', mode: 'mirror_war', aiAsP1: true,
     preDialogue: [
-      '"YOOO you\'re actually here!! I\'ve been waiting for you since rank 8 honestly."',
-      '"Everyone else was like \"oh Mumu is scary\" but you\'re here so clearly you don\'t care about that."',
-      '"Okay heads up: I play different every single time and I still win. No strategy. Just vibes. Let\'s GO."',
+      '"YOOO you\'re actually here!! I built this whole game and you\'re one of my favorite things to come out of it."',
+      '"I designed every rule, every interaction, every piece. And I STILL don\'t know what you\'re going to do next."',
+      '"That\'s why I love this. Okay let\'s go I\'m literally buzzing right now."',
     ],
     postWinDialogue: 'LETS GOOO!! GO GET ZERO!! YOU\'VE LITERALLY GOT THIS I\'M ROOTING FOR YOU!!',
-    postLoseDialogue: 'Hehehe~ Vibes win again. Okay okay you can try again. I\'ll be just as chaotic next time.',
+    postLoseDialogue: 'You used my own game against me. That\'s the best thing that\'s ever happened to me. Come back.',
   },
   {
-    id: 'zero', name: 'LEGENDARY ZERO', title: 'Rank #1 · The Standard',
-    emoji: '🔴', color: '#D50000', tier: 4,
-    personality: 'Calm Authority',
+    id: 'grand', name: 'GRAND', title: 'First Loser',
+    vsaiKey: '02-grand', emoji: '🥈', color: '#C49A3C', tier: 4,
+    personality: 'First Loser',
+    difficulty: 'legendary', mode: 'normal', aiAsP1: true,
+    preDialogue: [
+      '"Second place. Three years straight. You know what that means? I\'ve never lost to anyone but ZERO."',
+      '"I used to hate the title. Now I wear it. At least it\'s honest."',
+      '"Beat me, and you\'ll finally see what I\'ve been staring at for three years."',
+    ],
+    postWinDialogue: 'You\'re the first. Three years and you\'re the first. Whatever comes next — you earned it.',
+    postLoseDialogue: 'You were close. Closer than most. That\'s not nothing. But second place knows all about close.',
+  },
+  {
+    id: 'zero', name: 'ZERO', title: 'Legendary AI',
+    vsaiKey: '01-zero', emoji: '⚪', color: '#C8C8C8', tier: 4,
+    personality: 'Legendary AI',
     difficulty: 'legendary', mode: 'mirror_war', aiAsP1: true,
     preDialogue: [
       '"You came from nothing. No history, no ranking, no one vouching for you."',
@@ -7217,6 +7224,9 @@ function saveStoryProgress() {
 }
 
 const storyProgress = reactive(loadStoryProgress());
+
+// 'lower' = ranks 12–7 (idx 0–5), 'upper' = ranks 6–1 (idx 6–11)
+const storyPage = ref(storyProgress.completed >= 6 ? 'upper' : 'lower');
 
 // ── Story Mode State ────────────────────────────────────────────────
 // storyFight: the pre-fight cinematic overlay
@@ -9366,614 +9376,402 @@ onBeforeUnmount(() => {
 .fcBtnProgressNum { display: block; font-size: 18px; font-weight: 900; color: #ffd700; }
 .fcBtnProgressLabel { font-size: 9px; letter-spacing: 2px; opacity: .45; }
 
-/* ── Story screen shell ─────────────────────────────────────── */
 /* ═══════════════════════════════════════════════════════════
-   PENTWELVE — FRACTURE CIRCUIT
-   Staircase UI redesign. Dark game theme. Rarity tiers.
+   PENTWELVE — VERSUS AI  (matches figma 1920×1080 reference)
 ═══════════════════════════════════════════════════════════ */
 
-/* Shell */
-.fcShell {
-  padding: 0 0 80px;
-  max-width: 100%;
-  margin: 0 auto;
-  overflow-y: auto;
-  overflow-x: hidden;
-}
-
-/* ── Tier color tokens ─────────────────────────────────────── */
-/* Tier 0 COMMON     — worn steel     */
-/* Tier 1 UNCOMMON   — jade           */
-/* Tier 2 RARE       — electric blue  */
-/* Tier 3 MYTHIC     — deep amethyst  */
-/* Tier 4 LEGENDARY  — molten ember   */
-.fcTierDiv0, .fcChapterCard.fcTier0, .fcFbTier0 { --fc-t: 160,162,172; --fc-td: 160,162,172; --fc-fbt: 160,162,172; }
-.fcTierDiv1, .fcChapterCard.fcTier1, .fcFbTier1 { --fc-t: 56,210,130;  --fc-td: 56,210,130;  --fc-fbt: 56,210,130;  }
-.fcTierDiv2, .fcChapterCard.fcTier2, .fcFbTier2 { --fc-t: 40,170,255;  --fc-td: 40,170,255;  --fc-fbt: 40,170,255;  }
-.fcTierDiv3, .fcChapterCard.fcTier3, .fcFbTier3 { --fc-t: 180,70,255;  --fc-td: 180,70,255;  --fc-fbt: 180,70,255;  }
-.fcTierDiv4, .fcChapterCard.fcTier4, .fcFbTier4 { --fc-t: 255,130,30;  --fc-td: 255,130,30;  --fc-fbt: 255,130,30;  }
-
-/* ── Header ─────────────────────────────────────────────────── */
-.fcHeader {
-  position: relative;
-  text-align: center;
-  padding: 36px 24px 28px;
-  overflow: hidden;
-}
-.fcHeaderGlow {
-  position: absolute; inset: -60px;
-  background: radial-gradient(ellipse 90% 60% at 50% -10%,
-    rgba(255,130,30,.18) 0%, rgba(180,70,255,.10) 45%, transparent 72%);
-  filter: blur(32px); pointer-events: none;
-}
-.fcHeaderTitle {
-  font-family: 'Orbitron', sans-serif;
-  font-size: clamp(26px, 4vw, 40px);
-  font-weight: 900;
-  letter-spacing: 10px;
-  text-transform: uppercase;
-  position: relative;
-  background: linear-gradient(105deg,
-    #a0a2ac 0%, #38d282 24%,
-    #28aaff 46%, #b446ff 70%, #ff821e 100%
-  );
-  -webkit-background-clip: text;
-  background-clip: text;
-  color: transparent;
-  margin-bottom: 8px;
-}
-.fcHeaderSub {
-  font-family: 'Orbitron', sans-serif;
-  font-size: 9px;
-  letter-spacing: 4px;
-  color: rgba(255,255,255,.35);
-  position: relative;
-  margin-bottom: 20px;
-  text-transform: uppercase;
-}
-.fcProgressBar {
-  height: 2px;
-  background: rgba(255,255,255,0.06);
-  border-radius: 4px;
-  overflow: hidden;
-  max-width: 320px;
-  margin: 0 auto;
-}
-.fcProgressFill {
+/* Shell fills the space between app's topbar and bottombar */
+.vsaiShell {
+  display: flex;
+  flex-direction: column;
+  width: 100%;
   height: 100%;
-  background: linear-gradient(90deg,
-    #a0a2ac 0%, #38d282 25%, #28aaff 50%, #b446ff 75%, #ff821e 100%
-  );
+  background: #000;
+  overflow: hidden;
+  position: relative;
+}
+
+/* Content area: fills remaining space between bars */
+.vsaiContent {
+  flex: 1;
+  position: relative;
+  display: flex;
+  align-items: center;
+  overflow: hidden;
+  min-height: 0;
+}
+
+/* Page toggle buttons — inside label, below progress bar */
+.vsaiControls {
+  display: flex;
+  gap: 8px;
+  margin-top: 12px;
+}
+.vsaiSwitchBtn {
+  font-family: 'Orbitron', sans-serif;
+  font-size: 9px; font-weight: 900;
+  letter-spacing: 2px; text-transform: uppercase;
+  padding: 7px 14px;
+  border-radius: 3px;
+  cursor: pointer;
+  opacity: 1;
+  background: #0078ff;
+  color: #fff;
+  border: 1px solid #0099ff;
+  transition: background .15s;
+}
+.vsaiSwitchBtn:hover { background: #0099ff; }
+
+/* ── Staircase ───────────────────────────────────────────── */
+/* --rw fills the full content height (no gaps, flush to both bars).
+   Bars are 5.208vw each = 10.416vw total. Content = 100vh - 10.416vw.
+   6 rows × (rw × 109/630) = content height  →  rw = (100vh−10.416vw) × 0.9633
+*/
+.vsaiStaircase {
+  display: flex;
+  flex-direction: column;
+  margin: 0;
+  padding: 0;
+  --rw: min(32.8vw, calc((100vh - 10.416vw) * 0.9633));
+}
+
+.vsaiRow {
+  position: relative;
+  /* all offsets scale proportionally with --rw */
+  margin-left: calc((14.6 / 32.8) * var(--rw) + (5 - var(--row)) * (4.58 / 32.8) * var(--rw));
+  cursor: pointer;
+  line-height: 0;
+  transition: filter .15s ease, transform .12s ease;
+}
+.vsaiRow:not(.vsaiRowLocked):hover {
+  filter: brightness(1.14);
+  transform: translateX(-5px);
+}
+.vsaiRow.vsaiRowLocked {
+  cursor: not-allowed;
+  filter: grayscale(0.4) brightness(0.75);
+}
+.vsaiRow.vsaiRowActive { filter: brightness(1.06); }
+
+/* Character PNG — width driven by --rw */
+.vsaiRowImg {
+  display: block;
+  width: var(--rw);
+  height: auto;
+  user-select: none;
+}
+
+/* Locked placeholder — same 630×109 aspect ratio, scaled by --rw */
+.vsaiRowLock {
+  display: flex;
+  align-items: center;
+  gap: 1.5vw;
+  width: var(--rw);
+  height: calc(var(--rw) * 109 / 630);
+  background: rgba(255,255,255,0.03);
+  border: 1px solid rgba(255,255,255,0.07);
+  padding: 0 2vw;
+  box-sizing: border-box;
+}
+.vsaiRowLockNum {
+  font-family: 'Orbitron', sans-serif;
+  font-size: 1.6vw; font-weight: 900;
+  color: rgba(255,255,255,0.15);
+  flex-shrink: 0;
+}
+.vsaiRowLockText {
+  font-family: 'Orbitron', sans-serif;
+  font-size: 1vw; font-weight: 700;
+  letter-spacing: 0.3vw;
+  color: rgba(255,255,255,0.1);
+}
+
+/* Cleared checkmark */
+.vsaiRowCheck {
+  position: absolute;
+  top: 0.4vw; right: 0.5vw;
+  font-family: 'Orbitron', sans-serif;
+  font-size: 0.7vw; font-weight: 900;
+  color: #38d282;
+  text-shadow: 0 0 6px rgba(56,210,130,0.7);
+  pointer-events: none;
+}
+/* Active challenge arrow */
+.vsaiRowArrow {
+  position: absolute;
+  top: 50%; right: 0.8vw;
+  transform: translateY(-50%);
+  font-size: 0.8vw;
+  color: rgba(255,255,255,0.7);
+  animation: vsaiPulse 1s ease-in-out infinite alternate;
+  pointer-events: none;
+}
+@keyframes vsaiPulse {
+  from { opacity: 0.3; transform: translateY(-50%) translateX(0); }
+  to   { opacity: 1.0; transform: translateY(-50%) translateX(5px); }
+}
+
+/* ── PENTWELVE / LOWER/UPPER SIX labels ──────────────────── */
+.vsaiLabel {
+  position: absolute;
+  right: 3vw;
+  bottom: 10%;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 0.4vw;
+  pointer-events: none;
+}
+.vsaiLabelTitle {
+  display: block;
+  width: 24vw;
+  height: auto;
+  flex-shrink: 0;
+}
+/* Fixed-height row ensures UPPER SIX / LOWER SIX swap doesn't shift layout */
+.vsaiLabelSixRow {
+  display: flex;
+  height: clamp(18px, 1.9vw, 36px);
+  align-items: flex-start;
+}
+.vsaiLabelSix {
+  display: block;
+  height: clamp(18px, 1.9vw, 36px);
+  width: auto;
+  image-rendering: -webkit-optimize-contrast;
+}
+.vsaiProgress { margin-top: 0.6vw; width: 18vw; pointer-events: none; }
+.vsaiProgressTrack {
+  height: 2px;
+  background: rgba(255,255,255,0.08);
+  border-radius: 4px; overflow: hidden; margin-bottom: 5px;
+}
+.vsaiProgressFill {
+  height: 100%;
+  background: linear-gradient(90deg, #00C97B 0%, #1E90FF 50%, #FF47A3 100%);
   border-radius: 4px;
   transition: width .8s cubic-bezier(.22,1,.36,1);
 }
-
-/* ── Tier section dividers — vertical separators ─────────────── */
-.fcTierDivider { display: none; }
-
-/* ── Stair list — horizontal staircase, fits viewport ───────── */
-.fcStairList {
-  display: flex;
-  flex-direction: row;
-  align-items: flex-end;        /* all cards share the same bottom baseline */
-  gap: 0;
-  padding: 0 0 0 0;
-  width: 100%;
-  overflow-x: auto;
-  overflow-y: visible;
-  scrollbar-width: thin;
-  scrollbar-color: rgba(255,255,255,.1) transparent;
+.vsaiProgressText {
+  font-family: 'Orbitron', sans-serif;
+  font-size: 0.5vw; letter-spacing: 3px;
+  color: rgba(255,255,255,0.3);
+  text-transform: uppercase;
 }
-.fcStairList::-webkit-scrollbar { height: 3px; }
-.fcStairList::-webkit-scrollbar-thumb { background: rgba(255,255,255,.1); border-radius: 2px; }
+/* Controls re-enabled pointer events when inside label */
+.vsaiLabel .vsaiControls { pointer-events: auto; }
 
-/* ── Chapter cards — each card is 1/12 of the available width ── */
-.fcChapterCard {
-  position: relative;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: flex-end;   /* content pinned to bottom so names are always readable */
-  gap: 5px;
-  flex: 0 0 calc(100% / 12);
-  min-width: 72px;
-  /* Each card is taller than the previous — idx=0 shortest, idx=11 tallest */
-  height: calc(60px + var(--fc-step, 0) * 36px);
-  padding: 10px 6px 10px;
-  border-right: 1px solid rgba(0,0,0,.3);
-  cursor: pointer;
-  overflow: hidden;
-  /* Solid color per tier, full opacity */
-  background: rgb(12, 13, 20);
-  border-top: 3px solid rgba(var(--fc-t, 255,255,255), .5);
-  transition: background .18s, border-color .18s, box-shadow .18s;
-}
-/* Top glow accent */
-.fcChapterCard::before {
-  content: '';
-  position: absolute; top: 0; left: 0; right: 0; height: 60%;
-  background: linear-gradient(180deg,
-    rgba(var(--fc-t, 255,255,255), .08) 0%,
-    transparent 100%
-  );
-  pointer-events: none;
-}
-.fcChapterCard::after {
-  content: '';
+/* ── Champion overlay ────────────────────────────────────── */
+.vsaiChampBanner {
   position: absolute; inset: 0;
-  background: rgba(var(--fc-t, 255,255,255), .05);
-  pointer-events: none;
-  opacity: 0;
-  transition: opacity .15s;
+  display: flex; flex-direction: column;
+  align-items: center; justify-content: center;
+  background: rgba(0,0,0,0.8);
+  z-index: 20; text-align: center; padding: 40px;
 }
-.fcChapterCard.fcLocked {
-  opacity: .3;
-  cursor: not-allowed;
-  filter: grayscale(.9);
-  border-top-color: rgba(255,255,255,.08);
-}
-.fcChapterCard:not(.fcLocked):hover {
-  background: rgb(18, 20, 32);
-  border-top-color: rgba(var(--fc-t, 255,255,255), .9);
-  box-shadow: inset 0 0 24px rgba(var(--fc-t, 255,255,255), .08),
-              0 -4px 20px rgba(var(--fc-t, 255,255,255), .12);
-}
-.fcChapterCard:not(.fcLocked):hover::after { opacity: 1; }
-.fcChapterCard.fcActive {
-  background: rgb(14, 16, 26) !important;
-  border-top-color: rgb(var(--fc-t, 255,255,255)) !important;
-  box-shadow: inset 0 0 32px rgba(var(--fc-t, 255,255,255), .10),
-              0 -6px 24px rgba(var(--fc-t, 255,255,255), .18) !important;
-}
-.fcChapterCard.fcActive::after { opacity: 1; }
-
-/* ── CLEARED: lit up in green ────────────────────────────────── */
-.fcChapterCard.fcCleared {
-  opacity: 1;
-  border-top-color: rgb(56,210,130) !important;
-  background: rgb(8, 22, 16) !important;
-  box-shadow: inset 0 0 20px rgba(56,210,130,.08),
-              0 -4px 16px rgba(56,210,130,.14) !important;
-}
-.fcChapterCard.fcCleared::before {
-  background: linear-gradient(180deg, rgba(56,210,130,.10) 0%, transparent 100%);
-}
-.fcChapterCard.fcCleared::after {
-  opacity: 1;
-  background: rgba(56,210,130, .04);
-}
-
-/* ── Card elements ───────────────────────────────────────────── */
-.fcClearedMark {
-  position: absolute; top: 6px; right: 6px;
+.vsaiChampBanner > div:first-child { font-size: 48px; margin-bottom: 14px; }
+.vsaiChampBanner .vsaiChampTitle {
   font-family: 'Orbitron', sans-serif;
-  font-size: 7px; font-weight: 900;
-  color: #38d282;
-}
-.fcCardRank {
-  font-family: 'Orbitron', sans-serif;
-  font-size: 8px; font-weight: 900;
-  letter-spacing: 1px;
-  color: rgba(var(--fc-t, 255,255,255), .35);
-  z-index: 1;
-}
-.fcCardEmoji {
-  font-size: 18px; z-index: 1; line-height: 1;
-  filter: drop-shadow(0 0 6px rgba(var(--fc-t,255,255,255),.4));
-}
-.fcCardBody { display: none; } /* hide in stair view */
-.fcCardName {
-  font-family: 'Orbitron', sans-serif;
-  font-size: 7px; font-weight: 900;
-  letter-spacing: 1px; text-transform: uppercase;
-  color: rgb(var(--fc-t, 255,255,255));
-  text-align: center;
-  width: 100%;
-  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
-  z-index: 1;
-}
-.fcCardBadges {
-  display: flex; gap: 2px; flex-wrap: wrap;
-  justify-content: center; z-index: 1;
-}
-.fcCardArrow {
-  font-size: 8px;
-  color: rgba(var(--fc-t, 255,255,255), .5);
-  z-index: 1;
-}
-.fcChapterCard:not(.fcLocked):hover .fcCardArrow {
-  color: rgb(var(--fc-t, 255,255,255));
-}
-
-/* Tier dividers — tiny vertical label lines between tiers */
-.fcTierDivider { display: none; }
-
-/* Rarity chip */
-.fcRarityChip {
-  font-family: 'Orbitron', sans-serif;
-  font-size: 6px; font-weight: 900;
-  letter-spacing: 1.5px; padding: 2px 5px;
-  border-radius: 2px; white-space: nowrap; flex-shrink: 0;
-  text-transform: uppercase; z-index: 1;
-}
-.fcRarity0 { background: rgba(160,162,172,.15); color: rgba(160,162,172,.9); border: 1px solid rgba(160,162,172,.25); }
-.fcRarity1 { background: rgba(56,210,130,.12);  color: rgba(56,210,130,.9);  border: 1px solid rgba(56,210,130,.25);  }
-.fcRarity2 { background: rgba(40,170,255,.12);  color: rgba(40,170,255,.9);  border: 1px solid rgba(40,170,255,.25);  }
-.fcRarity3 { background: rgba(180,70,255,.12);  color: rgba(180,70,255,.9);  border: 1px solid rgba(180,70,255,.25);  }
-.fcRarity4 { background: rgba(255,130,30,.12);  color: rgba(255,130,30,.9);  border: 1px solid rgba(255,130,30,.25);  }
-
-.fcCardTitle { display: none; }
-
-/* Mode & diff badges */
-.fcModeBadge, .fcDiffBadge {
-  font-family: 'Orbitron', sans-serif;
-  font-size: 6px; font-weight: 700;
-  letter-spacing: 1.5px; padding: 2px 7px;
-  border-radius: 2px; text-transform: uppercase;
-}
-.fcModenormal      { background: rgba(40,170,255,.1);  color: rgba(40,170,255,.9);  border: 1px solid rgba(40,170,255,.22); }
-.fcModeblind_draft { background: rgba(180,70,255,.1);  color: rgba(180,70,255,.9);  border: 1px solid rgba(180,70,255,.22); }
-.fcModemirror_war  { background: rgba(255,60,40,.1);   color: rgba(255,80,50,.9);   border: 1px solid rgba(255,60,40,.22);  }
-.fcDiffdumbie      { background: rgba(160,162,172,.1); color: rgba(160,162,172,.9); border: 1px solid rgba(160,162,172,.22);}
-.fcDiffelite       { background: rgba(56,210,130,.1);  color: rgba(56,210,130,.9);  border: 1px solid rgba(56,210,130,.22); }
-.fcDifftactician   { background: rgba(40,170,255,.1);  color: rgba(40,170,255,.9);  border: 1px solid rgba(40,170,255,.22); }
-.fcDiffgrandmaster { background: rgba(180,70,255,.1);  color: rgba(180,70,255,.9);  border: 1px solid rgba(180,70,255,.22); }
-.fcDifflegendary   { background: rgba(255,130,30,.1);  color: rgba(255,130,30,.9);  border: 1px solid rgba(255,130,30,.22); }
-
-/* ── Free Battle ─────────────────────────────────────────────── */
-.fcFreeBattle {
-  margin: 32px 24px 0;
-  padding: 20px;
-  border-radius: 8px;
-  border: 1px solid rgba(255,255,255,.06);
-  background: rgba(255,255,255,.02);
-}
-.fcFreeBattleTitle {
-  font-family: 'Orbitron', sans-serif;
-  font-size: 10px; font-weight: 900; letter-spacing: 3px;
-  color: rgba(255,255,255,.5); margin-bottom: 4px;
-}
-.fcFreeBattleSub {
-  font-size: 10px; color: rgba(255,255,255,.2);
-  margin-bottom: 14px; letter-spacing: 1px;
-}
-.fcFreeBattleGrid { display: flex; flex-wrap: wrap; gap: 8px; }
-
-.fcFbCard {
-  position: relative; overflow: hidden;
-  display: flex; flex-direction: column; align-items: center; justify-content: center;
-  width: 64px; padding: 10px 6px; border-radius: 6px; cursor: pointer;
-  border: 1px solid rgba(var(--fc-fbt, 255,255,255), .18);
-  background: rgba(var(--fc-fbt, 255,255,255), .04);
-  transition: transform .15s, background .15s, box-shadow .15s;
-  gap: 3px;
-}
-.fcFbCard:hover {
-  transform: translateY(-4px);
-  background: rgba(var(--fc-fbt, 255,255,255), .1);
-  box-shadow: 0 4px 16px rgba(var(--fc-fbt, 255,255,255), .12);
-}
-.fcFbGlow {
-  position: absolute; inset: 0;
-  background: radial-gradient(ellipse at 50% -10%, rgba(var(--fc-fbt, 255,255,255),.14), transparent 70%);
-  pointer-events: none;
-}
-.fcFbNum  { font-family: 'Orbitron', sans-serif; font-size: 7px; opacity: .35; letter-spacing: 1px; font-weight: 700; }
-.fcFbEmoji { font-size: 16px; }
-.fcFbName { font-family: 'Orbitron', sans-serif; font-size: 6px; font-weight: 900; letter-spacing: 1.5px; color: rgb(var(--fc-fbt, 255,255,255)); margin-top: 2px; }
-.fcFbMode { font-size: 7px; opacity: .3; letter-spacing: .5px; }
-
-/* ── Champion banner ─────────────────────────────────────────── */
-.fcChampionBanner {
-  position: relative; text-align: center;
-  padding: 36px 24px; border-radius: 10px;
-  border: 1px solid rgba(255,130,30,.28);
-  background: linear-gradient(135deg,
-    rgba(255,130,30,.06) 0%, rgba(180,70,255,.06) 100%);
-  overflow: hidden; margin: 24px;
-}
-.fcChampionGlow {
-  position: absolute; inset: -40px;
-  background: radial-gradient(ellipse 80% 60% at 50% 50%,
-    rgba(255,130,30,.15), rgba(180,70,255,.08) 50%, transparent 75%);
-  filter: blur(24px); pointer-events: none;
-}
-.fcChampionCrown { font-size: 42px; position: relative; margin-bottom: 12px; }
-.fcChampionTitle {
-  font-family: 'Orbitron', sans-serif;
-  font-size: clamp(14px, 2.5vw, 20px); font-weight: 900;
-  letter-spacing: 5px; text-transform: uppercase;
+  font-size: clamp(18px,2.5vw,28px); font-weight: 900; letter-spacing: 6px;
   background: linear-gradient(90deg, #ff821e, #b446ff);
   -webkit-background-clip: text; background-clip: text; color: transparent;
-  position: relative; margin-bottom: 10px;
+  margin-bottom: 10px;
 }
-.fcChampionSub {
-  font-size: 11px; color: rgba(255,255,255,.35);
-  letter-spacing: 1px; position: relative;
-}
-
-.fcFightFade-leave-active { animation: fcFightIn .2s ease-in reverse; }
-@keyframes fcFightIn {
-  from { opacity: 0; }
-  to   { opacity: 1; }
+.vsaiChampBanner .vsaiChampSub {
+  font-size: 13px; color: rgba(255,255,255,0.4); letter-spacing: 1px;
 }
 
-/* ── Base overlay ────────────────────────────────────────────── */
+/* ═══════════════════════════════════════════════════════════════════
+   PENTwelve — PRE-FIGHT CHALLENGE OVERLAY (Accept / Decline)
+═══════════════════════════════════════════════════════════════════ */
+
 .fcFightOverlay {
-  position: fixed; inset: 0; z-index: 80;
+  position: fixed; inset: 0; z-index: 90;
   display: flex; align-items: center; justify-content: center;
-  padding: 16px;
-  --ch-rgb: 192,192,192;
+  --ch-color: #fff;
 }
-
-/* ── Background layers ───────────────────────────────────────── */
 .fcFightBg {
   position: absolute; inset: 0;
-  background: rgba(4,4,18,.96);
-  backdrop-filter: blur(24px);
+  background: rgba(0,0,0,0.88);
+  backdrop-filter: blur(18px);
 }
-
-/* Tier-specific color flood (bottom glow) */
-.fcFightColorFlood {
-  position: absolute; inset: 0; pointer-events: none;
-  background:
-    radial-gradient(ellipse 120% 50% at 50% 110%, color-mix(in srgb, var(--ch-color, #888) 22%, transparent), transparent 65%),
-    radial-gradient(ellipse 60% 30% at 50% 0%, color-mix(in srgb, var(--ch-color, #888) 8%, transparent), transparent 55%);
-}
-
-/* Scanlines — intensity varies by tier */
 .fcFightScanlines {
-  position: absolute; inset: 0; pointer-events: none; z-index: 1;
-  background: repeating-linear-gradient(
-    0deg,
-    transparent,
-    transparent 2px,
-    rgba(0,0,0,.12) 2px,
-    rgba(0,0,0,.12) 4px
-  );
-  animation: fcScanMove 8s linear infinite;
+  position: absolute; inset: 0;
+  background: repeating-linear-gradient(0deg, transparent, transparent 3px, rgba(255,255,255,0.015) 3px, rgba(255,255,255,0.015) 4px);
+  pointer-events: none;
 }
-@keyframes fcScanMove {
-  from { background-position: 0 0; }
-  to   { background-position: 0 100px; }
-}
-
-/* Floating particles */
 .fcFightParticles { position: absolute; inset: 0; pointer-events: none; overflow: hidden; }
 .fcFightParticle {
   position: absolute;
-  width: calc(2px + var(--i) * 1px);
-  height: calc(2px + var(--i) * 1px);
+  width: 3px; height: 3px;
   border-radius: 50%;
-  background: var(--ch-color, #888);
+  background: var(--ch-color);
   opacity: 0;
-  left: calc(var(--i) * 8.3%);
-  bottom: -10px;
-  animation: fcParticleRise calc(3s + var(--i) * 0.4s) calc(var(--i) * 0.3s) ease-in infinite;
-  filter: blur(0.5px);
+  left: calc(var(--i) * 8%);
+  bottom: -4px;
+  animation: fcFightParticleRise calc(2.5s + var(--i) * 0.3s) calc(var(--i) * 0.15s) ease-in infinite;
 }
-@keyframes fcParticleRise {
-  0%   { opacity: 0;    transform: translateY(0)   scale(1); }
+@keyframes fcFightParticleRise {
+  0%   { opacity: 0; transform: translateY(0); }
   15%  { opacity: 0.6; }
-  80%  { opacity: 0.2; }
-  100% { opacity: 0;    transform: translateY(-110vh) scale(0.4); }
+  100% { opacity: 0; transform: translateY(-80vh); }
 }
+.fcFightColorFlood {
+  position: absolute; inset: 0;
+  background: radial-gradient(ellipse 60% 40% at 50% 100%, color-mix(in srgb, var(--ch-color) 10%, transparent), transparent 70%);
+  pointer-events: none;
+}
+/* Tier color accents */
+.fcTierOverlay0 { --ch-color: #00C97B; }
+.fcTierOverlay1 { --ch-color: #8A6BFF; }
+.fcTierOverlay2 { --ch-color: #FF4D6D; }
+.fcTierOverlay3 { --ch-color: #F5A623; }
+.fcTierOverlay4 { --ch-color: #C8C8C8; }
 
-/* ── Card ────────────────────────────────────────────────────── */
 .fcFightCard {
-  position: relative; z-index: 2;
-  width: min(460px, 100%);
-  background: rgba(10,10,24,.85);
-  border: 1px solid color-mix(in srgb, var(--ch-color, #888) 40%, transparent);
-  border-radius: 20px;
-  padding: 28px 28px 24px;
-  text-align: center;
-  box-shadow:
-    0 0 0 1px rgba(0,0,0,.4),
-    0 0 60px color-mix(in srgb, var(--ch-color, #888) 15%, transparent),
-    inset 0 1px 0 rgba(255,255,255,.06);
-  animation: fcCardSlam .45s .05s cubic-bezier(.22,1,.36,1) both;
-  overflow: hidden;
+  position: relative;
+  z-index: 2;
+  background: #0a0c16;
+  border: 1px solid rgba(255,255,255,0.08);
+  border-top: 2px solid var(--ch-color);
+  border-radius: 8px;
+  width: clamp(300px, 36vw, 520px);
+  padding: 28px 32px 24px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 10px;
+  box-shadow: 0 0 60px rgba(0,0,0,0.6), 0 0 80px color-mix(in srgb, var(--ch-color) 10%, transparent);
+  animation: fcFightCardIn .35s cubic-bezier(.22,1,.36,1) both;
 }
-@keyframes fcCardSlam {
-  from { transform: translateY(32px) scale(.97); opacity: 0; }
-  to   { transform: translateY(0) scale(1); opacity: 1; }
+@keyframes fcFightCardIn {
+  from { opacity: 0; transform: translateY(20px) scale(0.97); }
+  to   { opacity: 1; transform: translateY(0) scale(1); }
 }
-
-/* Card inner top accent bar */
-.fcFightCard::before {
-  content: '';
-  position: absolute; top: 0; left: 0; right: 0; height: 3px;
-  background: linear-gradient(90deg, transparent, var(--ch-color, #888), transparent);
-  border-radius: 20px 20px 0 0;
-}
-
-/* Card bottom glow pool */
-.fcFightCard::after {
-  content: '';
-  position: absolute; bottom: -30px; left: 10%; right: 10%; height: 60px;
-  background: radial-gradient(ellipse, color-mix(in srgb, var(--ch-color, #888) 25%, transparent), transparent 70%);
-  filter: blur(12px); pointer-events: none;
-}
-
-/* ── Rank row ────────────────────────────────────────────────── */
 .fcFightRankRow {
-  display: flex; align-items: center; justify-content: space-between;
-  margin-bottom: 18px;
+  display: flex; align-items: center; gap: 10px;
+  align-self: stretch;
 }
 .fcFightRankLabel {
-  font-size: 9px; letter-spacing: 4px; font-weight: 900;
-  color: var(--ch-color, #888); opacity: .7;
+  font-family: 'Orbitron', sans-serif;
+  font-size: 9px; font-weight: 700; letter-spacing: 3px;
+  color: rgba(255,255,255,0.3); text-transform: uppercase;
 }
 .fcFightRankNum {
-  font-size: 11px; letter-spacing: 3px; font-weight: 900;
-  color: rgba(255,255,255,.35);
+  font-family: 'Orbitron', sans-serif;
+  font-size: 9px; font-weight: 900; letter-spacing: 2px;
+  color: var(--ch-color); text-transform: uppercase;
 }
-
-/* ── Portrait ────────────────────────────────────────────────── */
 .fcFightPortrait {
-  position: relative; margin: 0 auto 16px;
-  width: 90px; height: 90px;
+  position: relative;
+  width: 72px; height: 72px;
   display: flex; align-items: center; justify-content: center;
+  margin: 4px 0;
 }
 .fcFightPortraitRing {
-  position: absolute; inset: 0; border-radius: 50%;
-  border: 2px solid color-mix(in srgb, var(--ch-color, #888) 50%, transparent);
-  animation: fcRingPulse 2.5s ease-in-out infinite;
+  position: absolute; inset: 0;
+  border-radius: 50%;
+  border: 2px solid var(--ch-color);
+  opacity: 0.4;
+  animation: fcFightRingPulse 2s ease-in-out infinite;
 }
-.fcFightPortraitRing::before {
-  content: '';
-  position: absolute; inset: -6px; border-radius: 50%;
-  border: 1px solid color-mix(in srgb, var(--ch-color, #888) 20%, transparent);
-  animation: fcRingPulse 2.5s .4s ease-in-out infinite;
-}
-@keyframes fcRingPulse {
-  0%,100% { opacity: .5; transform: scale(1); }
-  50%      { opacity: 1;  transform: scale(1.05); }
+@keyframes fcFightRingPulse {
+  0%,100% { transform: scale(1); opacity: 0.4; }
+  50%      { transform: scale(1.08); opacity: 0.7; }
 }
 .fcFightPortraitGlow {
-  position: absolute; inset: -20px;
-  background: radial-gradient(ellipse, color-mix(in srgb, var(--ch-color, #888) 30%, transparent), transparent 65%);
-  filter: blur(10px); animation: fcRingPulse 2.5s .2s ease-in-out infinite;
+  position: absolute; inset: 0;
+  border-radius: 50%;
+  background: radial-gradient(circle, color-mix(in srgb, var(--ch-color) 25%, transparent), transparent 70%);
 }
-.fcFightPortraitEmoji { font-size: 52px; line-height: 1; position: relative; z-index: 1; }
-
-/* ── Identity ────────────────────────────────────────────────── */
+.fcFightPortraitEmoji { font-size: 36px; position: relative; }
 .fcFightName {
-  font-size: 32px; font-weight: 900; letter-spacing: 6px;
-  color: var(--ch-color, #888);
-  text-shadow: 0 0 30px color-mix(in srgb, var(--ch-color, #888) 60%, transparent);
-  animation: fcNameSlam .4s .2s cubic-bezier(.22,1,.36,1) both;
-  margin-bottom: 4px;
-}
-@keyframes fcNameSlam {
-  from { transform: scale(1.15) translateY(-8px); opacity: 0; filter: blur(4px); }
-  to   { transform: scale(1) translateY(0); opacity: 1; filter: blur(0); }
+  font-family: 'Orbitron', sans-serif;
+  font-size: clamp(20px, 2.5vw, 30px); font-weight: 900; letter-spacing: 5px;
+  color: #fff; text-transform: uppercase; text-align: center; line-height: 1;
 }
 .fcFightPersonality {
-  font-size: 9px; letter-spacing: 3px; font-weight: 700;
-  color: color-mix(in srgb, var(--ch-color, #888) 70%, white);
-  text-transform: uppercase; opacity: .6; margin-bottom: 2px;
+  font-family: 'Orbitron', sans-serif;
+  font-size: 9px; font-weight: 600; letter-spacing: 2px;
+  color: var(--ch-color); text-transform: uppercase; text-align: center; opacity: 0.8;
 }
 .fcFightCharTitle {
-  font-size: 11px; opacity: .35; letter-spacing: 2px; margin-bottom: 12px;
+  font-family: 'Orbitron', sans-serif;
+  font-size: 8px; font-weight: 500; letter-spacing: 2px;
+  color: rgba(255,255,255,0.35); text-transform: uppercase; text-align: center;
 }
-
-/* ── Badges ──────────────────────────────────────────────────── */
-.fcFightBadges { display: flex; gap: 8px; justify-content: center; margin: 12px 0; flex-wrap: wrap; }
-
-/* ── Divider ─────────────────────────────────────────────────── */
+.fcFightBadges { display: flex; gap: 6px; flex-wrap: wrap; justify-content: center; }
+.fcModeBadge, .fcDiffBadge {
+  font-family: 'Orbitron', sans-serif;
+  font-size: 8px; font-weight: 700; letter-spacing: 1.5px;
+  padding: 4px 8px; border-radius: 3px; text-transform: uppercase;
+}
+.fcModeBadge { background: rgba(255,255,255,0.06); border: 1px solid rgba(255,255,255,0.12); color: rgba(255,255,255,0.55); }
+.fcModenormal    { }
+.fcModeblind_draft { background: rgba(155,93,229,0.15); border-color: rgba(155,93,229,0.3); color: #c48aff; }
+.fcModemirror_war  { background: rgba(0,140,255,0.12); border-color: rgba(0,140,255,0.3); color: #4db8ff; }
+.fcDiffBadge { background: rgba(255,255,255,0.05); border: 1px solid rgba(255,255,255,0.10); color: rgba(255,255,255,0.5); }
+.fcDiffdumbie     { background: rgba(0,201,123,0.12); border-color: rgba(0,201,123,0.3); color: #00C97B; }
+.fcDiffelite      { background: rgba(0,120,255,0.12); border-color: rgba(0,120,255,0.3); color: #4d9dff; }
+.fcDifftactician  { background: rgba(155,93,229,0.15); border-color: rgba(155,93,229,0.3); color: #c48aff; }
+.fcDiffgrandmaster{ background: rgba(245,166,35,0.12); border-color: rgba(245,166,35,0.3); color: #f5a623; }
+.fcDifflegendary  { background: rgba(200,200,200,0.08); border-color: rgba(200,200,200,0.2); color: #d0d0d0; }
 .fcFightDivider {
-  width: 100%; height: 1px; margin: 14px 0;
-  background: linear-gradient(90deg, transparent, color-mix(in srgb, var(--ch-color, #888) 35%, transparent), transparent);
+  align-self: stretch; height: 1px;
+  background: rgba(255,255,255,0.06); margin: 2px 0;
 }
-
-/* ── Dialogue ────────────────────────────────────────────────── */
 .fcFightDialogue {
-  margin-bottom: 20px;
-  display: flex; flex-direction: column; gap: 9px;
+  align-self: stretch;
+  display: flex; flex-direction: column; gap: 6px;
+  padding: 10px 14px;
+  background: rgba(255,255,255,0.03);
+  border-left: 2px solid var(--ch-color);
+  border-radius: 2px;
 }
 .fcFightLine {
-  font-size: 13px; font-style: italic; line-height: 1.5;
-  color: rgba(255,255,255,.8); letter-spacing: .3px;
-  animation: fcLineIn .5s ease-out both;
+  font-family: 'Orbitron', 'Rajdhani', sans-serif;
+  font-size: 10px; font-weight: 500; letter-spacing: 0.3px;
+  color: rgba(255,255,255,0.6); line-height: 1.5;
+  opacity: 0;
+  animation: fcFightLineIn .4s ease both;
 }
-@keyframes fcLineIn {
-  from { opacity: 0; transform: translateX(-8px); }
+@keyframes fcFightLineIn {
+  from { opacity: 0; transform: translateX(-6px); }
   to   { opacity: 1; transform: translateX(0); }
 }
-
-/* ── CTA buttons ─────────────────────────────────────────────── */
 .fcFightActions {
-  display: flex;
-  gap: 10px;
-  align-items: stretch;
+  align-self: stretch;
+  display: flex; gap: 10px; margin-top: 4px;
 }
 .fcFightDeclineBtn {
-  display: flex; align-items: center; justify-content: center;
-  padding: 15px 16px;
-  background: rgba(255,255,255,0.04);
-  border: 1px solid rgba(255,255,255,0.14);
-  border-radius: 12px;
-  color: rgba(255,255,255,0.45); font-size: 11px; font-weight: 700; letter-spacing: 2px;
-  cursor: pointer; transition: background .18s, color .18s, border-color .18s, transform .1s;
-  white-space: nowrap;
-  flex-shrink: 0;
+  flex: 1;
+  background: #1a1c28;
+  border: 1px solid rgba(255,255,255,0.12);
+  border-radius: 5px;
+  color: rgba(255,255,255,0.5);
+  font-family: 'Orbitron', sans-serif;
+  font-size: 9px; font-weight: 700; letter-spacing: 2px; text-transform: uppercase;
+  padding: 10px 0; cursor: pointer;
+  transition: background .12s, color .12s;
 }
-.fcFightDeclineBtn:hover {
-  background: rgba(255,60,60,0.12);
-  border-color: rgba(255,60,60,0.35);
-  color: rgba(255,100,100,0.9);
-  transform: scale(1.02);
-}
-.fcFightDeclineBtn:active { transform: scale(.97); }
+.fcFightDeclineBtn:hover { background: #252840; color: rgba(255,255,255,0.75); }
 .fcFightBeginBtn {
-  display: flex; align-items: center; justify-content: center; gap: 10px;
-  width: 100%; padding: 15px 20px;
-  background: color-mix(in srgb, var(--ch-color, #888) 18%, rgba(10,10,24,.6));
-  border: 1px solid color-mix(in srgb, var(--ch-color, #888) 55%, transparent);
-  border-radius: 12px;
-  color: #fff; font-size: 13px; font-weight: 900; letter-spacing: 3px;
-  cursor: pointer; transition: background .18s, transform .1s, box-shadow .18s;
-  box-shadow: 0 0 20px color-mix(in srgb, var(--ch-color, #888) 10%, transparent);
+  flex: 2;
+  background: var(--ch-color);
+  border: none; border-radius: 5px;
+  color: #000;
+  font-family: 'Orbitron', sans-serif;
+  font-size: 10px; font-weight: 900; letter-spacing: 2px; text-transform: uppercase;
+  padding: 10px 16px; cursor: pointer;
+  display: flex; align-items: center; justify-content: center; gap: 8px;
+  transition: filter .12s, transform .1s;
 }
-.fcFightBeginBtn:hover {
-  background: color-mix(in srgb, var(--ch-color, #888) 30%, rgba(10,10,24,.7));
-  transform: scale(1.02);
-  box-shadow: 0 0 36px color-mix(in srgb, var(--ch-color, #888) 28%, transparent);
-}
-.fcFightBeginBtn:active { transform: scale(.98); }
-.fcFightBeginArrow { font-size: 15px; }
+.fcFightBeginBtn:hover { filter: brightness(1.12); transform: translateX(2px); }
+.fcFightBeginArrow { font-size: 12px; }
 
-/* ── Tier-specific overlay effects ───────────────────────────── */
-
-/* Tier 0 (Dumbie/Orda) — static/muted, barely there */
-.fcTierOverlay0 .fcFightScanlines { opacity: 0.4; }
-.fcTierOverlay0 .fcFightParticle  { opacity: 0; animation-play-state: paused; }
-.fcTierOverlay0 .fcFightCard      { animation-duration: .55s; } /* slow, unimpressive */
-
-/* Tier 1 (Elite/Judev/Sefia) — green matrix vibe */
-.fcTierOverlay1 .fcFightScanlines { opacity: 0.6; animation-duration: 5s; }
-.fcTierOverlay1 .fcFightParticle  { filter: blur(1px); }
-.fcTierOverlay1 .fcFightPortraitRing { animation-duration: 1.8s; }
-
-/* Tier 2 (Tactician/Lilica/Drift) — electric blue pulse */
-.fcTierOverlay2 .fcFightScanlines { opacity: 0.5; }
-.fcTierOverlay2 .fcFightCard { animation-name: fcCardSlam, fcCardElectric; animation-duration: .45s, 3s; animation-delay: .05s, .5s; animation-timing-function: cubic-bezier(.22,1,.36,1), ease-in-out; animation-fill-mode: both, none; animation-iteration-count: 1, infinite; }
-@keyframes fcCardElectric {
-  0%,90%,100% { box-shadow: 0 0 0 1px rgba(0,0,0,.4), 0 0 60px color-mix(in srgb, var(--ch-color, #888) 15%, transparent), inset 0 1px 0 rgba(255,255,255,.06); }
-  95%          { box-shadow: 0 0 0 1px rgba(0,0,0,.4), 0 0 80px color-mix(in srgb, var(--ch-color, #888) 30%, transparent), 0 0 120px color-mix(in srgb, var(--ch-color, #888) 10%, transparent), inset 0 1px 0 rgba(255,255,255,.1); }
-}
-.fcTierOverlay2 .fcFightPortraitRing { animation-duration: 1.4s; }
-
-/* Tier 3 (Grand/Axia) — deep regal weight, slow and heavy */
-.fcTierOverlay3 .fcFightBg { background: rgba(2,2,12,.98); }
-.fcTierOverlay3 .fcFightScanlines { opacity: 0.3; animation-duration: 14s; }
-.fcTierOverlay3 .fcFightCard { border-width: 2px; }
-.fcTierOverlay3 .fcFightName { letter-spacing: 8px; }
-
-/* Tier 4 (Mumu/Zero) — red danger, glitch, screen shake */
-.fcTierOverlay4 .fcFightScanlines { opacity: 0.7; animation-duration: 3s; }
-.fcTierOverlay4 .fcFightColorFlood { animation: fcFloodPulse 2.4s ease-in-out infinite; }
-@keyframes fcFloodPulse {
-  0%,100% { opacity: 1; }
-  50%     { opacity: 1.3; }
-}
-.fcTierOverlay4 .fcFightCard { animation-name: fcCardSlam, fcCardGlitch; animation-duration: .45s, 6s; animation-delay: .05s, 1s; animation-timing-function: cubic-bezier(.22,1,.36,1), steps(1); animation-fill-mode: both, none; animation-iteration-count: 1, infinite; }
-@keyframes fcCardGlitch {
-  0%,94%,100% { transform: translateX(0); }
-  95%         { transform: translateX(-2px); }
-  96%         { transform: translateX(3px); }
-  97%         { transform: translateX(-1px); }
-  98%         { transform: translateX(0); }
-}
-.fcTierOverlay4 .fcFightParticle { animation-duration: calc(2s + var(--i) * 0.25s); }
-.fcTierOverlay4 .fcFightPortraitRing { animation-duration: 1s; }
-.fcTierOverlay4 .fcFightName { animation: fcNameSlam .3s .15s cubic-bezier(.22,1,.36,1) both, fcNameFlicker 4s 1s ease-in-out infinite; }
-@keyframes fcNameFlicker {
-  0%,97%,100% { text-shadow: 0 0 30px color-mix(in srgb, var(--ch-color, #888) 60%, transparent); }
-  98%         { text-shadow: 0 0 60px color-mix(in srgb, var(--ch-color, #888) 90%, transparent), 0 0 100px color-mix(in srgb, var(--ch-color, #888) 40%, transparent); }
-}
+/* Transition */
+.fcFightFade-enter-active, .fcFightFade-leave-active { transition: opacity .25s ease; }
+.fcFightFade-enter-from, .fcFightFade-leave-to { opacity: 0; }
 
 /* ═══════════════════════════════════════════════════════════════════
    PENTwelve — POST-FIGHT RESULT OVERLAY
@@ -13398,6 +13196,69 @@ onBeforeUnmount(() => {
 /* ══════════════════════════════════════════════════════════════════════════
    MAIN MENU SCREEN  (Figma MENU kit)
 ══════════════════════════════════════════════════════════════════════════ */
+
+/* ── VERSUS AI (story screen) topbar & bottombar overrides ── */
+.vsaiTopbarBar.tetBar {
+  background: var(--vsai-topbar-img, #03070f) center/cover no-repeat !important;
+  border-bottom: none !important;
+  backdrop-filter: none !important;
+  box-shadow: none !important;
+  height: 5.208vw !important;
+  padding: 0 !important;
+}
+/* Remove ALL .main padding for story screen so vsaiShell fills
+   the exact pixel space between topbar and bottombar — no gaps */
+.main:has(.vsaiShell) {
+  padding: 0 !important;
+}
+/* Keep tetBarLeft visible but hide the topbar BACK (we use vsaiBackBtn instead) */
+.vsaiTopbarBar .tetBarLeft {
+  visibility: visible;
+  pointer-events: auto;
+  padding-left: clamp(12px, 2vw, 32px);
+}
+/* Hide the topbar back button — vsaiBackBtn replaces it */
+.vsaiTopbarBar .tetBackBtn { display: none !important; }
+/* Hide the page title text (image has it) */
+.vsaiTopbarBar .tetBarTitle { display: none; }
+.vsaiTopbarBar .tetBarRight {
+  visibility: visible;
+  pointer-events: auto;
+  padding-right: clamp(12px, 2vw, 32px);
+}
+
+/* Back button styled like menu subScreenBackBtn — fully opaque */
+.vsaiBackBtn {
+  position: absolute;
+  top: 10px;
+  left: clamp(16px, 2.5vw, 40px);
+  background: #16181f;
+  border: 1px solid rgba(255,255,255,0.18);
+  border-radius: 8px;
+  color: rgba(255,255,255,0.9);
+  font-size: 12px;
+  font-weight: 900;
+  letter-spacing: 2px;
+  text-transform: uppercase;
+  padding: 7px 16px;
+  cursor: pointer;
+  font-family: 'Orbitron', 'Rajdhani', Inter, system-ui, sans-serif;
+  transition: background .12s, color .12s, border-color .12s;
+  z-index: 20;
+}
+.vsaiBackBtn:hover {
+  background: #22243a;
+  color: #fff;
+  border-color: rgba(255,255,255,0.32);
+}
+.vsaiBottomBarBar {
+  background: var(--vsai-bottombar-img, #03070f) center/cover no-repeat !important;
+  border-top: none !important;
+  backdrop-filter: none !important;
+  height: 5.208vw !important;
+}
+.vsaiBottomBarBar .tetBottomText { display: none; }
+.vsaiBottomBarBar .tetBottomRight { display: none; }
 
 /* Topbar override on mode screen: apply menu_topbar.png, hide title text (it's in the image), keep user info */
 .mnTopbar.tetBar {
