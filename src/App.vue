@@ -9,6 +9,35 @@
       <div class="bgGlow g3"></div>
     </div>
 
+    <!-- 🎮 Floating pentomino ambient layer (transparent-bg menu screens) -->
+    <div v-if="isMenuScreen && !['landing','auth','mode','multiplayer','solo'].includes(screen)" class="menuPentoBg" aria-hidden="true">
+      <div
+        v-for="(piece, i) in bouncingPieces"
+        :key="'mp' + i"
+        class="floatingPieceWrap"
+        :style="{ left: piece.x + 'px', top: piece.y + 'px' }"
+      >
+        <svg
+          :width="piece.svgW"
+          :height="piece.svgH"
+          :viewBox="`0 0 ${piece.svgW} ${piece.svgH}`"
+          :style="{ opacity: piece.opacity }"
+          xmlns="http://www.w3.org/2000/svg"
+        >
+          <rect
+            v-for="(cell, j) in piece.cells"
+            :key="j"
+            :x="cell[1] * 42 + 1"
+            :y="cell[0] * 42 + 1"
+            :width="40"
+            :height="40"
+            :fill="piece.color"
+            rx="6"
+          />
+        </svg>
+      </div>
+    </div>
+
     <!-- ✅ Turn border (only during game) -->
     <div
       v-if="isInGame"
@@ -68,7 +97,7 @@
       </div>
     </Transition>
 
-    <header class="topbar" :class="{ tetBar: showMenuChrome, hpTopbar: screen === 'auth', mnTopbar: ['mode','multiplayer','solo'].includes(screen), stTopbar: ['settings','credits'].includes(screen), lbTopbar: screen === 'lobby' }" :style="screen === 'auth' ? { '--hp-topbar-img': `url(${hpAuthTopbarUrl})` } : screen === 'mode' ? { '--mn-topbar-img': `url(${menuTopbarUrl})` } : screen === 'multiplayer' ? { '--mn-topbar-img': `url(${mpTopbarUrl})` } : screen === 'solo' ? { '--mn-topbar-img': `url(${soloTopbarUrl})` } : screen === 'settings' ? { '--st-topbar-img': `url(${settingsTopbarUrl})` } : screen === 'credits' ? { '--st-topbar-img': `url(${creditsTopbarUrl})` } : screen === 'lobby' ? { '--lb-topbar-img': `url(${lobbyTopbarNewUrl})` } : {}">
+    <header v-if="screen !== 'landing'" class="topbar" :class="{ tetBar: showMenuChrome, hpTopbar: screen === 'auth', mnTopbar: ['mode','multiplayer','solo'].includes(screen), stTopbar: ['settings','credits'].includes(screen), lbTopbar: screen === 'lobby' }" :style="screen === 'auth' ? { '--hp-topbar-img': `url(${hpAuthTopbarUrl})` } : screen === 'mode' ? { '--mn-topbar-img': `url(${menuTopbarUrl})` } : screen === 'multiplayer' ? { '--mn-topbar-img': `url(${mpTopbarUrl})` } : screen === 'solo' ? { '--mn-topbar-img': `url(${soloTopbarUrl})` } : screen === 'settings' ? { '--st-topbar-img': `url(${settingsTopbarUrl})` } : screen === 'credits' ? { '--st-topbar-img': `url(${creditsTopbarUrl})` } : screen === 'lobby' ? { '--lb-topbar-img': `url(${lobbyTopbarNewUrl})` } : {}">
       <!-- TETR.IO-style menu top bar -->
       <template v-if="showMenuChrome">
         <div class="tetBarLeft">
@@ -138,9 +167,57 @@
     <div class="pageWrap">
 
       <!-- ══════════════════════════════════════════════════════════
+           LANDING  (pre-auth splash screen with floating pentominoes)
+      ═══════════════════════════════════════════════════════════ -->
+      <section v-if="screen === 'landing'" class="landingScreen">
+        <!-- Floating pentomino background -->
+        <div class="landingBg" aria-hidden="true">
+          <div
+            v-for="(piece, i) in bouncingPieces"
+            :key="i"
+            class="floatingPieceWrap"
+            :style="{ left: piece.x + 'px', top: piece.y + 'px' }"
+          >
+            <svg
+              :width="piece.svgW"
+              :height="piece.svgH"
+              :viewBox="`0 0 ${piece.svgW} ${piece.svgH}`"
+              :style="{ opacity: piece.opacity }"
+              xmlns="http://www.w3.org/2000/svg"
+            >
+              <rect
+                v-for="(cell, j) in piece.cells"
+                :key="j"
+                :x="cell[1] * 42 + 1"
+                :y="cell[0] * 42 + 1"
+                :width="40"
+                :height="40"
+                :fill="piece.color"
+                rx="6"
+              />
+            </svg>
+          </div>
+        </div>
+
+        <!-- Center content -->
+        <div class="landingCenter">
+          <img :src="hpLogoUrl" class="landingLogo" alt="Logo" />
+          <img :src="hpTitleUrl" class="landingTitle" alt="PENTObattle" />
+          <img :src="hpAuthorUrl" class="landingAuthor" alt="Developed by MUMUCHXM" />
+          <button class="landingStartBtn" @click="navTo('auth')">
+            <span class="landingStartBtnText">CLICK START</span>
+          </button>
+        </div>
+
+        <!-- Vignette overlay -->
+        <div class="landingVignette" aria-hidden="true"></div>
+      </section>
+
+      <!-- ══════════════════════════════════════════════════════════
            WELCOME / AUTH  (Figma HOMEPAGE redesign)
       ═══════════════════════════════════════════════════════════ -->
       <section v-if="screen === 'auth'" class="hpAuth">
+        <div class="sectionPentoBg" aria-hidden="true"><div v-for="(p,i) in bouncingPieces" :key="'a'+i" class="floatingPieceWrap" :style="{left:p.x+'px',top:p.y+'px'}"><svg :width="p.svgW" :height="p.svgH" :viewBox="`0 0 ${p.svgW} ${p.svgH}`" :style="{opacity:p.opacity}" xmlns="http://www.w3.org/2000/svg"><rect v-for="(cell,j) in p.cells" :key="j" :x="cell[1]*42+1" :y="cell[0]*42+1" width="40" height="40" :fill="p.color" rx="4"/></svg></div></div>
 
         <!-- Mobile landscape hint: zoom out + hide URL bar for best experience -->
         <Transition name="mobileHintFade">
@@ -214,6 +291,7 @@
            MAIN MENU  (Figma MENU redesign)
       ═══════════════════════════════════════════════════════════ -->
       <section v-else-if="screen === 'mode'" class="mnMenu">
+        <div class="sectionPentoBg" aria-hidden="true"><div v-for="(p,i) in bouncingPieces" :key="'m'+i" class="floatingPieceWrap" :style="{left:p.x+'px',top:p.y+'px'}"><svg :width="p.svgW" :height="p.svgH" :viewBox="`0 0 ${p.svgW} ${p.svgH}`" :style="{opacity:p.opacity}" xmlns="http://www.w3.org/2000/svg"><rect v-for="(cell,j) in p.cells" :key="j" :x="cell[1]*42+1" :y="cell[0]*42+1" width="40" height="40" :fill="p.color" rx="4"/></svg></div></div>
         <!-- Back to auth if playing as guest -->
         <button v-if="!loggedIn" class="subScreenBackBtn" @click="navTo('auth')">← BACK</button>
         <!-- Log out if logged in -->
@@ -252,6 +330,7 @@
            MULTIPLAYER MENU  (Figma DUOnline redesign)
       ═══════════════════════════════════════════════════════════ -->
       <section v-else-if="screen === 'multiplayer'" class="mnMenu">
+        <div class="sectionPentoBg" aria-hidden="true"><div v-for="(p,i) in bouncingPieces" :key="'mp'+i" class="floatingPieceWrap" :style="{left:p.x+'px',top:p.y+'px'}"><svg :width="p.svgW" :height="p.svgH" :viewBox="`0 0 ${p.svgW} ${p.svgH}`" :style="{opacity:p.opacity}" xmlns="http://www.w3.org/2000/svg"><rect v-for="(cell,j) in p.cells" :key="j" :x="cell[1]*42+1" :y="cell[0]*42+1" width="40" height="40" :fill="p.color" rx="4"/></svg></div></div>
         <button class="subScreenBackBtn" @click="goBack">← BACK</button>
 
         <div class="mnLeft">
@@ -308,6 +387,7 @@
            SOLO MENU  (Figma SOLOnline redesign)
       ═══════════════════════════════════════════════════════════ -->
       <section v-else-if="screen === 'solo'" class="mnMenu">
+        <div class="sectionPentoBg" aria-hidden="true"><div v-for="(p,i) in bouncingPieces" :key="'sl'+i" class="floatingPieceWrap" :style="{left:p.x+'px',top:p.y+'px'}"><svg :width="p.svgW" :height="p.svgH" :viewBox="`0 0 ${p.svgW} ${p.svgH}`" :style="{opacity:p.opacity}" xmlns="http://www.w3.org/2000/svg"><rect v-for="(cell,j) in p.cells" :key="j" :x="cell[1]*42+1" :y="cell[0]*42+1" width="40" height="40" :fill="p.color" rx="4"/></svg></div></div>
         <button class="subScreenBackBtn" @click="goBack">← BACK</button>
 
         <div class="mnLeft">
@@ -368,62 +448,70 @@
 
         <div class="fcHeader">
           <div class="fcHeaderGlow"></div>
-          <div class="fcHeaderBolt">🏁</div>
-          <div class="fcHeaderTitle">PENTwelve</div>
-          <div class="fcHeaderSub">Circuit List · 12 Players</div>
-          <div class="fcHeaderProgress">
-            <div class="fcProgressBar">
-              <div class="fcProgressFill" :style="{ width: (storyProgress.completed / 12 * 100) + '%' }"></div>
-            </div>
-            <span class="fcProgressText">{{ storyProgress.completed }} / 12 CLEARED</span>
+          <div class="fcHeaderTitle">PENTWELVE</div>
+          <div class="fcHeaderSub">THE CIRCUIT · {{ storyProgress.completed }} / 12 CLEARED</div>
+          <div class="fcProgressBar">
+            <div class="fcProgressFill" :style="{ width: (storyProgress.completed / 12 * 100) + '%' }"></div>
           </div>
         </div>
 
-        <div class="fcChapterList">
-          <div
-            v-for="(ch, idx) in STORY_CHAPTERS"
-            :key="ch.id"
-            class="fcChapterCard"
-            :class="[
-              `fcTier${ch.tier}`,
-              { fcLocked: !storyProgress.unlocked.has(idx), fcCleared: storyProgress.cleared.has(idx), fcActive: idx === storyProgress.completed }
-            ]"
-            @click="storyProgress.unlocked.has(idx) && startStoryChapter(idx)"
-          >
-            <!-- cleared ribbon -->
-            <div v-if="storyProgress.cleared.has(idx)" class="fcClearedBadge">✓ CLEARED</div>
-            <div class="fcCardGlow"></div>
-            <div class="fcCardNum">{{ String(idx + 1).padStart(2, '0') }}</div>
-            <div class="fcCardEmoji">
-              <span v-if="!storyProgress.unlocked.has(idx)">🔒</span>
-              <span v-else>{{ ch.emoji }}</span>
+        <!-- Staircase: rank #12 at left/bottom → rank #1 at right/top -->
+        <div class="fcStairList">
+          <template v-for="(ch, idx) in STORY_CHAPTERS" :key="ch.id">
+
+            <!-- Vertical tier separator (shown at first card of each new tier) -->
+            <div
+              v-if="idx === 0 || STORY_CHAPTERS[idx-1].tier !== ch.tier"
+              class="fcTierDivider"
+              :class="`fcTierDiv${ch.tier}`"
+              :style="{ '--fc-step': idx }"
+            >
+              <div class="fcTierDivLine"></div>
+              <span class="fcTierDivLabel">{{ ['COMMON','UNCOMMON','RARE','MYTHIC','LEGENDARY'][ch.tier] }}</span>
             </div>
-            <div class="fcCardBody">
-              <div class="fcCardName">{{ ch.name }}</div>
-              <div class="fcCardTitle">{{ ch.title }}</div>
-              <div class="fcCardBadges">
+
+            <div
+              class="fcChapterCard"
+              :class="[
+                `fcTier${ch.tier}`,
+                { fcLocked: !storyProgress.unlocked.has(idx), fcCleared: storyProgress.cleared.has(idx), fcActive: idx === storyProgress.completed }
+              ]"
+              :style="{ '--fc-step': idx }"
+              @click="storyProgress.unlocked.has(idx) && startStoryChapter(idx)"
+            >
+              <div class="fcClearedMark" v-if="storyProgress.cleared.has(idx)">✓</div>
+              <div class="fcCardRank">#{{ String(12 - idx).padStart(2,'0') }}</div>
+              <div class="fcCardEmoji">
+                <span v-if="!storyProgress.unlocked.has(idx)">🔒</span>
+                <span v-else>{{ ch.emoji }}</span>
+              </div>
+              <div class="fcCardName">{{ !storyProgress.unlocked.has(idx) ? '???' : ch.name }}</div>
+              <span class="fcRarityChip" :class="`fcRarity${ch.tier}`">
+                {{ ['COM','UNC','RARE','MYTH','LEG'][ch.tier] }}
+              </span>
+              <div class="fcCardBadges" v-if="storyProgress.unlocked.has(idx)">
                 <span class="fcModeBadge" :class="`fcMode${ch.mode}`">
-                  {{ ch.mode === 'normal' ? 'STANDARD' : ch.mode === 'blind_draft' ? 'BLIND DRAFT' : 'MIRROR WAR' }}
+                  {{ ch.mode === 'normal' ? 'STD' : ch.mode === 'blind_draft' ? 'BLIND' : 'MIRROR' }}
                 </span>
                 <span class="fcDiffBadge" :class="`fcDiff${ch.difficulty}`">
-                  {{ {dumbie:'EASY',elite:'NORMAL',tactician:'HARD',grandmaster:'MASTER',legendary:'ULTIMATE'}[ch.difficulty] || ch.difficulty.toUpperCase() }}
+                  {{ {dumbie:'E',elite:'N',tactician:'H',grandmaster:'M',legendary:'U'}[ch.difficulty] || '?' }}
                 </span>
               </div>
+              <div class="fcCardArrow" v-if="storyProgress.unlocked.has(idx) && !storyProgress.cleared.has(idx)">▶</div>
             </div>
-            <div v-if="storyProgress.unlocked.has(idx) && !storyProgress.cleared.has(idx)" class="fcCardArrow">▶</div>
-            <div v-if="idx < 11" class="fcCardConnector" :class="{ fcConnectorDone: storyProgress.cleared.has(idx) }"></div>
-          </div>
+
+          </template>
         </div>
 
-        <!-- Champion Banner (all cleared) -->
+        <!-- Champion banner -->
         <div v-if="storyProgress.completed >= 12" class="fcChampionBanner">
           <div class="fcChampionGlow"></div>
           <div class="fcChampionCrown">🏆</div>
-          <div class="fcChampionTitle">PENTwelve CHAMPION</div>
+          <div class="fcChampionTitle">PENTWELVE CHAMPION</div>
           <div class="fcChampionSub">You came from nothing. Now you are the standard.</div>
         </div>
 
-        <!-- Free Battle — rematch any defeated opponent -->
+        <!-- Free Battle rematch -->
         <div v-if="storyProgress.cleared.size > 0" class="fcFreeBattle">
           <div class="fcFreeBattleTitle">⚔ FREE BATTLE — REMATCH</div>
           <div class="fcFreeBattleSub">Challenge anyone you've already beaten</div>
@@ -433,7 +521,7 @@
               :key="ch.id + '_fb'"
               v-if="storyProgress.cleared.has(idx)"
               class="fcFbCard"
-              :style="{ '--fb-color': ch.color }"
+              :class="`fcFbTier${ch.tier}`"
               @mouseenter="uiHover()"
               @click="uiClick(); startStoryChapter(idx)"
             >
@@ -441,7 +529,7 @@
               <div class="fcFbNum">#{{ String(12 - idx).padStart(2,'0') }}</div>
               <div class="fcFbEmoji">{{ ch.emoji }}</div>
               <div class="fcFbName">{{ ch.name }}</div>
-              <div class="fcFbMode">{{ ch.mode === 'normal' ? 'STANDARD' : ch.mode === 'blind_draft' ? 'BLIND' : 'MIRROR' }}</div>
+              <div class="fcFbMode">{{ ch.mode === 'normal' ? 'STD' : ch.mode === 'blind_draft' ? 'BLIND' : 'MIRROR' }}</div>
             </button>
           </div>
         </div>
@@ -1517,7 +1605,7 @@
               {{ storyFight.chapter?.mode === 'normal' ? 'STANDARD' : storyFight.chapter?.mode === 'blind_draft' ? 'BLIND DRAFT' : 'MIRROR WAR' }}
             </span>
             <span class="fcDiffBadge" :class="`fcDiff${storyFight.chapter?.difficulty}`">
-              {{ storyFight.chapter?.difficulty?.toUpperCase() }}
+              {{ {dumbie:'EASY',elite:'NORMAL',tactician:'HARD',grandmaster:'MASTER',legendary:'ULTIMATE'}[storyFight.chapter?.difficulty] || storyFight.chapter?.difficulty?.toUpperCase() }}
             </span>
           </div>
 
@@ -1673,7 +1761,7 @@
           </div>
           <div class="unlockLabel">NEW RANK UNLOCKED</div>
           <div class="unlockRankName">
-            {{ unlockAnim.rank === 'elite' ? 'NORMAL' : unlockAnim.rank === 'tactician' ? 'HARD' : unlockAnim.rank === 'grandmaster' ? 'MASTER' : 'ULTIMATE' }}
+            {{ unlockAnim.rank === 'dumbie' ? 'EASY' : unlockAnim.rank === 'elite' ? 'NORMAL' : unlockAnim.rank === 'tactician' ? 'HARD' : unlockAnim.rank === 'grandmaster' ? 'MASTER' : 'ULTIMATE' }}
           </div>
           <div class="unlockRankDesc">
             {{ unlockAnim.rank === 'elite' ? 'Sharpened Strategist' : unlockAnim.rank === 'tactician' ? 'Master of Patterns' : unlockAnim.rank === 'grandmaster' ? 'The Territorial God' : 'Beyond Human Reach' }}
@@ -1791,6 +1879,132 @@ import { boundsOf, transformCells } from "./lib/geom";
 import { PENTOMINOES } from "./lib/pentominoes";
 import { createAiEngine } from "./lib/aiEngine.js";
 import * as replayLogger from "./lib/replayLogger.js";
+
+// ── Floating pentomino pieces: DVD-bounce physics ──────────────────────────
+const LANDING_CELL = 42;
+const bouncingPieces = ref([]);
+let _physicsRaf = null;
+
+// Per-cell MTV: finds MAXIMUM overlap (deepest penetration) across all colliding cell pairs.
+// Using max (not min) gives the true separation needed to fully resolve the collision.
+function _cellsOverlapMTV(a, b) {
+  const C = LANDING_CELL;
+  let maxOvX = 0, maxOvY = 0;
+  let found = false;
+  for (const [ar, ac] of a.cells) {
+    const alx = a.x + ac * C, arx = alx + C;
+    const aty = a.y + ar * C, aby = aty + C;
+    for (const [br, bc] of b.cells) {
+      const blx = b.x + bc * C, brx = blx + C;
+      const bty = b.y + br * C, bby = bty + C;
+      if (alx < brx && arx > blx && aty < bby && aby > bty) {
+        found = true;
+        const ox = Math.min(arx - blx, brx - alx);
+        const oy = Math.min(aby - bty, bby - aty);
+        if (ox > maxOvX) maxOvX = ox;
+        if (oy > maxOvY) maxOvY = oy;
+      }
+    }
+  }
+  return found ? { ox: maxOvX, oy: maxOvY } : null;
+}
+
+function _initPiecePhysics() {
+  const pieceEntries = Object.entries(PENTOMINOES);
+  const vw = window.innerWidth;
+  const vh = window.innerHeight;
+  const count = pieceEntries.length; // exactly 12 — one per shape
+  const pieces = [];
+  for (let i = 0; i < count; i++) {
+    const [key, cells] = pieceEntries[i];
+    const s  = (i * 13 + 7)  % 97;
+    const s2 = (i * 31 + 11) % 89;
+    const rows = Math.max(...cells.map(c => c[0])) + 1;
+    const cols = Math.max(...cells.map(c => c[1])) + 1;
+    const svgW = cols * LANDING_CELL;
+    const svgH = rows * LANDING_CELL;
+    const x = ((s * 173 + s2 * 37) % Math.max(1, vw - svgW));
+    const y = ((s2 * 97  + s  * 53) % Math.max(1, vh - svgH));
+    const speed = 0.3 + (s % 26) / 100;
+    const angle = ((s * 47 + s2 * 83) % 360) * Math.PI / 180;
+    pieces.push({
+      key, cells, svgW, svgH,
+      color: getPieceStyle(key).color,
+      opacity: 0.13 + (s % 22) / 100,
+      x, y,
+      vx: Math.cos(angle) * speed,
+      vy: Math.sin(angle) * speed,
+    });
+  }
+  bouncingPieces.value = pieces;
+}
+
+function _tickPhysics() {
+  const vw = window.innerWidth;
+  const vh = window.innerHeight;
+  const pieces = bouncingPieces.value;
+
+  // Move all pieces
+  for (const p of pieces) {
+    p.x += p.vx;
+    p.y += p.vy;
+    // Wall bounce
+    if (p.x <= 0)           { p.x = 0;           p.vx =  Math.abs(p.vx); }
+    if (p.y <= 0)           { p.y = 0;           p.vy =  Math.abs(p.vy); }
+    if (p.x + p.svgW >= vw) { p.x = vw - p.svgW; p.vx = -Math.abs(p.vx); }
+    if (p.y + p.svgH >= vh) { p.y = vh - p.svgH; p.vy = -Math.abs(p.vy); }
+  }
+
+  // Per-cell shape collision
+  for (let i = 0; i < pieces.length; i++) {
+    for (let j = i + 1; j < pieces.length; j++) {
+      const a = pieces[i], b = pieces[j];
+      // Broad phase: skip pairs whose bounding boxes don't overlap
+      if (a.x + a.svgW <= b.x || b.x + b.svgW <= a.x) continue;
+      if (a.y + a.svgH <= b.y || b.y + b.svgH <= a.y) continue;
+      // Narrow phase: per-cell check with max-overlap MTV
+      const mtv = _cellsOverlapMTV(a, b);
+      if (!mtv) continue;
+
+      if (mtv.ox < mtv.oy) {
+        // Collision on X axis — separate and reflect vx
+        const sep = mtv.ox + 1;
+        const aLeft = a.x < b.x;
+        if (aLeft) { a.x -= sep / 2; b.x += sep / 2; }
+        else        { a.x += sep / 2; b.x -= sep / 2; }
+        // Only reflect if approaching — negate each piece's vx so they bounce away
+        const approaching = aLeft ? (a.vx > b.vx) : (a.vx < b.vx);
+        if (approaching) {
+          a.vx = aLeft ? -Math.abs(a.vx) : Math.abs(a.vx);
+          b.vx = aLeft ?  Math.abs(b.vx) : -Math.abs(b.vx);
+        }
+      } else {
+        // Collision on Y axis — separate and reflect vy
+        const sep = mtv.oy + 1;
+        const aAbove = a.y < b.y;
+        if (aAbove) { a.y -= sep / 2; b.y += sep / 2; }
+        else         { a.y += sep / 2; b.y -= sep / 2; }
+        // Only reflect if approaching
+        const approaching = aAbove ? (a.vy > b.vy) : (a.vy < b.vy);
+        if (approaching) {
+          a.vy = aAbove ? -Math.abs(a.vy) : Math.abs(a.vy);
+          b.vy = aAbove ?  Math.abs(b.vy) : -Math.abs(b.vy);
+        }
+      }
+    }
+  }
+
+  _physicsRaf = requestAnimationFrame(_tickPhysics);
+}
+
+onMounted(() => {
+  _initPiecePhysics();
+  _physicsRaf = requestAnimationFrame(_tickPhysics);
+});
+
+onBeforeUnmount(() => {
+  if (_physicsRaf) cancelAnimationFrame(_physicsRaf);
+});
 // Re-export the version string so the poll loop can embed it in state.meta
 // and detect when two clients are running different builds.
 const CLIENT_VERSION = replayLogger.CLIENT_VERSION;
@@ -1810,7 +2024,7 @@ import Controls from "./components/Controls.vue";
 
 const game = useGameStore();
 
-const screen = ref("auth");
+const screen = ref("landing");
 const loggedIn = ref(false);
 
 // ✅ Seed auth state from any persisted session on startup, then keep it live.
@@ -2837,7 +3051,7 @@ const modeLabel = computed(() => {
   if (screen.value === "ai") {
     const labels = { dumbie: "Easy", elite: "Normal", tactician: "Hard", grandmaster: "Master", legendary: "Ultimate" };
     const roundStr = aiRound.value > 1 ? ` · R${aiRound.value}` : '';
-    return `VS AI · ${labels[aiDifficulty.value] || "Dumbie"}${roundStr}`;
+    return `VS AI · ${labels[aiDifficulty.value] || "Easy"}${roundStr}`;
   }
   return screen.value === "couch"
        ? couchMode.value === "mirror_war"  ? "MIRROR WAR — Couch"
@@ -2868,7 +3082,7 @@ const phaseSub = computed(() => {
   }
   if (game.phase === "place") {
     if (screen.value === "ai") {
-      return game.currentPlayer === humanPlayer.value ? "Your Turn" : "AI Thinking…";
+      return game.currentPlayer === humanPlayer.value ? "Your Turn" : "Waiting for Computer";
     }
     return `Turn: P${game.currentPlayer}`;
   }
@@ -4419,7 +4633,7 @@ async function startPollingLobby(lobbyId, role, modeHint = null) {
       if (!lobby) {
         stopPolling();
         myPlayer.value = null;
-        screen.value = "mode";
+        screen.value = "multiplayer";
         showModal({ title: "Lobby Closed", message: "The lobby no longer exists.\nReturning to main menu.", tone: "bad" });
         return;
       }
@@ -4464,7 +4678,7 @@ async function startPollingLobby(lobbyId, role, modeHint = null) {
       if (isLobbyExpired(lobby)) {
         stopPolling();
         myPlayer.value = null;
-        screen.value = "mode";
+        screen.value = "multiplayer";
         showModal({
           title: "Expired Lobby",
           tone: "bad",
@@ -4496,7 +4710,7 @@ async function startPollingLobby(lobbyId, role, modeHint = null) {
       if (lobby.status === "closed" || terminateReason === "host_left") {
         stopPolling();
         myPlayer.value = null;
-        screen.value = "mode";
+        screen.value = "multiplayer";
         showModal({
           title: "Match Terminated",
           tone: "bad",
@@ -4558,7 +4772,7 @@ async function startPollingLobby(lobbyId, role, modeHint = null) {
           }
           stopPolling();
           myPlayer.value = null;
-          screen.value = "mode";
+          screen.value = "multiplayer";
           showModal({
             title: "Match Terminated",
             tone: "bad",
@@ -4577,7 +4791,7 @@ async function startPollingLobby(lobbyId, role, modeHint = null) {
           }
           stopPolling();
           myPlayer.value = null;
-          screen.value = "mode";
+          screen.value = "multiplayer";
           showModal({
             title: "Opponent Disconnected",
             tone: "bad",
@@ -4615,7 +4829,7 @@ async function startPollingLobby(lobbyId, role, modeHint = null) {
           } finally {
             stopPolling();
             myPlayer.value = null;
-            screen.value = "mode";
+            screen.value = "multiplayer";
             closeModal();
             showModal({ title: "Room Creation Expired", tone: "bad", message: "No one joined within 60 seconds." });
           }
@@ -4894,7 +5108,7 @@ function stopAndExitToMenu(note = "") {
   leaveOnlineLobby("exit").finally(() => {
     stopPolling();
     myPlayer.value = null;
-    screen.value = "mode";
+    screen.value = "multiplayer";
     if (note) showModal({ title: "Returned", tone: "info", message: note });
   });
 }
@@ -4911,7 +5125,7 @@ async function cancelWaitingLobby() {
     closeModal();
     stopPolling();
     myPlayer.value = null;
-    screen.value = "mode";
+    screen.value = "multiplayer";
   }
 }
 
@@ -5204,12 +5418,12 @@ watch(
         if (humanWon) {
           actions = [
             { label: "Next Battle", tone: "primary", onClick: () => { closeModal(); _launchAi(nextDiff); } },
-            { label: "Main Menu",   tone: "soft",    onClick: () => { screen.value = 'mode'; } },
+            { label: "Main Menu",   tone: "soft",    onClick: () => { screen.value = 'solo'; } },
           ];
         } else {
           actions = [
             { label: "Play Again", tone: "primary", onClick: () => { closeModal(); nextAiRound(); } },
-            { label: "Main Menu",  tone: "soft",    onClick: () => { screen.value = 'mode'; } },
+            { label: "Main Menu",  tone: "soft",    onClick: () => { screen.value = 'solo'; } },
           ];
         }
 
@@ -6168,12 +6382,12 @@ async function quickMatchAcceptFlow(lobbyId, role) {
 
     if (!skipFailModal) {
       // Always return player to menu if accept flow fails.
-      screen.value = "mode";
+      screen.value = "multiplayer";
       showModal({
         title: "Match Cancelled",
         tone: "bad",
         message: msg,
-        actions: [{ label: "OK", tone: "primary", onClick: () => (screen.value = "mode") }],
+        actions: [{ label: "OK", tone: "primary", onClick: () => (screen.value = "multiplayer") }],
       });
     }
   }
@@ -6626,6 +6840,13 @@ function goBack() {
 }
 
 async function goAuth() {
+  // Determine the right "home" screen based on what game was being played
+  const homeScreen = screen.value === 'online'
+    ? 'multiplayer'
+    : ['ai', 'couch', 'puzzle'].includes(screen.value)
+      ? 'solo'
+      : 'auth';
+
   // ✅ If the player is currently in a match, confirm first.
   if (isInGame.value) {
     return confirmInGame({
@@ -6637,7 +6858,7 @@ async function goAuth() {
         if (isOnline.value) await leaveOnlineLobby("main_menu");
         stopPolling();
         myPlayer.value = null;
-        navTo("auth");
+        navTo(homeScreen);
       },
     });
   }
@@ -6645,7 +6866,7 @@ async function goAuth() {
   if (isOnline.value) await leaveOnlineLobby("main_menu");
   stopPolling();
   myPlayer.value = null;
-  navTo("auth");
+  navTo(homeScreen);
 }
 
 async function goMode() {
@@ -6807,7 +7028,7 @@ function handlePuzzleEnd() {
 const STORY_CHAPTERS = [
   // ── TIER 1: THE BOTTOM (Dumbie) ──────────────────────────────────
   {
-    id: 'dumbie', name: 'EASY', title: 'Rank #12 · Last Place Regular',
+    id: 'dumbie', name: 'DUMBIE', title: 'Rank #12 · Last Place Regular',
     emoji: '⬜', color: '#C0C0C0', tier: 0,
     personality: 'Oblivious Optimist',
     difficulty: 'dumbie', mode: 'normal', aiAsP1: false,
@@ -6834,7 +7055,7 @@ const STORY_CHAPTERS = [
   },
   // ── TIER 2: FIRST REAL WALL (Elite) ──────────────────────────────
   {
-    id: 'elite', name: 'NORMAL', title: 'Rank #10 · The Gatekeeper',
+    id: 'elite', name: 'NORM', title: 'Rank #10 · The Gatekeeper',
     emoji: '🟩', color: '#69FF47', tier: 1,
     personality: 'Condescending Gatekeeper',
     difficulty: 'elite', mode: 'blind_draft', aiAsP1: false,
@@ -6874,7 +7095,7 @@ const STORY_CHAPTERS = [
   },
   // ── TIER 3: THE MIND GAMES (Tactician) ───────────────────────────
   {
-    id: 'tactician', name: 'HARD', title: 'Rank #7 · The Disruptor',
+    id: 'tactician', name: 'TEIFT', title: 'Rank #7 · The Disruptor',
     emoji: '🔷', color: '#4FC3F7', tier: 2,
     personality: 'Philosophical Sadist',
     difficulty: 'tactician', mode: 'blind_draft', aiAsP1: false,
@@ -6944,7 +7165,7 @@ const STORY_CHAPTERS = [
     id: 'mumu', name: 'MUMU', title: 'Rank #2 · The Wildcard',
     emoji: '🟠', color: '#E65100', tier: 4,
     personality: 'Chaotic Menace',
-    difficulty: 'legendary', mode: 'mirror_war', aiAsP1: true,
+    difficulty: 'legendary', mode: 'normal', aiAsP1: true,
     preDialogue: [
       '"YOOO you\'re actually here!! I\'ve been waiting for you since rank 8 honestly."',
       '"Everyone else was like \"oh Mumu is scary\" but you\'re here so clearly you don\'t care about that."',
@@ -7123,6 +7344,9 @@ function closeStoryResult() {
   storyResult.active = false;
 }
 
+// Reversed for staircase display: rank #1 at top, rank #12 at bottom
+const storyChaptersReversed = STORY_CHAPTERS.map((ch, idx) => ({ ch, idx })).reverse();
+
 const aiDifficulty = ref('dumbie');
 
 // aiPlayer: which player number the AI controls (1 for grandmaster+, 2 for others)
@@ -7187,7 +7411,7 @@ const unlockAnim = reactive({ active: false, rank: '' });
 // Challenge animation state (shown when replaying after clearing all stages)
 const challengeAnim = reactive({ active: false, rank: '' });
 const RANK_LABELS = { dumbie:'EASY', elite:'NORMAL', tactician:'HARD', grandmaster:'MASTER', legendary:'ULTIMATE' };
-const RANK_DESC = { dumbie:'The Rookie Crusher', elite:'Sharpened Strategist', tactician:'Master of Patterns', grandmaster:'The Territorial God', legendary:'Beyond Human Reach' };
+const RANK_DESC = { dumbie:'The Floor Regular', elite:'Sharpened Strategist', tactician:'Master of Patterns', grandmaster:'The Territorial God', legendary:'Beyond Human Reach' };
 
 function getNextRank(current) {
   const idx = AI_RANK_ORDER.indexOf(current);
@@ -7224,7 +7448,7 @@ function closeLegendaryConqueredAnim() {
 }
 function onLcMainMenu() {
   closeLegendaryConqueredAnim();
-  screen.value = 'mode';
+  screen.value = 'solo';
 }
 function onLcPlayAgain() {
   closeLegendaryConqueredAnim();
@@ -7241,7 +7465,7 @@ function onLcPlayAgain() {
 
 function onUnlockMainMenu() {
   closeUnlockAnim();
-  screen.value = 'mode';
+  screen.value = 'solo';
 }
 
 function onUnlockPlayAgain() {
@@ -9143,212 +9367,331 @@ onBeforeUnmount(() => {
 .fcBtnProgressLabel { font-size: 9px; letter-spacing: 2px; opacity: .45; }
 
 /* ── Story screen shell ─────────────────────────────────────── */
+/* ═══════════════════════════════════════════════════════════
+   PENTWELVE — FRACTURE CIRCUIT
+   Staircase UI redesign. Dark game theme. Rarity tiers.
+═══════════════════════════════════════════════════════════ */
+
+/* Shell */
 .fcShell {
-  padding: 20px 16px 40px;
-  max-width: 600px;
+  padding: 0 0 80px;
+  max-width: 100%;
   margin: 0 auto;
   overflow-y: auto;
+  overflow-x: hidden;
 }
+
+/* ── Tier color tokens ─────────────────────────────────────── */
+/* Tier 0 COMMON     — worn steel     */
+/* Tier 1 UNCOMMON   — jade           */
+/* Tier 2 RARE       — electric blue  */
+/* Tier 3 MYTHIC     — deep amethyst  */
+/* Tier 4 LEGENDARY  — molten ember   */
+.fcTierDiv0, .fcChapterCard.fcTier0, .fcFbTier0 { --fc-t: 160,162,172; --fc-td: 160,162,172; --fc-fbt: 160,162,172; }
+.fcTierDiv1, .fcChapterCard.fcTier1, .fcFbTier1 { --fc-t: 56,210,130;  --fc-td: 56,210,130;  --fc-fbt: 56,210,130;  }
+.fcTierDiv2, .fcChapterCard.fcTier2, .fcFbTier2 { --fc-t: 40,170,255;  --fc-td: 40,170,255;  --fc-fbt: 40,170,255;  }
+.fcTierDiv3, .fcChapterCard.fcTier3, .fcFbTier3 { --fc-t: 180,70,255;  --fc-td: 180,70,255;  --fc-fbt: 180,70,255;  }
+.fcTierDiv4, .fcChapterCard.fcTier4, .fcFbTier4 { --fc-t: 255,130,30;  --fc-td: 255,130,30;  --fc-fbt: 255,130,30;  }
+
+/* ── Header ─────────────────────────────────────────────────── */
 .fcHeader {
   position: relative;
   text-align: center;
-  padding: 20px 0 24px;
+  padding: 36px 24px 28px;
   overflow: hidden;
 }
 .fcHeaderGlow {
-  position: absolute; inset: -40px;
-  background: radial-gradient(ellipse 80% 60% at 50% 0%, rgba(255,180,0,0.18), transparent 65%);
-  filter: blur(24px); pointer-events: none;
+  position: absolute; inset: -60px;
+  background: radial-gradient(ellipse 90% 60% at 50% -10%,
+    rgba(255,130,30,.18) 0%, rgba(180,70,255,.10) 45%, transparent 72%);
+  filter: blur(32px); pointer-events: none;
 }
-.fcHeaderBolt { font-size: 36px; position: relative; }
 .fcHeaderTitle {
-  font-size: 26px; font-weight: 900; letter-spacing: 5px;
-  text-transform: uppercase; position: relative;
-  background: linear-gradient(90deg, #ffd700, #ff8c28, #ff2855);
-  -webkit-background-clip: text; background-clip: text; color: transparent;
-  margin-top: 4px;
+  font-family: 'Orbitron', sans-serif;
+  font-size: clamp(26px, 4vw, 40px);
+  font-weight: 900;
+  letter-spacing: 10px;
+  text-transform: uppercase;
+  position: relative;
+  background: linear-gradient(105deg,
+    #a0a2ac 0%, #38d282 24%,
+    #28aaff 46%, #b446ff 70%, #ff821e 100%
+  );
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+  margin-bottom: 8px;
 }
-.fcHeaderSub { font-size: 11px; letter-spacing: 3px; opacity: .45; margin-top: 4px; position: relative; }
-.fcHeaderProgress { margin-top: 16px; position: relative; }
+.fcHeaderSub {
+  font-family: 'Orbitron', sans-serif;
+  font-size: 9px;
+  letter-spacing: 4px;
+  color: rgba(255,255,255,.35);
+  position: relative;
+  margin-bottom: 20px;
+  text-transform: uppercase;
+}
 .fcProgressBar {
-  height: 4px; background: rgba(255,255,255,0.08); border-radius: 4px;
-  overflow: hidden; margin-bottom: 6px;
+  height: 2px;
+  background: rgba(255,255,255,0.06);
+  border-radius: 4px;
+  overflow: hidden;
+  max-width: 320px;
+  margin: 0 auto;
 }
 .fcProgressFill {
   height: 100%;
-  background: linear-gradient(90deg, #ffd700, #ff8c28, #ff2855);
-  border-radius: 4px;
-  transition: width .6s cubic-bezier(.22,1,.36,1);
-}
-.fcProgressText { font-size: 11px; letter-spacing: 2px; opacity: .5; }
-
-/* ── Chapter list ───────────────────────────────────────────── */
-.fcChapterList { display: flex; flex-direction: column; gap: 0; position: relative; }
-
-/* Vertical connector line between cards */
-.fcChapterList::before {
-  content: '';
-  position: absolute;
-  left: 28px; top: 30px; bottom: 30px; width: 2px;
-  background: linear-gradient(180deg,
-    rgba(79,255,120,.4), rgba(80,170,255,.4), rgba(80,170,255,.4),
-    rgba(160,80,255,.4), rgba(160,80,255,.4), rgba(160,80,255,.4),
-    rgba(255,140,40,.4), rgba(255,140,40,.4),
-    rgba(255,40,80,.4), rgba(255,40,80,.4)
+  background: linear-gradient(90deg,
+    #a0a2ac 0%, #38d282 25%, #28aaff 50%, #b446ff 75%, #ff821e 100%
   );
-  opacity: .3;
+  border-radius: 4px;
+  transition: width .8s cubic-bezier(.22,1,.36,1);
 }
 
+/* ── Tier section dividers — vertical separators ─────────────── */
+.fcTierDivider { display: none; }
+
+/* ── Stair list — horizontal staircase, fits viewport ───────── */
+.fcStairList {
+  display: flex;
+  flex-direction: row;
+  align-items: flex-end;        /* all cards share the same bottom baseline */
+  gap: 0;
+  padding: 0 0 0 0;
+  width: 100%;
+  overflow-x: auto;
+  overflow-y: visible;
+  scrollbar-width: thin;
+  scrollbar-color: rgba(255,255,255,.1) transparent;
+}
+.fcStairList::-webkit-scrollbar { height: 3px; }
+.fcStairList::-webkit-scrollbar-thumb { background: rgba(255,255,255,.1); border-radius: 2px; }
+
+/* ── Chapter cards — each card is 1/12 of the available width ── */
 .fcChapterCard {
   position: relative;
-  display: flex; align-items: center; gap: 14px;
-  padding: 14px 16px 14px 14px;
-  border-radius: 16px;
-  border: 1px solid rgba(255,255,255,0.06);
-  background: rgba(255,255,255,0.02);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: flex-end;   /* content pinned to bottom so names are always readable */
+  gap: 5px;
+  flex: 0 0 calc(100% / 12);
+  min-width: 72px;
+  /* Each card is taller than the previous — idx=0 shortest, idx=11 tallest */
+  height: calc(60px + var(--fc-step, 0) * 36px);
+  padding: 10px 6px 10px;
+  border-right: 1px solid rgba(0,0,0,.3);
   cursor: pointer;
-  transition: transform .15s, border-color .15s, background .15s, box-shadow .15s;
-  margin-bottom: 6px;
-  overflow: visible;
+  overflow: hidden;
+  /* Solid color per tier, full opacity */
+  background: rgb(12, 13, 20);
+  border-top: 3px solid rgba(var(--fc-t, 255,255,255), .5);
+  transition: background .18s, border-color .18s, box-shadow .18s;
 }
-.fcChapterCard.fcLocked { opacity: .4; cursor: not-allowed; filter: grayscale(.7); }
-.fcChapterCard:not(.fcLocked):hover {
-  transform: translateX(6px) scale(1.01);
-  border-color: rgba(var(--fc-t, 255,255,255), .35);
-  background: rgba(var(--fc-t, 255,255,255), .07);
-  box-shadow: 0 0 24px rgba(var(--fc-t, 255,255,255), .12), 0 4px 20px rgba(0,0,0,.4);
-}
-.fcChapterCard.fcActive {
-  border-color: rgba(255, 215, 0, 0.4) !important;
-  background: rgba(255, 200, 0, 0.07) !important;
-  box-shadow: 0 0 20px rgba(255,200,0,.14);
-}
-.fcChapterCard.fcCleared { opacity: .75; }
-.fcChapterCard.fcCleared:not(:hover) { filter: saturate(.7); }
-
-/* tier accent colors */
-.fcChapterCard.fcTier0 { --fc-t: 192,192,192; }
-.fcChapterCard.fcTier1 { --fc-t: 105,255,71; }
-.fcChapterCard.fcTier2 { --fc-t: 79,195,247; }
-.fcChapterCard.fcTier3 { --fc-t: 255,179,0; }
-.fcChapterCard.fcTier4 { --fc-t: 213,0,0; }
-
-.fcCardGlow {
-  position: absolute; inset: 0; border-radius: 16px;
-  background: radial-gradient(ellipse 120% 200% at 0% 50%, rgba(var(--fc-t,255,255,255),.06), transparent 60%);
+/* Top glow accent */
+.fcChapterCard::before {
+  content: '';
+  position: absolute; top: 0; left: 0; right: 0; height: 60%;
+  background: linear-gradient(180deg,
+    rgba(var(--fc-t, 255,255,255), .08) 0%,
+    transparent 100%
+  );
   pointer-events: none;
 }
-.fcCardNum {
-  font-size: 11px; font-weight: 900; letter-spacing: 1px;
-  opacity: .25; width: 22px; flex-shrink: 0; z-index: 1;
+.fcChapterCard::after {
+  content: '';
+  position: absolute; inset: 0;
+  background: rgba(var(--fc-t, 255,255,255), .05);
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity .15s;
 }
-.fcCardEmoji { font-size: 24px; flex-shrink: 0; z-index: 1; }
-.fcCardBody { flex: 1; z-index: 1; }
+.fcChapterCard.fcLocked {
+  opacity: .3;
+  cursor: not-allowed;
+  filter: grayscale(.9);
+  border-top-color: rgba(255,255,255,.08);
+}
+.fcChapterCard:not(.fcLocked):hover {
+  background: rgb(18, 20, 32);
+  border-top-color: rgba(var(--fc-t, 255,255,255), .9);
+  box-shadow: inset 0 0 24px rgba(var(--fc-t, 255,255,255), .08),
+              0 -4px 20px rgba(var(--fc-t, 255,255,255), .12);
+}
+.fcChapterCard:not(.fcLocked):hover::after { opacity: 1; }
+.fcChapterCard.fcActive {
+  background: rgb(14, 16, 26) !important;
+  border-top-color: rgb(var(--fc-t, 255,255,255)) !important;
+  box-shadow: inset 0 0 32px rgba(var(--fc-t, 255,255,255), .10),
+              0 -6px 24px rgba(var(--fc-t, 255,255,255), .18) !important;
+}
+.fcChapterCard.fcActive::after { opacity: 1; }
+
+/* ── CLEARED: lit up in green ────────────────────────────────── */
+.fcChapterCard.fcCleared {
+  opacity: 1;
+  border-top-color: rgb(56,210,130) !important;
+  background: rgb(8, 22, 16) !important;
+  box-shadow: inset 0 0 20px rgba(56,210,130,.08),
+              0 -4px 16px rgba(56,210,130,.14) !important;
+}
+.fcChapterCard.fcCleared::before {
+  background: linear-gradient(180deg, rgba(56,210,130,.10) 0%, transparent 100%);
+}
+.fcChapterCard.fcCleared::after {
+  opacity: 1;
+  background: rgba(56,210,130, .04);
+}
+
+/* ── Card elements ───────────────────────────────────────────── */
+.fcClearedMark {
+  position: absolute; top: 6px; right: 6px;
+  font-family: 'Orbitron', sans-serif;
+  font-size: 7px; font-weight: 900;
+  color: #38d282;
+}
+.fcCardRank {
+  font-family: 'Orbitron', sans-serif;
+  font-size: 8px; font-weight: 900;
+  letter-spacing: 1px;
+  color: rgba(var(--fc-t, 255,255,255), .35);
+  z-index: 1;
+}
+.fcCardEmoji {
+  font-size: 18px; z-index: 1; line-height: 1;
+  filter: drop-shadow(0 0 6px rgba(var(--fc-t,255,255,255),.4));
+}
+.fcCardBody { display: none; } /* hide in stair view */
 .fcCardName {
-  font-size: 14px; font-weight: 900; letter-spacing: 2.5px;
-  text-transform: uppercase;
-  color: rgba(var(--fc-t,255,255,255), .92);
+  font-family: 'Orbitron', sans-serif;
+  font-size: 7px; font-weight: 900;
+  letter-spacing: 1px; text-transform: uppercase;
+  color: rgb(var(--fc-t, 255,255,255));
+  text-align: center;
+  width: 100%;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  z-index: 1;
 }
-.fcCardTitle { font-size: 11px; opacity: .5; margin-top: 2px; letter-spacing: .5px; }
-.fcCardBadges { display: flex; gap: 6px; margin-top: 6px; flex-wrap: wrap; }
+.fcCardBadges {
+  display: flex; gap: 2px; flex-wrap: wrap;
+  justify-content: center; z-index: 1;
+}
 .fcCardArrow {
-  font-size: 12px; opacity: .4; z-index: 1;
-  transition: opacity .15s, transform .15s;
+  font-size: 8px;
+  color: rgba(var(--fc-t, 255,255,255), .5);
+  z-index: 1;
 }
 .fcChapterCard:not(.fcLocked):hover .fcCardArrow {
-  opacity: .9; transform: translateX(4px);
   color: rgb(var(--fc-t, 255,255,255));
 }
-.fcCardConnector { display: none; } /* connector handled by ::before pseudo */
-.fcClearedBadge {
-  position: absolute; top: -8px; right: 14px;
-  background: rgba(79,255,120,.18);
-  border: 1px solid rgba(79,255,120,.4);
-  color: #4fff78; font-size: 9px; font-weight: 900;
-  letter-spacing: 2px; padding: 2px 8px;
-  border-radius: 6px; z-index: 2;
-}
 
-/* Mode & diff badges (shared) */
+/* Tier dividers — tiny vertical label lines between tiers */
+.fcTierDivider { display: none; }
+
+/* Rarity chip */
+.fcRarityChip {
+  font-family: 'Orbitron', sans-serif;
+  font-size: 6px; font-weight: 900;
+  letter-spacing: 1.5px; padding: 2px 5px;
+  border-radius: 2px; white-space: nowrap; flex-shrink: 0;
+  text-transform: uppercase; z-index: 1;
+}
+.fcRarity0 { background: rgba(160,162,172,.15); color: rgba(160,162,172,.9); border: 1px solid rgba(160,162,172,.25); }
+.fcRarity1 { background: rgba(56,210,130,.12);  color: rgba(56,210,130,.9);  border: 1px solid rgba(56,210,130,.25);  }
+.fcRarity2 { background: rgba(40,170,255,.12);  color: rgba(40,170,255,.9);  border: 1px solid rgba(40,170,255,.25);  }
+.fcRarity3 { background: rgba(180,70,255,.12);  color: rgba(180,70,255,.9);  border: 1px solid rgba(180,70,255,.25);  }
+.fcRarity4 { background: rgba(255,130,30,.12);  color: rgba(255,130,30,.9);  border: 1px solid rgba(255,130,30,.25);  }
+
+.fcCardTitle { display: none; }
+
+/* Mode & diff badges */
 .fcModeBadge, .fcDiffBadge {
-  font-size: 9px; font-weight: 900; letter-spacing: 1.5px;
-  padding: 2px 7px; border-radius: 5px;
-  text-transform: uppercase;
+  font-family: 'Orbitron', sans-serif;
+  font-size: 6px; font-weight: 700;
+  letter-spacing: 1.5px; padding: 2px 7px;
+  border-radius: 2px; text-transform: uppercase;
 }
-.fcModenormal     { background: rgba(80,170,255,.15); color: #50aaff; border: 1px solid rgba(80,170,255,.3); }
-.fcModeblind_draft{ background: rgba(160,80,255,.15); color: #c860ff; border: 1px solid rgba(160,80,255,.3); }
-.fcModemirror_war { background: rgba(255,80,50,.15);  color: #ff6040; border: 1px solid rgba(255,80,50,.3); }
-.fcDiffdumbie      { background: rgba(79,255,120,.12); color: #4fff78; border: 1px solid rgba(79,255,120,.25); }
-.fcDiffelite       { background: rgba(80,170,255,.12); color: #50aaff; border: 1px solid rgba(80,170,255,.25); }
-.fcDifftactician   { background: rgba(160,80,255,.12); color: #a050ff; border: 1px solid rgba(160,80,255,.25); }
-.fcDiffgrandmaster { background: rgba(255,140,40,.12); color: #ff8c28; border: 1px solid rgba(255,140,40,.25); }
-.fcDifflegendary   { background: rgba(255,40,80,.12);  color: #ff2855; border: 1px solid rgba(255,40,80,.25); }
+.fcModenormal      { background: rgba(40,170,255,.1);  color: rgba(40,170,255,.9);  border: 1px solid rgba(40,170,255,.22); }
+.fcModeblind_draft { background: rgba(180,70,255,.1);  color: rgba(180,70,255,.9);  border: 1px solid rgba(180,70,255,.22); }
+.fcModemirror_war  { background: rgba(255,60,40,.1);   color: rgba(255,80,50,.9);   border: 1px solid rgba(255,60,40,.22);  }
+.fcDiffdumbie      { background: rgba(160,162,172,.1); color: rgba(160,162,172,.9); border: 1px solid rgba(160,162,172,.22);}
+.fcDiffelite       { background: rgba(56,210,130,.1);  color: rgba(56,210,130,.9);  border: 1px solid rgba(56,210,130,.22); }
+.fcDifftactician   { background: rgba(40,170,255,.1);  color: rgba(40,170,255,.9);  border: 1px solid rgba(40,170,255,.22); }
+.fcDiffgrandmaster { background: rgba(180,70,255,.1);  color: rgba(180,70,255,.9);  border: 1px solid rgba(180,70,255,.22); }
+.fcDifflegendary   { background: rgba(255,130,30,.1);  color: rgba(255,130,30,.9);  border: 1px solid rgba(255,130,30,.22); }
 
-/* Champion banner */
-/* ── Free Battle ────────────────────────────────────────────── */
+/* ── Free Battle ─────────────────────────────────────────────── */
 .fcFreeBattle {
-  margin-top: 28px; padding: 20px;
-  border-radius: 16px;
-  border: 1px solid rgba(255,255,255,.08);
-  background: rgba(255,255,255,.03);
+  margin: 32px 24px 0;
+  padding: 20px;
+  border-radius: 8px;
+  border: 1px solid rgba(255,255,255,.06);
+  background: rgba(255,255,255,.02);
 }
 .fcFreeBattleTitle {
-  font-size: 13px; font-weight: 900; letter-spacing: 3px;
-  color: rgba(255,255,255,.7); margin-bottom: 4px;
+  font-family: 'Orbitron', sans-serif;
+  font-size: 10px; font-weight: 900; letter-spacing: 3px;
+  color: rgba(255,255,255,.5); margin-bottom: 4px;
 }
 .fcFreeBattleSub {
-  font-size: 11px; opacity: .4; margin-bottom: 14px; letter-spacing: 1px;
+  font-size: 10px; color: rgba(255,255,255,.2);
+  margin-bottom: 14px; letter-spacing: 1px;
 }
-.fcFreeBattleGrid {
-  display: flex; flex-wrap: wrap; gap: 8px;
-}
+.fcFreeBattleGrid { display: flex; flex-wrap: wrap; gap: 8px; }
+
 .fcFbCard {
   position: relative; overflow: hidden;
   display: flex; flex-direction: column; align-items: center; justify-content: center;
-  width: 72px; padding: 10px 6px; border-radius: 10px; cursor: pointer;
-  border: 1px solid rgba(var(--fb-color, 255,255,255), 0.3);
-  background: rgba(var(--fb-color, 255,255,255), 0.06);
-  transition: transform .15s, background .15s;
-  gap: 2px;
+  width: 64px; padding: 10px 6px; border-radius: 6px; cursor: pointer;
+  border: 1px solid rgba(var(--fc-fbt, 255,255,255), .18);
+  background: rgba(var(--fc-fbt, 255,255,255), .04);
+  transition: transform .15s, background .15s, box-shadow .15s;
+  gap: 3px;
 }
-.fcFbCard:hover { transform: translateY(-2px); background: rgba(var(--fb-color, 255,255,255), 0.14); }
+.fcFbCard:hover {
+  transform: translateY(-4px);
+  background: rgba(var(--fc-fbt, 255,255,255), .1);
+  box-shadow: 0 4px 16px rgba(var(--fc-fbt, 255,255,255), .12);
+}
 .fcFbGlow {
   position: absolute; inset: 0;
-  background: radial-gradient(ellipse at 50% 0%, rgba(var(--fb-color, 255,255,255),.15), transparent 70%);
+  background: radial-gradient(ellipse at 50% -10%, rgba(var(--fc-fbt, 255,255,255),.14), transparent 70%);
   pointer-events: none;
 }
-.fcFbNum { font-size: 9px; opacity: .4; letter-spacing: 1px; font-weight: 700; }
-.fcFbEmoji { font-size: 18px; }
-.fcFbName { font-size: 8px; font-weight: 900; letter-spacing: 1px; color: rgb(var(--fb-color, 255,255,255)); margin-top: 2px; }
-.fcFbMode { font-size: 7px; opacity: .4; letter-spacing: .5px; }
+.fcFbNum  { font-family: 'Orbitron', sans-serif; font-size: 7px; opacity: .35; letter-spacing: 1px; font-weight: 700; }
+.fcFbEmoji { font-size: 16px; }
+.fcFbName { font-family: 'Orbitron', sans-serif; font-size: 6px; font-weight: 900; letter-spacing: 1.5px; color: rgb(var(--fc-fbt, 255,255,255)); margin-top: 2px; }
+.fcFbMode { font-size: 7px; opacity: .3; letter-spacing: .5px; }
 
+/* ── Champion banner ─────────────────────────────────────────── */
 .fcChampionBanner {
-  border-radius: 20px;
-  border: 1px solid rgba(255,215,0,.4);
-  background: linear-gradient(135deg, rgba(255,200,0,.1), rgba(255,80,0,.1));
-  overflow: hidden;
+  position: relative; text-align: center;
+  padding: 36px 24px; border-radius: 10px;
+  border: 1px solid rgba(255,130,30,.28);
+  background: linear-gradient(135deg,
+    rgba(255,130,30,.06) 0%, rgba(180,70,255,.06) 100%);
+  overflow: hidden; margin: 24px;
 }
 .fcChampionGlow {
-  position: absolute; inset: -30px;
-  background: radial-gradient(ellipse, rgba(255,200,0,.2), transparent 70%);
-  filter: blur(20px); pointer-events: none;
+  position: absolute; inset: -40px;
+  background: radial-gradient(ellipse 80% 60% at 50% 50%,
+    rgba(255,130,30,.15), rgba(180,70,255,.08) 50%, transparent 75%);
+  filter: blur(24px); pointer-events: none;
 }
-.fcChampionCrown { font-size: 40px; position: relative; }
+.fcChampionCrown { font-size: 42px; position: relative; margin-bottom: 12px; }
 .fcChampionTitle {
-  font-size: 18px; font-weight: 900; letter-spacing: 4px;
-  background: linear-gradient(90deg, #ffd700, #ff8c28);
+  font-family: 'Orbitron', sans-serif;
+  font-size: clamp(14px, 2.5vw, 20px); font-weight: 900;
+  letter-spacing: 5px; text-transform: uppercase;
+  background: linear-gradient(90deg, #ff821e, #b446ff);
   -webkit-background-clip: text; background-clip: text; color: transparent;
-  margin-top: 8px; position: relative;
+  position: relative; margin-bottom: 10px;
 }
-.fcChampionSub { font-size: 13px; opacity: .5; margin-top: 4px; position: relative; }
+.fcChampionSub {
+  font-size: 11px; color: rgba(255,255,255,.35);
+  letter-spacing: 1px; position: relative;
+}
 
-/* ═══════════════════════════════════════════════════════════════════
-   PENTwelve — PRE-FIGHT CINEMATIC OVERLAY
-   Tier-based visual themes: gray (0) → green (1) → blue (2) → gold (3) → red (4)
-═══════════════════════════════════════════════════════════════════ */
-
-/* ── Transition ─────────────────────────────────────────────── */
-.fcFightFade-enter-active { animation: fcFightIn .35s cubic-bezier(.22,1,.36,1); }
 .fcFightFade-leave-active { animation: fcFightIn .2s ease-in reverse; }
 @keyframes fcFightIn {
   from { opacity: 0; }
@@ -11759,14 +12102,14 @@ onBeforeUnmount(() => {
 .vsStyleCard {
   position: relative;
   border-radius: 16px;
-  border: 1px solid rgba(255,255,255,0.10);
-  background: rgba(255,255,255,0.04);
+  border: 1px solid rgba(255,255,255,0.12);
+  background: #1a1c28;
   padding: 16px 18px;
   display: flex;
   flex-direction: column;
   gap: 2px;
   overflow: hidden;
-  transition: border-color .2s;
+  transition: border-color .2s, background .2s;
 }
 
 .vsStyleCard::before {
@@ -12696,8 +13039,8 @@ onBeforeUnmount(() => {
     linear-gradient(90deg,
       rgba(var(--rc), 0.18) 0%,
       rgba(var(--rc), 0.07) 22%,
-      rgba(var(--rbg), 0.92) 55%,
-      rgba(var(--rbg), 0.96) 100%);
+      rgb(var(--rbg)) 55%,
+      rgb(var(--rbg)) 100%);
   cursor: pointer;
   text-align: left;
   padding: 0;
@@ -12931,14 +13274,17 @@ onBeforeUnmount(() => {
   gap: 12px;
   margin-right: -60px; /* bleed past viewport right */
   width: calc(100% + 60px); /* fill parent column + bleed amount, works at any viewport width */
+  position: relative;
+  z-index: 2;
 }
 .hpBtn {
-  background: none;
+  background: transparent;
   border: none;
   padding: 0;
   cursor: pointer;
   display: block;
   width: 100%;
+  opacity: 1;
   transition: transform 0.18s cubic-bezier(0.25, 0.8, 0.25, 1),
               filter 0.18s ease;
   transform-origin: left center;
@@ -13343,15 +13689,18 @@ onBeforeUnmount(() => {
   gap: clamp(8px, 1.2vh, 14px);
   margin-right: -60px;
   width: calc(100% + 60px); /* fill parent column + bleed amount, works at any viewport width */
+  position: relative;
+  z-index: 2;
 }
 
 .mnBtn {
-  background: none;
+  background: transparent;
   border: none;
   padding: 0;
   cursor: pointer;
   display: block;
   width: 100%;
+  opacity: 1;
   transition: transform 0.18s cubic-bezier(0.25, 0.8, 0.25, 1),
               filter 0.18s ease;
   transform-origin: left center;
@@ -13375,7 +13724,7 @@ onBeforeUnmount(() => {
 
 /* Text-only variant of mnBtn — no image asset required */
 .mnBtnText {
-  background: rgba(255,255,255,0.04);
+  background: #16181f;
   border: 1px solid rgba(255,255,255,0.10);
   border-right: none;
   padding: 0 22px;
@@ -13397,7 +13746,7 @@ onBeforeUnmount(() => {
 .mnBtnText:hover {
   transform: translateX(-20px);
   filter: brightness(1.12) saturate(1.1);
-  background: rgba(255,255,255,0.08);
+  background: #22243a;
   border-color: rgba(255,255,255,0.20);
 }
 .mnBtnText:active {
@@ -13427,12 +13776,16 @@ onBeforeUnmount(() => {
 
 /* ─── Quick Play Mode Picker ────────────────────────────────── */
 .qmPickerPanel {
-  width: 100%;
+  width: min(400px, 100%);
   padding: 20px 18px 18px;
   display: flex;
   flex-direction: column;
   gap: 14px;
+  max-height: 100%;
+  overflow-y: auto;
+  scrollbar-width: none;
 }
+.qmPickerPanel::-webkit-scrollbar { display: none; }
 .qmPickerTitle {
   font-family: "Orbitron", sans-serif;
   font-size: 11px;
@@ -13452,6 +13805,15 @@ onBeforeUnmount(() => {
   flex-direction: column;
   gap: 6px;
   padding: 14px 16px 12px;
+  background: #1e2030;
+  border-color: rgba(255,255,255,0.14);
+  cursor: pointer;
+  transition: background .18s, border-color .18s, box-shadow .18s;
+}
+.qmPickerCard.vsStyleCard:hover {
+  background: #252840;
+  border-color: rgba(99,210,255,0.35);
+  box-shadow: 0 0 18px rgba(99,210,255,0.08);
 }
 .qmPickerDesc {
   font-size: 10px;
@@ -14224,6 +14586,148 @@ onBeforeUnmount(() => {
   .mhExpandGrid { grid-template-columns: repeat(2, 1fr); }
   .mhFilterTab  { padding: 7px 10px; font-size: 9px; }
   .mhCardMeta   { font-size: 9px; }
+}
+
+/* ═══════════════════════════════════════════════════════
+   LANDING SCREEN  –  pre-auth splash with floating pieces
+═══════════════════════════════════════════════════════ */
+.landingScreen {
+  position: fixed;
+  inset: 0;
+  z-index: 9999;
+  background: #050508;
+  overflow: hidden;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+/* ── Floating piece background ── */
+.landingBg {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+}
+
+/* Menu screens ambient pentomino layer */
+.menuPentoBg {
+  position: fixed;
+  inset: 0;
+  z-index: 2;
+  pointer-events: none;
+  overflow: hidden;
+}
+
+/* Injected inside solid-background sections (.mnMenu, .hpAuth) */
+.sectionPentoBg {
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  pointer-events: none;
+  overflow: hidden;
+}
+
+.floatingPieceWrap {
+  position: absolute;
+}
+
+.floatingPieceAnim {
+  /* animation now handled by JS physics loop */
+}
+
+@keyframes pentominoFloat {
+  0%   { transform: translateY(0px)   rotate(0deg); }
+  25%  { transform: translateY(-18px) rotate(4deg); }
+  50%  { transform: translateY(-8px)  rotate(-3deg); }
+  75%  { transform: translateY(-22px) rotate(2deg); }
+  100% { transform: translateY(0px)   rotate(0deg); }
+}
+
+/* ── Center branding ── */
+.landingCenter {
+  position: relative;
+  z-index: 2;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0;
+  animation: landingFadeIn 1.2s ease both;
+}
+
+@keyframes landingFadeIn {
+  from { opacity: 0; transform: translateY(24px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+.landingLogo {
+  width: clamp(80px, 12vw, 160px);
+  height: auto;
+  margin-bottom: 16px;
+}
+
+.landingTitle {
+  width: clamp(220px, 38vw, 520px);
+  height: auto;
+  margin-bottom: 12px;
+}
+
+.landingAuthor {
+  height: clamp(24px, 3vw, 42px);
+  width: auto;
+  opacity: 1;
+  margin-bottom: 36px;
+}
+
+/* ── CLICK START button ── */
+.landingStartBtn {
+  position: relative;
+  padding: 0;
+  background: none;
+  border: none;
+  cursor: pointer;
+  outline: none;
+  animation: blinkStart 1.6s ease-in-out infinite;
+}
+
+.landingStartBtnText {
+  display: block;
+  font-family: 'Orbitron', sans-serif;
+  font-size: clamp(13px, 1.8vw, 18px);
+  font-weight: 900;
+  letter-spacing: 4px;
+  text-transform: uppercase;
+  color: rgba(255, 255, 255, 0.90);
+  background: #16181f;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 6px;
+  padding: 16px 48px;
+  transition: background 0.18s ease, border-color 0.18s ease, filter 0.18s ease;
+}
+
+.landingStartBtn:hover .landingStartBtnText {
+  background: #22243a;
+  border-color: rgba(255, 255, 255, 0.25);
+  filter: brightness(1.15);
+}
+
+.landingStartBtn:active .landingStartBtnText {
+  filter: brightness(0.9);
+}
+
+@keyframes blinkStart {
+  0%, 100% { opacity: 1; }
+  50%       { opacity: 0.4; }
+}
+
+/* ── Vignette overlay ── */
+.landingVignette {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  z-index: 1;
+  background:
+    radial-gradient(ellipse at center, transparent 30%, rgba(5, 5, 8, 0.7) 100%),
+    linear-gradient(to bottom, rgba(5,5,8,0.4) 0%, transparent 20%, transparent 80%, rgba(5,5,8,0.4) 100%);
 }
 
 </style>
