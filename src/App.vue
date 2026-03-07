@@ -834,9 +834,6 @@
                       <div class="mhExpandVal">{{ mhFormatDuration(m.duration_sec) }}</div>
                     </div>
                   </div>
-                  <div v-if="m.replay_id" class="mhExpandReplayRow">
-                    <div class="mhReplayTag">● REPLAY SAVED</div>
-                    <button class="mhViewReplayBtn" @click.stop="openReplayFromDb(m.id)">▶ WATCH REPLAY</button>
                   </div>
                 </div>
 
@@ -1261,22 +1258,6 @@
           </div>
         </section>
       </section>
-
-    <!-- ══════════════════════════════════════════════════════════
-         REPLAY VIEWER
-    ═══════════════════════════════════════════════════════════ -->
-    <ReplayViewer
-      :visible="replay.visible"
-      :events="replay.events"
-      :finalBoard="replay.finalBoard"
-      :finalPicks="replay.finalPicks"
-      :metadata="replay.metadata"
-      :p1Name="replay.p1Name"
-      :p2Name="replay.p2Name"
-      :winnerId="replay.winnerId"
-      :player1Id="replay.player1Id"
-      @close="replay.visible = false"
-    />
 
     <!-- ══════════════════════════════════════════════════════════
          AUTH MODAL — Login / Create Account
@@ -1886,7 +1867,6 @@ import { getPieceStyle } from "./lib/pieceStyles";
 import { boundsOf, transformCells } from "./lib/geom";
 import { PENTOMINOES } from "./lib/pentominoes";
 import { createAiEngine } from "./lib/aiEngine.js";
-import * as replayLogger from "./lib/replayLogger.js";
 
 // ── Floating pentomino pieces: DVD-bounce physics ──────────────────────────
 const LANDING_CELL = 42;
@@ -2015,7 +1995,7 @@ onBeforeUnmount(() => {
 });
 // Re-export the version string so the poll loop can embed it in state.meta
 // and detect when two clients are running different builds.
-const CLIENT_VERSION = replayLogger.CLIENT_VERSION;
+const CLIENT_VERSION = "1.0.0";
 // Track whether we've already shown the version-mismatch warning this session
 // so it only fires once, not on every poll tick.
 let _versionMismatchWarned = false;
@@ -2024,7 +2004,6 @@ let _versionMismatchWarned = false;
 const ALL_PIECE_KEYS = ["F","I","L","P","N","T","U","V","W","X","Y","Z"];
 
 import Board from "./components/Board.vue";
-import ReplayViewer from "./components/ReplayViewer.vue";
 import DraftPanel from "./components/DraftPanel.vue";
 import PiecePicker from "./components/PiecePicker.vue";
 import Controls from "./components/Controls.vue";
@@ -2815,90 +2794,6 @@ watch(loggedIn, async (isIn) => {
 const isInGame = computed(() => screen.value === "couch" || screen.value === "ai" || screen.value === "online" || screen.value === "puzzle");
 
 /* ============================================================
-   REPLAY VIEWER — reactive state + open helpers
-============================================================ */
-const replay = reactive({
-  visible:    false,
-  events:     [],
-  finalBoard: null,
-  finalPicks: null,
-  metadata:   null,
-  p1Name:     "Player 1",
-  p2Name:     "Player 2",
-  winnerId:   null,
-  player1Id:  null,
-});
-
-// Snapshot of the last LOCAL match replay (stored before clearReplay() is called)
-// so the gameover "View Replay" button works without a DB round-trip.
-const localReplaySnapshot = ref(null);
-
-/**
- * Open the replay viewer from a pb_replay_logs DB row.
- * Called from the match history screen.
- */
-async function openReplayFromDb(matchId) {
-  try {
-    const { requireSupabase } = await import("./lib/supabase.js");
-    const sb = requireSupabase();
-    const { data, error } = await sb
-      .from("pb_replay_logs")
-      .select("*")
-      .eq("match_id", matchId)
-      .maybeSingle();
-    if (error || !data) {
-      showModal({ title: "Replay Not Found", tone: "bad", message: "No replay data found for this match." });
-      return;
-    }
-    await _openReplayData(data);
-  } catch (e) {
-    console.warn("[replay] openReplayFromDb failed:", e?.message ?? e);
-    showModal({ title: "Replay Error", tone: "bad", message: "Could not load replay." });
-  }
-}
-
-/**
- * Open the replay viewer from the local in-memory snapshot (gameover screen).
- */
-function openLocalReplay() {
-  const snap = localReplaySnapshot.value;
-  if (!snap) return;
-  _openReplayData(snap);
-}
-
-async function _openReplayData(data) {
-  // Resolve player display names
-  let p1Name = "Player 1";
-  let p2Name = "Player 2";
-  try {
-    const { requireSupabase } = await import("./lib/supabase.js");
-    const sb = requireSupabase();
-    const ids = [data.player1_id, data.player2_id].filter(Boolean);
-    if (ids.length > 0) {
-      const { data: profiles } = await sb
-        .from("pb_profiles")
-        .select("id, username, display_name")
-        .in("id", ids);
-      for (const p of profiles || []) {
-        const name = p.display_name || p.username || "Unknown";
-        if (p.id === data.player1_id) p1Name = name;
-        if (p.id === data.player2_id) p2Name = name;
-      }
-    }
-  } catch { /* non-fatal, use defaults */ }
-
-  replay.events     = data.events || [];
-  replay.finalBoard = data.final_board || [];
-  replay.finalPicks = data.final_picks || {};
-  replay.metadata   = data.metadata || {};
-  replay.p1Name     = p1Name;
-  replay.p2Name     = p2Name;
-  replay.winnerId   = data.winner_id || null;
-  replay.player1Id  = data.player1_id || null;
-  replay.visible    = true;
-}
-
-/* ============================================================
    MATCH HISTORY
 ============================================================ */
 const mhPageSize = 10;
@@ -2937,7 +2832,7 @@ async function loadMatchHistory() {
     let query = supabase
       .from("pb_matches")
       .select(
-        "id, lobby_id, round_number, player1_id, player2_id, winner_id, loser_id, end_reason, duration_sec, mode, created_at, replay_id",
+        "id, lobby_id, round_number, player1_id, player2_id, winner_id, loser_id, end_reason, duration_sec, mode, created_at",
         { count: "exact" }
       )
       .or(`player1_id.eq.${userId},player2_id.eq.${userId}`)
@@ -5498,19 +5393,10 @@ watch(
       // Couch mode
       title = w ? `PLAYER ${w} WINS` : "MATCH ENDED";
       tone = w ? "victory" : "good";
-
-      // Fix 20 — capture replay snapshot for local (couch) mode so View Replay works
-      if (!isOnline.value && replayLogger.isRecording()) {
-        localReplaySnapshot.value = replayLogger.getSnapshot() ?? null;
-        replayLogger.clearReplay();
-      }
     } else {
       title = iWin ? "VICTORY" : w ? "DEFEAT" : "MATCH ENDED";
       tone = iWin ? "victory" : isBad ? "bad" : "good";
     }
-
-    // Fix 20 — offer replay in all modes whenever a replay snapshot was captured
-    const _hasReplay = isOnline.value || (localReplaySnapshot.value != null);
     showModal({
       title,
       message: winnerMessage(w ?? "?"),
@@ -5518,12 +5404,10 @@ watch(
       actions: isOnline.value
         ? [
             { label: "Play Again",  tone: "primary", onClick: requestPlayAgain },
-            { label: "View Replay", tone: "soft",    onClick: () => { closeModal(); openLocalReplay(); } },
             { label: "Main Menu",   tone: "soft",    onClick: () => stopAndExitToMenu("") },
           ]
         : [
             { label: "Play Again", tone: "primary", onClick: onResetClick },
-            ...(_hasReplay ? [{ label: "View Replay", tone: "soft", onClick: () => { closeModal(); openLocalReplay(); } }] : []),
           ],
     });
 
@@ -5608,67 +5492,6 @@ watch(
             } catch { /* non-fatal — LP display is cosmetic */ }
           }
 
-          // ✅ Save replay log — host only (deduplicates naturally since only
-          // the host calls saveReplay; guest only records events but never writes).
-          // Non-fatal: a failed replay write never affects match result UX.
-          if (online.role === "host" && replayLogger.isRecording()) {
-            try {
-              // Snapshot board/picks before any rematch resets them.
-              const boardSnapshot = game.board ? JSON.parse(JSON.stringify(game.board)) : null;
-              const picksSnapshot = game.picks ? JSON.parse(JSON.stringify(game.picks)) : null;
-
-              // ✅ Store local snapshot for instant "View Replay" on gameover screen.
-              const rlSnap = replayLogger.getSnapshot();
-              localReplaySnapshot.value = {
-                events:      rlSnap?.events || [],
-                final_board: boardSnapshot,
-                final_picks: picksSnapshot,
-                metadata: {
-                  boardW:    game.boardW,
-                  boardH:    game.boardH,
-                  mode:      "online",
-                  round:     Number(meta?.round || 1),
-                  allowFlip: game.allowFlip,
-                  startedAt: meta?.started_at || null,
-                },
-                player1_id: p1Id,
-                player2_id: p2Id,
-                winner_id:  winnerId,
-              };
-
-              // Fetch the newly-inserted match id (record_match_result writes it).
-              // We query by lobby_id + round because the RPC doesn’t return the row id.
-              let matchId = null;
-              try {
-                const { requireSupabase } = await import("./lib/supabase.js");
-                const sb = requireSupabase();
-                const { data: mRow } = await sb
-                  .from("pb_matches")
-                  .select("id")
-                  .eq("lobby_id",     online.lobbyId)
-                  .eq("round_number", Number(meta?.round || 1))
-                  .maybeSingle();
-                matchId = mRow?.id ?? null;
-              } catch { /* non-fatal */ }
-
-              const replayId = await replayLogger.saveReplay({
-                matchId,
-                winnerId,
-                endReason,
-                finalBoard: boardSnapshot,
-                finalPicks: picksSnapshot,
-              });
-
-              // Back-link pb_matches.replay_id → pb_replay_logs.id
-              if (replayId && matchId) {
-                await replayLogger.linkReplayToMatch(matchId, replayId);
-              }
-            } catch (replayErr) {
-              console.warn("[replayLogger] gameover save failed:", replayErr?.message ?? replayErr);
-            } finally {
-              replayLogger.clearReplay();
-            }
-          }
         } catch (e) {
           console.warn("[pbMatch] gameover record failed:", e?.message ?? e);
         }
@@ -5715,75 +5538,6 @@ watch(
     if (game.rematch?.[1] && game.rematch?.[2]) {
       closeModal();
       onResetClick();
-    }
-  }
-);
-
-/* =========================
-   REPLAY RECORDING
-========================= */
-
-// ✅ Start replay when the online match begins (meta.players populated = round is live).
-// We watch the canonical "both players known" signal rather than a phase change
-// because the host writes meta.players + started_at in a single DB write.
-watch(
-  () => isOnline.value && online.lobbyId,
-  (active) => {
-    if (!active) {
-      replayLogger.clearReplay();
-    }
-  }
-);
-
-// ✅ Forward every authoritative move to the replay logger.
-// The logger deduplicates by seq so reactive re-fires are harmless.
-watch(
-  () => game.lastMove,
-  (mv) => {
-    if (!mv) return;
-    // Fix 20 — record in all modes so local replay snapshots are available
-    if (replayLogger.isRecording()) replayLogger.recordEvent(mv);
-  }
-);
-
-// ✅ Start a replay session when myPlayer becomes known (= match initialised and
-// meta.players written to DB). We watch the composite signal [myPlayer, waitingForOpponent]
-// so the handler fires as soon as both players are assigned. We then fetch the lobby
-// once (non-blocking) to extract the canonical p1Id / p2Id.
-watch(
-  () => [myPlayer.value, online.waitingForOpponent, online.lobbyId],
-  async ([mp, waiting, lobbyId]) => {
-    if (!isOnline.value || !mp || waiting || !lobbyId) return;
-    if (replayLogger.isRecording()) return; // already started for this round
-
-    try {
-      // Fetch once to get authoritative player map from meta.
-      const { requireSupabase } = await import("./lib/supabase.js");
-      const sb = requireSupabase();
-      const { data: lobby } = await sb
-        .from("pb_lobbies")
-        .select("state, version")
-        .eq("id", lobbyId)
-        .maybeSingle();
-
-      const meta    = lobby?.state?.meta || {};
-      const players = meta.players || {};
-      const p1Id    = String(players["1"] || players[1] || "");
-      const p2Id    = String(players["2"] || players[2] || "");
-      if (!p1Id || !p2Id) return;
-
-      replayLogger.startReplay({
-        lobbyId,
-        player1Id: p1Id,
-        player2Id: p2Id,
-        boardW:    game.boardW,
-        boardH:    game.boardH,
-        mode:      "online",
-        round:     Number(meta.round || 1),
-        allowFlip: game.allowFlip,
-      });
-    } catch (e) {
-      console.warn("[replayLogger] startReplay fetch failed:", e?.message ?? e);
     }
   }
 );
@@ -14469,38 +14223,6 @@ onBeforeUnmount(() => {
 .mhWinTxt  { color: #3dffa0 !important; }
 .mhLossTxt { color: #ff6b6b !important; }
 
-.mhExpandReplayRow {
-  margin-top: 10px;
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  flex-wrap: wrap;
-}
-.mhReplayTag {
-  font-size: 9px;
-  letter-spacing: 2px;
-  font-weight: 900;
-  color: rgba(0,229,255,0.55);
-  text-transform: uppercase;
-}
-.mhViewReplayBtn {
-  padding: 5px 12px;
-  border-radius: 7px;
-  border: 1px solid rgba(0,229,255,0.30);
-  background: rgba(0,229,255,0.08);
-  color: rgba(0,229,255,0.85);
-  font-size: 9px;
-  font-weight: 900;
-  letter-spacing: 2px;
-  text-transform: uppercase;
-  cursor: pointer;
-  transition: background .15s, border-color .15s, color .15s;
-}
-.mhViewReplayBtn:hover {
-  background: rgba(0,229,255,0.15);
-  border-color: rgba(0,229,255,0.50);
-  color: rgba(0,229,255,1);
-}
 
 /* Pagination */
 .mhPagination {
