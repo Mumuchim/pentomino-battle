@@ -4473,15 +4473,15 @@ async function ensureOnlineInitialized(lobby) {
   game.allowFlip = allowFlip.value;
   game.resetGame();
 
+  // ── Detect new no-draft modes and skip straight to placement ────────
+  const lobbyKind = String(prevMeta?.kind || "");
+
   // Apply lobby timer (set by host when creating the room: 3, 5, or 7 minutes)
   const defaultMinutes = lobbyKind === "mirror_war" ? 8 : 3;
   const timerMins = Number(prevMeta?.timerMinutes || defaultMinutes);
   const timerSecs = Math.max(60, Math.min(1800, timerMins * 60));
   game.battleClockInitSec = timerSecs;
   game.battleClockSec = { 1: timerSecs, 2: timerSecs };
-
-  // ── Detect new no-draft modes and skip straight to placement ────────
-  const lobbyKind = String(prevMeta?.kind || "");
   const roundSeed = makeRoundSeed();
 
   if (lobbyKind === "mirror_war") {

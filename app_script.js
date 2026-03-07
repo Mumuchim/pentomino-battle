@@ -1587,9 +1587,6 @@ async function ensureOnlineInitialized(lobby) {
   // If already playing, nothing to do.
   if (String(lobby.status) === "playing") return;
 
-  // Both players are now present — dismiss the "Waiting for Opponent" modal.
-  if (modal.open && modal.title === "Waiting for Opponent") closeModal();
-
   // Initialize local game then broadcast a snapshot via pb_moves.
   game.boardW = 10;
   game.boardH = 6;
@@ -1644,11 +1641,6 @@ function startPollingLobby(lobbyId, role) {
         showModal({ title: "Lobby closed", tone: "bad", message: "The lobby was closed." });
         await leaveOnlineLobby("closed");
         return;
-      }
-
-      // Keep host informed while waiting for opponent to join.
-      if (online.role === "host" && online.waitingForOpponent && !modal.open) {
-        showWaitingForOpponentModal(online.code);
       }
 
       // Host initializes match once both players are present.
@@ -2158,7 +2150,7 @@ async function joinPublicLobby(lobby) {
       return;
     }
     closeModal();
-    screen.value = "online";
+    showModal({ title: "Joined!", tone: "good", message: `Connected.\nCode: ${lobby?.code || "—"}` });
     startPollingLobby(lobby.id, "guest");
   } catch (e) {
     closeModal();
@@ -2210,7 +2202,8 @@ async function joinByCode() {
       return;
     }
     closeModal();
-    screen.value = "online";
+    showModal({ title: "Joined!", tone: "good", message: `Connected.\nCode: ${lobby.code || code}` });
+
     startPollingLobby(lobby.id, "guest");
   } catch (e) {
     closeModal();
@@ -2256,9 +2249,7 @@ async function quickMake() {
 
     if (!created.is_private) await refreshPublicLobbies();
 
-    screen.value = "online";
     startPollingLobby(created.id, "host");
-    showWaitingForOpponentModal(created.code);
   } catch (e) {
     closeModal();
     showModal({ title: "Create Lobby Error", tone: "bad", message: String(e?.message || e || "Something went wrong.") });
