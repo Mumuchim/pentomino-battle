@@ -4149,6 +4149,9 @@ function buildSyncedState(meta = {}) {
 
       // Monotonic sequence to prevent last-write-wins clobber.
       moveSeq: Number(game.moveSeq || 0),
+      // ✅ FIX: Sync draft opener so both clients compute snake turn order identically.
+      // Without this, guest always defaults _draftOpener=1 and computes the wrong CYCLE.
+      _draftOpener: game._draftOpener ?? 1,
     },
   };
 }
@@ -4233,6 +4236,7 @@ function applySyncedState(state) {
       lastMove: g.lastMove,
 
       moveSeq: Number(g.moveSeq || 0),
+      _draftOpener: g._draftOpener ?? 1,
     });
 
     online.localDirty = false;
