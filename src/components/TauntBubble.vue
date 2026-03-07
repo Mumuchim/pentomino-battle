@@ -57,7 +57,7 @@ const chColor = computed(() => props.chapter?.color || '#00C97B');
 
 // ─── Fallback lines per character (used if API call fails or before it returns) ──
 const FALLBACK_TAUNTS = {
-  dumbie:  [
+  easy:  [
     "Okay I definitely know what I'm doing.",
     "Wait is that piece supposed to go there...?",
     "I watched THREE tutorials. I'm basically a pro.",

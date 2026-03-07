@@ -1,7 +1,7 @@
 // src/store/game.js
 import { defineStore } from "pinia";
 import { PENTOMINOES } from "../lib/pentominoes";
-import { transformCells } from "../lib/geom";
+import { transformCells, validatePlacement, uniqOrientations } from "../lib/geom";
 
 function makeEmptyBoard(w, h) {
   // null = empty, otherwise { player: 1|2, pieceKey: "T" }
@@ -33,35 +33,8 @@ function shuffleArray(arr) {
 }
 
 
-function uniqOrientations(baseCells, allowFlip = true) {
-  const seen = new Set();
-  const outs = [];
-  const flips = allowFlip ? [false, true] : [false];
+// uniqOrientations is now imported from geom.js (Fix 11 — deduplication)
 
-  for (const f of flips) {
-    for (let r = 0; r < 4; r++) {
-      const cells = transformCells(baseCells, r, f);
-
-      // normalize to min x/y = 0
-      let minX = Infinity,
-        minY = Infinity;
-      for (const [x, y] of cells) {
-        if (x < minX) minX = x;
-        if (y < minY) minY = y;
-      }
-      const norm = cells
-        .map(([x, y]) => [x - minX, y - minY])
-        .sort((a, b) => (a[0] - b[0]) || (a[1] - b[1]));
-
-      const key = norm.map(([x, y]) => `${x},${y}`).join("|");
-      if (!seen.has(key)) {
-        seen.add(key);
-        outs.push(norm);
-      }
-    }
-  }
-  return outs;
-}
 
 function computeDraftTiling(w, h, allowFlip = true, randomize = false) {
   const cacheKey = `${w}x${h}|flip:${allowFlip ? 1 : 0}`;
@@ -185,6 +158,10 @@ export const useGameStore = defineStore("game", {
     picks: { 1: [], 2: [] },
     draftTurn: 1,
 
+    // Fix 1 — tracks which player opened the draft (used for snake turn logic and
+    // fair placement start). Randomised each game in resetGame().
+    _draftOpener: 1,
+
     remaining: { 1: [], 2: [] },
     placedCount: 0,
 
@@ -256,6 +233,10 @@ export const useGameStore = defineStore("game", {
     // Local-only: simple undo stack (used for Couch Play)
     history: [],
 
+    // Fix 21 — only accumulate undo history in local modes (couch/ai).
+    // Set to false when an online match starts.
+    isLocalMode: true,
+
   }),
 
   getters: {
@@ -269,6 +250,8 @@ export const useGameStore = defineStore("game", {
   actions: {
     // Local-only snapshot helper (Couch Play undo)
     _pushHistory(label = "") {
+      // Fix 21 — never accumulate history in online games
+      if (!this.isLocalMode) return;
       try {
         // Use JSON clone — safe with Pinia reactive proxies
         const clone = (v) => JSON.parse(JSON.stringify(v));
@@ -345,6 +328,8 @@ export const useGameStore = defineStore("game", {
           this.drag.pieceKey = null;
           this.drag.target = null;
         }
+        // Fix 8 — clear staged ghost after undo so stale pendingPlace doesn't persist
+        this.pendingPlace = null;
         return true;
       } catch {
         return false;
@@ -355,11 +340,15 @@ export const useGameStore = defineStore("game", {
       this.board = makeEmptyBoard(this.boardW, this.boardH);
 
       this.phase = "draft";
-      this.currentPlayer = 1;
+      // Fix 1 — randomise who opens the draft each game so neither player has a
+      // permanent first-pick advantage across sessions.
+      const opener = Math.random() < 0.5 ? 1 : 2;
+      this._draftOpener = opener;
+      this.currentPlayer = opener;
 
       this.pool = Object.keys(PENTOMINOES);
       this.picks = { 1: [], 2: [] };
-      this.draftTurn = 1;
+      this.draftTurn = opener;
 
       this.remaining = { 1: [], 2: [] };
       this.placedCount = 0;
@@ -438,8 +427,17 @@ export const useGameStore = defineStore("game", {
       this.timeoutPendingPlayer = null;
       this.draftTimeoutPendingAt = null; // cancel any in-progress draft grace window
 
-      // swap turns
-      this.draftTurn = this.draftTurn === 1 ? 2 : 1;
+      // Snake draft — repeating 4-pick cycle: P1, P2, P2, P1, P1, P2, P2, P1 …
+      // totalPicks = total picks made so far (after this one).
+      // nextIdx = index of the NEXT pick (0-based).
+      // Within each group of 4: positions 0 and 3 go to the opener, 1 and 2 go to the other.
+      const totalPicks = this.picks[1].length + this.picks[2].length;
+      const nextIdx = totalPicks; // 0-based index of the pick that's about to happen
+      const opener = this._draftOpener ?? 1;
+      const other  = opener === 1 ? 2 : 1;
+      // Pattern within each group of 4: [opener, other, other, opener]
+      const CYCLE = [opener, other, other, opener];
+      this.draftTurn = CYCLE[nextIdx % 4];
       this.currentPlayer = this.draftTurn;
       this.turnStartedAt = Date.now();
 
@@ -460,8 +458,9 @@ export const useGameStore = defineStore("game", {
         this.remaining[1] = [...this.picks[1]];
         this.remaining[2] = [...this.picks[2]];
 
-        // placement starts with P1
-        this.currentPlayer = 1;
+        // Fix 5 — The player who opened the draft gets second placement turn so
+        // both phases share the advantage fairly.
+        this.currentPlayer = (this._draftOpener ?? 1) === 1 ? 2 : 1;
         this.turnStartedAt = Date.now();
         this.battleClockLastTickAt = Date.now();
 
@@ -556,54 +555,35 @@ export const useGameStore = defineStore("game", {
       // to keep rotating/flipping until valid without losing position.
     },
 
+    // Fix 9 — Dedicated setter so toggling allowFlip OFF while a piece is
+    // flipped doesn't leave the flip state in an illegal/inconsistent condition.
+    setAllowFlip(value) {
+      this.allowFlip = !!value;
+      if (!this.allowFlip && this.flipped) {
+        this.flipped = false;
+        // pendingPlace may now be invalid (flipped ghost was legal, unflipped isn't).
+        // Clear it so the user has to re-stage rather than submitting a bad position.
+        this.pendingPlace = null;
+      }
+    },
+
     // ----- LEGALITY -----
     canPlaceAt(anchorX, anchorY) {
       if (this.phase !== "place") return false;
       if (!this.selectedPieceKey) return false;
-
       const shape = this.selectedCells;
       if (!shape.length) return false;
-
-      const abs = shape.map(([dx, dy]) => [anchorX + dx, anchorY + dy]);
-
-      // bounds + overlap
-      for (const [x, y] of abs) {
-        if (!inBounds(x, y, this.boardW, this.boardH)) return false;
-        if (this.board[y][x] !== null) return false;
-      }
-
-      // first move anywhere
-      if (this.placedCount === 0) return true;
-
-      // must touch existing structure edge-to-edge
-      const dirs = [
-        [1, 0],
-        [-1, 0],
-        [0, 1],
-        [0, -1],
-      ];
-      for (const [x, y] of abs) {
-        for (const [ox, oy] of dirs) {
-          const nx = x + ox,
-            ny = y + oy;
-          if (
-            inBounds(nx, ny, this.boardW, this.boardH) &&
-            this.board[ny][nx] !== null
-          ) {
-            return true;
-          }
-        }
-      }
-      return false;
+      // Fix 2 — use the single canonical validator shared with aiEngine.js
+      return validatePlacement(this.board, shape, anchorX, anchorY, this.boardW, this.boardH, this.placedCount) !== null;
     },
 
     placeAt(anchorX, anchorY) {
-      if (!this.canPlaceAt(anchorX, anchorY)) return false;
+      // Fix 2 — use canonical validator so legality logic is defined in exactly one place
+      const abs = validatePlacement(this.board, this.selectedCells, anchorX, anchorY, this.boardW, this.boardH, this.placedCount);
+      if (!abs) return false;
 
       // Couch Play undo support: snapshot BEFORE mutating
       this._pushHistory(`place:${this.selectedPieceKey || "?"}`);
-
-      const abs = this.selectedCells.map(([dx, dy]) => [anchorX + dx, anchorY + dy]);
 
       for (const [x, y] of abs) {
         this.board[y][x] = { player: this.currentPlayer, pieceKey: this.selectedPieceKey };
@@ -875,15 +855,17 @@ export const useGameStore = defineStore("game", {
           return false; // still inside window — a pick can still cancel this
         }
 
-        // Grace window expired with no pick — confirmed dodge.
+        // Grace window expired with no pick — confirmed timeout.
+        // Fix 4 — award the win to the opponent; matchInvalid is wrong here.
         const dodger = this.currentPlayer;
+        const winner = dodger === 1 ? 2 : 1;
         this.draftTimeoutPendingAt = null;
-        this.matchInvalid = true;
-        this.matchInvalidReason = `Player ${dodger} did not pick — automatically dodges the game.`;
         this.phase = "gameover";
-        this.winner = null;
+        this.winner = winner;
+        this.matchInvalid = false;
+        this.matchInvalidReason = null;
         this.moveSeq = Number(this.moveSeq || 0) + 1;
-        this.lastMove = { type: "dodged", player: dodger, seq: this.moveSeq, at: Date.now() };
+        this.lastMove = { type: "draft_timeout", player: dodger, seq: this.moveSeq, at: Date.now() };
         return true;
       }
 
@@ -896,7 +878,8 @@ export const useGameStore = defineStore("game", {
       this.phase = 'gameover';
       this.winner = winner;
       this.moveSeq = Number(this.moveSeq || 0) + 1;
-      this.lastMove = { type: 'timeout', player: loser, seq: this.moveSeq, at: Date.now() };
+      // Fix 10 — use 'draft_timeout' (consistent with checkAndApplyTimeout)
+      this.lastMove = { type: 'draft_timeout', player: loser, seq: this.moveSeq, at: Date.now() };
       return true;
     },
 

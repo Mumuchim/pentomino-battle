@@ -3,14 +3,13 @@
     <div
       class="boardShell"
       ref="shell"
-      @mousemove="onPointerMove"
-      @mouseleave="clearHover"
+      @pointermove="onShellPointerMove"
+      @pointerleave="clearHover"
+      @pointerdown="onShellPointerDown"
+      @pointerup="onShellPointerUp"
+      @pointercancel="onShellPointerUp"
       @dragover.prevent="onDragOver"
       @drop.prevent="onShellDrop"
-      @touchstart="onBoardTouchStart"
-      @touchmove="onTouchMove"
-      @touchend="onTouchEnd"
-      @touchcancel="onTouchEnd"
     >
       <!--
         boardSizer makes the board always take the *maximum possible* space
@@ -150,9 +149,8 @@ const boardEl = ref(null);
 const hover = ref(null);
 const targetCell = ref(null);
 
-// Detect touch device for mobile-specific staging behavior
-const isTouchDevice = typeof window !== 'undefined' &&
-  ('ontouchstart' in window || navigator.maxTouchPoints > 0);
+// Fix 18 — Pointer Events API handles both touch and mouse uniformly;
+// isTouchDevice detection is no longer needed.
 
 // Track board-initiated drags (re-positioning staged pieces)
 const boardDragging = ref(false);
@@ -243,10 +241,8 @@ watch(
   }
 );
 
-// ── Keep board hover in sync while dragging from the panel ─────────────────
-// When the pointer is captured by PiecePicker's chip button, the board's
-// own mousemove/mouseenter events don't fire.  Watching drag.x/y lets us
-// still compute which board cell the cursor is over and show the green/red overlay.
+// Fix 18 — keep hover in sync during drags originating from PiecePicker
+// (those drags use the global pointermove in App.vue, not the board's own events)
 watch(
   () => [game.drag?.active, game.drag?.x, game.drag?.y],
   ([active, x, y]) => {
@@ -258,7 +254,6 @@ watch(
   },
   { immediate: false }
 );
-// ────────────────────────────────────────────────────────────────────────────
 
 // ── Is the currently staged placement actually valid? ─────────────────────
 // Prevents the submit button lighting up on red/illegal placements.
@@ -579,52 +574,40 @@ function spawnFlyClone(pieceKey, player, fromEl) {
   setTimeout(() => node.remove(), 700);
 }
 
-/* ─── Touch support on the board shell ────────────────────────────────
-   onBoardTouchStart: lets the user re-drag a staged (pendingPlace) piece
-   directly on the board without going back to the chip panel.
+// Fix 18 — unified Pointer Events so mouse and touch share one code path
+// and hybrid (touch+mouse) devices never fire both simultaneously.
+function onShellPointerMove(e) {
+  // Only handle primary pointer (left button / first touch)
+  if (!e.isPrimary) return;
+  onPointerMove(e);
+  if (game.drag?.active) game.updateDrag(e.clientX, e.clientY);
+}
 
-   onTouchMove / onTouchEnd serve both PiecePicker drags entering the
-   board area AND board-initiated re-positioning drags.
-───────────────────────────────────────────────────────────── */
-function onBoardTouchStart(e) {
-  if (game.phase !== "place") return;
+function onShellPointerDown(e) {
+  if (!e.isPrimary) return;
+  if (game.phase !== 'place') return;
   if (!game.selectedPieceKey) return;
   if (game.drag?.active) return; // PiecePicker drag in flight — don't interfere
-
-  // A piece is selected (staged or just picked): allow dragging it from the board.
-  e.preventDefault();
-  const touch = e.touches[0];
-  if (!touch) return;
-
+  // Capture pointer so we continue receiving move/up even outside the element
+  e.currentTarget.setPointerCapture(e.pointerId);
   boardDragging.value = true;
-  game.beginDrag(game.selectedPieceKey, touch.clientX, touch.clientY);
-  updateHoverFromClientXY(touch.clientX, touch.clientY);
+  game.beginDrag(game.selectedPieceKey, e.clientX, e.clientY);
+  updateHoverFromClientXY(e.clientX, e.clientY);
+  // Prevent text selection / scrolling during board drag
+  if (e.pointerType === 'touch') e.preventDefault();
 }
 
-function onTouchMove(e) {
-  if (game.phase !== "place") return;
-  if (!game.selectedPieceKey) return;
-  // Only intercept scroll when a drag is actually in progress
-  if (!game.drag?.active) return;
-  e.preventDefault();
-  const touch = e.touches[0];
-  if (!touch) return;
-  updateHoverFromClientXY(touch.clientX, touch.clientY);
-  game.updateDrag(touch.clientX, touch.clientY);
-}
+function onShellPointerUp(e) {
+  if (!e.isPrimary) return;
+  if (game.phase !== 'place') return;
 
-function onTouchEnd(e) {
-  if (game.phase !== "place") return;
+  try { e.currentTarget.releasePointerCapture(e.pointerId); } catch {}
 
-  // ── Board-initiated repositioning drag ──────────────────────────
   if (boardDragging.value) {
     boardDragging.value = false;
     hover.value = null;
 
-    if (!game.drag?.active) {
-      targetCell.value = null;
-      return;
-    }
+    if (!game.drag?.active) { targetCell.value = null; return; }
 
     const t = game.drag?.target;
     if (t && t.inside) {
@@ -632,30 +615,24 @@ function onTouchEnd(e) {
       if (requireSubmit) {
         const staged = game.stagePlacement(t.x, t.y);
         if (!staged) {
-          // Invalid spot — stage unconditionally so ghost stays; user can rotate/flip to fix
           game.$patch({ pendingPlace: { x: t.x, y: t.y } });
           playBuzz();
-          showWarning("Illegal placement — try another spot / rotate / flip.");
+          showWarning('Illegal placement — try another spot / rotate / flip.');
         }
         game.endDrag();
       } else {
         const ok = game.placeAt(t.x, t.y);
-        if (!ok) {
-          playBuzz();
-          showWarning("Illegal placement — try another spot / rotate / flip.");
-        }
+        if (!ok) { playBuzz(); showWarning('Illegal placement — try another spot / rotate / flip.'); }
         game.endDrag();
       }
     } else {
       game.endDrag();
     }
-
     targetCell.value = null;
     return;
   }
 
-  // ── PiecePicker drag entering/leaving the board ──────────────────
-  // PiecePicker's pointerup handler will commit/stage; we just clear hover.
+  // PiecePicker drag entering the board — just clear hover
   if (!game.drag?.active) return;
   hover.value = null;
   targetCell.value = null;

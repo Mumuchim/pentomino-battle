@@ -50,6 +50,18 @@
       aria-hidden="true"
     ></div>
 
+    <!-- ⚙ Dev mode overlay (only renders for dev-role accounts) -->
+    <DevOverlay v-if="isDevUser" :ai-difficulty="aiDifficulty" :ai-player="aiPlayer" />
+
+    <!-- ⚙ Dev mode toggle button (only visible to dev users, during battle) -->
+    <button
+      v-if="isDevUser && isInGame"
+      class="dev-toggle-btn"
+      :class="{ active: devModeActive }"
+      @click="toggleDevMode"
+      title="Toggle Dev Mode"
+    >⚙ DEV</button>
+
     <!-- ✅ Full-screen interaction lock + loading (prevents "loaded but not visible" desync clicks) -->
     <div v-if="uiLock.active" class="loadOverlay" aria-live="polite" aria-busy="true">
       <div class="loadCard">
@@ -1239,7 +1251,14 @@
 
         <section class="rightPanel">
           <Board :isOnline="isOnline" :myPlayer="myPlayer" :canAct="canAct" />
-
+          <!-- Fix 19 — contextual hint: P2 must touch P1's territory on first move -->
+          <div
+            v-if="showAdjacencyHint"
+            class="adjacencyHint"
+            aria-live="polite"
+          >
+            💡 Your first piece must touch Player 1's territory
+          </div>
         </section>
       </section>
 
@@ -1594,7 +1613,7 @@
               {{ storyFight.chapter?.mode === 'normal' ? 'STANDARD' : storyFight.chapter?.mode === 'blind_draft' ? 'BLIND DRAFT' : 'MIRROR WAR' }}
             </span>
             <span class="fcDiffBadge" :class="`fcDiff${storyFight.chapter?.difficulty}`">
-              {{ {dumbie:'EASY',elite:'NORMAL',tactician:'HARD',grandmaster:'MASTER',legendary:'ULTIMATE'}[storyFight.chapter?.difficulty] || storyFight.chapter?.difficulty?.toUpperCase() }}
+              {{ {easy:'EASY',normal:'NORMAL',hard:'HARD',master:'MASTER',expert:'EXPERT',ultimate:'ULTIMATE'}[storyFight.chapter?.difficulty] || storyFight.chapter?.difficulty?.toUpperCase() }}
             </span>
           </div>
 
@@ -1743,17 +1762,17 @@
     <Transition name="unlockFade">
       <div v-if="unlockAnim.active" class="unlockOverlay">
         <div class="unlockBurst"></div>
-        <div class="unlockCard" :class="`unlockTier${['dumbie','elite','tactician','grandmaster','legendary'].indexOf(unlockAnim.rank)}`">
+        <div class="unlockCard" :class="`unlockTier${['easy','normal','hard','master','expert','ultimate'].indexOf(unlockAnim.rank)}`">
           <div class="unlockGlowRing"></div>
           <div class="unlockEmoji">
-            {{ unlockAnim.rank === 'elite' ? '🔵' : unlockAnim.rank === 'tactician' ? '🟣' : unlockAnim.rank === 'grandmaster' ? '🟠' : '🔴' }}
+            {{ unlockAnim.rank === 'normal' ? '🔵' : unlockAnim.rank === 'hard' ? '🟣' : unlockAnim.rank === 'master' ? '🟠' : '🔴' }}
           </div>
           <div class="unlockLabel">NEW RANK UNLOCKED</div>
           <div class="unlockRankName">
-            {{ unlockAnim.rank === 'dumbie' ? 'EASY' : unlockAnim.rank === 'elite' ? 'NORMAL' : unlockAnim.rank === 'tactician' ? 'HARD' : unlockAnim.rank === 'grandmaster' ? 'MASTER' : 'ULTIMATE' }}
+            {{ unlockAnim.rank === 'easy' ? 'EASY' : unlockAnim.rank === 'normal' ? 'NORMAL' : unlockAnim.rank === 'hard' ? 'HARD' : unlockAnim.rank === 'master' ? 'MASTER' : unlockAnim.rank === 'expert' ? 'EXPERT' : 'ULTIMATE' }}
           </div>
           <div class="unlockRankDesc">
-            {{ unlockAnim.rank === 'elite' ? 'Sharpened Strategist' : unlockAnim.rank === 'tactician' ? 'Master of Patterns' : unlockAnim.rank === 'grandmaster' ? 'The Territorial God' : 'Beyond Human Reach' }}
+            {{ unlockAnim.rank === 'normal' ? 'Sharpened Strategist' : unlockAnim.rank === 'hard' ? 'Master of Patterns' : unlockAnim.rank === 'master' ? 'The Territorial God' : 'Beyond Human Reach' }}
           </div>
           <div class="unlockActions">
             <button class="unlockBtn unlockBtnSoft"  @click="onUnlockMainMenu">Main Menu</button>
@@ -1768,7 +1787,7 @@
     <Transition name="unlockFade">
       <div v-if="challengeAnim.active" class="unlockOverlay" @click="closeChallengeAnim">
         <div class="unlockBurst"></div>
-        <div class="challengeCard" :class="`unlockTier${['dumbie','elite','tactician','grandmaster','legendary'].indexOf(challengeAnim.rank)}`">
+        <div class="challengeCard" :class="`unlockTier${['easy','normal','hard','master','expert','ultimate'].indexOf(challengeAnim.rank)}`">
           <div class="unlockGlowRing"></div>
           <div class="challengeSwords">⚔️</div>
           <div class="challengeLabel">YOU'RE UP AGAINST</div>
@@ -2009,6 +2028,8 @@ import ReplayViewer from "./components/ReplayViewer.vue";
 import DraftPanel from "./components/DraftPanel.vue";
 import PiecePicker from "./components/PiecePicker.vue";
 import Controls from "./components/Controls.vue";
+import DevOverlay from "./components/DevOverlay.vue";
+import { useDevMode, checkDevStatus } from "./lib/devMode.js";
 
 
 const game = useGameStore();
@@ -2016,17 +2037,24 @@ const game = useGameStore();
 const screen = ref("landing");
 const loggedIn = ref(false);
 
+// ── Dev mode (only available to accounts with is_dev=true in pb_profiles) ──
+const { isDevUser, devModeActive, toggleDevMode } = useDevMode();
+
 // ✅ Seed auth state from any persisted session on startup, then keep it live.
 // This runs once — the subscription in onMounted() handles future changes.
 import("./lib/auth.js").then(async ({ isLoggedIn, getCurrentPlayerName, onAuthChange }) => {
   // Check for an existing session (e.g. after a page refresh)
   loggedIn.value = await isLoggedIn();
-  if (loggedIn.value) guestName.value = await getCurrentPlayerName();
+  if (loggedIn.value) {
+    guestName.value = await getCurrentPlayerName();
+    await checkDevStatus(); // check dev role on startup
+  }
 
   // React to future sign-in / sign-out events
   onAuthChange(async ({ event, session }) => {
     loggedIn.value = !!session;
     guestName.value = await getCurrentPlayerName();
+    await checkDevStatus(); // re-check dev role on every auth change
   });
 }).catch(() => { /* Supabase not configured — stay logged out */ });
 // ─── Auth modal state ───────────────────────────────────────────────────────
@@ -2125,7 +2153,12 @@ function confirmLogOut() {
 }
 // ────────────────────────────────────────────────────────────────────────────
 
-const allowFlip = ref(true);
+// Fix 9 — use a computed that delegates through game.setAllowFlip() so toggling
+// the checkbox while a flipped piece is staged correctly resets the flip state.
+const allowFlip = computed({
+  get: () => game.allowFlip,
+  set: (v) => game.setAllowFlip(v),
+});
 
 
 const guestName = ref("GUEST");
@@ -3058,7 +3091,7 @@ function navTo(newScreen) {
 }
 const modeLabel = computed(() => {
   if (screen.value === "ai") {
-    const labels = { dumbie: "Easy", elite: "Normal", tactician: "Hard", grandmaster: "Master", legendary: "Ultimate" };
+    const labels = { easy: "Easy", normal: "Normal", hard: "Hard", master: "Master", expert: "Expert", ultimate: "Ultimate" };
     const roundStr = aiRound.value > 1 ? ` · R${aiRound.value}` : '';
     return `VS AI · ${labels[aiDifficulty.value] || "Easy"}${roundStr}`;
   }
@@ -3291,6 +3324,19 @@ const primaryMatchActionLabel = computed(() => {
   return "Reset Match";
 });
 
+// Fix 19 — show a one-time hint explaining P2's adjacency constraint on their first move
+const showAdjacencyHint = computed(() =>
+  game.phase === 'place' &&
+  game.placedCount > 0 &&
+  (game.remaining[2]?.length ?? 0) === (game.picks[2]?.length ?? 0) &&
+  (
+    // Couch/AI: show when it's P2's turn and they haven't placed yet
+    (!isOnline.value && game.currentPlayer === 2) ||
+    // Online: show when it's my turn and I'm P2 with nothing placed
+    (isOnline.value && myPlayer.value === 2 && game.currentPlayer === 2)
+  )
+);
+
 const canAct = computed(() => {
   // Puzzle mode: player 1 always acts (no opponent)
   if (screen.value === 'puzzle') {
@@ -3428,7 +3474,7 @@ const pingLevelClass = computed(() => {
 async function copyToClipboard(text) {
   try {
     await navigator.clipboard.writeText(String(text || ''));
-    showModal({ title: 'Copied', tone: 'good', message: 'Copied to clipboard.' });
+    showModal({ title: 'Copied', tone: 'good', message: 'Copied to clipboard.', autoDismissMs: 1800 });
   } catch {
     // fallback
     try {
@@ -3440,9 +3486,9 @@ async function copyToClipboard(text) {
       ta.select();
       document.execCommand('copy');
       document.body.removeChild(ta);
-      showModal({ title: 'Copied', tone: 'good', message: 'Copied to clipboard.' });
+      showModal({ title: 'Copied', tone: 'good', message: 'Copied to clipboard.', autoDismissMs: 1800 });
     } catch {
-      showModal({ title: 'Copy Failed', tone: 'bad', message: 'Could not copy. Please copy manually.' });
+      showModal({ title: 'Copy Failed', tone: 'bad', message: 'Could not copy. Please copy manually.', autoDismissMs: 2500 });
     }
   }
 }
@@ -3452,7 +3498,10 @@ function copyLobbyCode() {
   copyToClipboard(online.code);
 }
 
-function showModal({ title = "Notice", message = "", tone = "info", actions = null, locked = false, diffTier = null } = {}) {
+// Fix 17 — auto-dismiss support for non-critical toasts (e.g. "Copied!")
+let _autoDismissTimer = null;
+
+function showModal({ title = "Notice", message = "", tone = "info", actions = null, locked = false, diffTier = null, autoDismissMs = null } = {}) {
   modal.title = title;
   modal.message = message;
   modal.tone = tone;
@@ -3463,9 +3512,15 @@ function showModal({ title = "Notice", message = "", tone = "info", actions = nu
   else modal.actions = [{ label: "OK", tone: "primary" }];
   modal.locked = !!locked;
   modal.open = true;
+
+  if (_autoDismissTimer) { clearTimeout(_autoDismissTimer); _autoDismissTimer = null; }
+  if (autoDismissMs && !locked) {
+    _autoDismissTimer = setTimeout(() => { if (modal.open) closeModal(); }, autoDismissMs);
+  }
 }
 
 function closeModal() {
+  if (_autoDismissTimer) { clearTimeout(_autoDismissTimer); _autoDismissTimer = null; }
   modal.open = false;
   modal.actions = [];
   modal.locked = false;
@@ -3596,6 +3651,8 @@ function stopPolling() {
   online.pollTimer = null;
   _versionMismatchWarned = false; // reset so next match can warn again
   teardownRealtimeLobby();
+  // Fix 21 — re-enable local undo history when leaving online mode
+  game.isLocalMode = true;
 }
 
 async function leaveOnlineLobby(reason = "left") {
@@ -3771,40 +3828,18 @@ async function sbFindPublicLobbyByName(term) {
 }
 
 async function sbCreateLobby({ isPrivate = false, lobbyName = "", extraStateMeta = null, mode = null } = {}) {
-  const hostId = await getGuestId();
-  const lobbyMode = String(mode || (extraStateMeta?.kind === "quickmatch" ? "quick" : "custom") || "custom");
-  const code = `PB-${Math.random().toString(16).slice(2, 6).toUpperCase()}${Math.random()
-    .toString(16)
-    .slice(2, 6)
-    .toUpperCase()}`;
-
-  const payload = {
-    code,
-    status: "waiting",
-    is_private: !!isPrivate,
-    lobby_name: String(lobbyName || "").slice(0, 40),
-    mode: lobbyMode,
-    host_id: hostId,
-    guest_id: null,
-    host_ready: false,
-    guest_ready: false,
-    state: { meta: { ...(extraStateMeta || {}) } },
-    version: 1,
-  };
-
-  const res = await fetch(sbRestUrl("pb_lobbies"), {
-    method: "POST",
-    headers: { ...(await sbHeaders()), Prefer: "return=representation" },
-    body: JSON.stringify(payload),
+  // Fix 3 — delegate to the canonical implementation in onlineMatch.js which:
+  //   • uses the Supabase SDK (not raw fetch)
+  //   • generates a proper 6-char alphanumeric code (not PB-XXXXXXXX hex)
+  //   • retries up to 5× on code collision
+  const { createLobby: _createLobby } = await import("./lib/onlineMatch.js");
+  return _createLobby({
+    lobbyName,
+    region: "auto",
+    isPrivate,
+    mode: mode || (extraStateMeta?.kind === "quickmatch" ? "quick" : "custom"),
+    extraStateMeta,
   });
-
-  if (!res.ok) {
-    const txt = await res.text().catch(() => "");
-    throw new Error(`Create lobby failed (${res.status})\n${txt}`);
-  }
-
-  const rows = await res.json();
-  return rows?.[0] || null;
 }
 
 async function sbJoinLobby(lobbyId) {
@@ -4133,6 +4168,11 @@ function applySyncedState(state) {
     const localSeq = Number(game.moveSeq || 0);
     const remoteSeq = Number(state?.game?.moveSeq || 0);
     if (remoteSeq && localSeq && remoteSeq < localSeq) return;
+    // Fix 7 — detect forged / wildly out-of-range seq numbers.
+    if (localSeq > 0 && remoteSeq > localSeq + 10) {
+      console.warn('[online] suspicious moveSeq jump', localSeq, '->', remoteSeq, '— ignoring');
+      return;
+    }
   } catch {}
 
   online.applyingRemote = true;
@@ -4595,6 +4635,11 @@ async function startPollingLobby(lobbyId, role, modeHint = null) {
   online.role = role;
   online.lastAppliedVersion = 0;
   online.lastSeenUpdatedAt = null;
+
+  // Fix 21 — disable undo history in online games to avoid memory leaks and
+  // prevent any possibility of undoing an opponent's move.
+  game.isLocalMode = false;
+  game.history = [];
 
 
   // ✅ Reset per-lobby trackers (prevents false 'opponent left' on fresh lobbies)
@@ -5411,7 +5456,7 @@ watch(
         // and already provides Main Menu / Play Again / Next Battle actions.
         if (newStageUnlocked) return;
 
-        const diffLabel = { dumbie:'Easy', elite:'Normal', tactician:'Hard', grandmaster:'Master', legendary:'Ultimate' }[aiDifficulty.value] || aiDifficulty.value;
+        const diffLabel = { easy:'Easy', normal:'Normal', hard:'Hard', master:'Master', expert:'Expert', ultimate:'Ultimate' }[aiDifficulty.value] || aiDifficulty.value;
         title = humanWon ? "VICTORY" : "DEFEAT";
         tone = humanWon ? "victory" : "bad";
         const nextDiff = getNextRank(aiDifficulty.value);
@@ -5436,7 +5481,7 @@ watch(
           ];
         }
 
-        const diffTierVal = { dumbie:0, elite:1, tactician:2, grandmaster:3, legendary:4 }[aiDifficulty.value] ?? null;
+        const diffTierVal = { easy:0, normal:1, hard:2, master:3, expert:4, ultimate:5 }[aiDifficulty.value] ?? null;
         showModal({
           title,
           message: `${winnerMessage(w ?? "?")} \nDifficulty: ${diffLabel}`,
@@ -5449,11 +5494,19 @@ watch(
       // Couch mode
       title = w ? `PLAYER ${w} WINS` : "MATCH ENDED";
       tone = w ? "victory" : "good";
+
+      // Fix 20 — capture replay snapshot for local (couch) mode so View Replay works
+      if (!isOnline.value && replayLogger.isRecording()) {
+        localReplaySnapshot.value = replayLogger.getSnapshot() ?? null;
+        replayLogger.clearReplay();
+      }
     } else {
       title = iWin ? "VICTORY" : w ? "DEFEAT" : "MATCH ENDED";
       tone = iWin ? "victory" : isBad ? "bad" : "good";
     }
 
+    // Fix 20 — offer replay in all modes whenever a replay snapshot was captured
+    const _hasReplay = isOnline.value || (localReplaySnapshot.value != null);
     showModal({
       title,
       message: winnerMessage(w ?? "?"),
@@ -5464,7 +5517,10 @@ watch(
             { label: "View Replay", tone: "soft",    onClick: () => { closeModal(); openLocalReplay(); } },
             { label: "Main Menu",   tone: "soft",    onClick: () => stopAndExitToMenu("") },
           ]
-        : [{ label: "Play Again", tone: "primary", onClick: onResetClick }],
+        : [
+            { label: "Play Again", tone: "primary", onClick: onResetClick },
+            ...(_hasReplay ? [{ label: "View Replay", tone: "soft", onClick: () => { closeModal(); openLocalReplay(); } }] : []),
+          ],
     });
 
     // ✅ Record match result to pb_matches (both clients call; server deduplicates)
@@ -5680,8 +5736,9 @@ watch(
 watch(
   () => game.lastMove,
   (mv) => {
-    if (!isOnline.value || !mv) return;
-    replayLogger.recordEvent(mv);
+    if (!mv) return;
+    // Fix 20 — record in all modes so local replay snapshots are available
+    if (replayLogger.isRecording()) replayLogger.recordEvent(mv);
   }
 );
 
@@ -7027,7 +7084,7 @@ function handlePuzzleEnd() {
 }
 
 // ── AI Difficulty state ────────────────────────────────────────────
-// 'dumbie' | 'elite' | 'tactician' | 'grandmaster' | 'legendary'
+// 'easy' | 'normal' | 'hard' | 'master' | 'expert'
 // ═══════════════════════════════════════════════════════════════════
 //  PENTwelve — THE CIRCUIT LIST
 //  12 ranked players. One newcomer. Zero backstory.
@@ -7040,7 +7097,7 @@ const STORY_CHAPTERS = [
     id: 'dumbie', name: 'DUMBIE', title: 'Walking Tutorial',
     vsaiKey: '12-dumbie', emoji: '⬜', color: '#00C97B', tier: 0,
     personality: 'Walking Tutorial',
-    difficulty: 'dumbie', mode: 'normal', aiAsP1: false,
+    difficulty: 'easy', mode: 'normal', aiAsP1: false,
     preDialogue: [
       '"Wait, which one is the I-piece again? The long one, right?"',
       '"Okay I definitely know how to play this. I\'ve watched like three videos."',
@@ -7053,9 +7110,9 @@ const STORY_CHAPTERS = [
     id: 'cyano', name: 'CYANO', title: 'Loverable Narcissist',
     vsaiKey: '11-cyano', emoji: '🩵', color: '#46C0E8', tier: 0,
     personality: 'Loverable Narcissist',
-    difficulty: 'dumbie', mode: 'blind_draft', aiAsP1: false,
+    difficulty: 'easy', mode: 'blind_draft', aiAsP1: false,
     preDialogue: [
-      '"Oh my god, are people actually watching this match? Hi everyone!"',
+      '"Oh my ultimate, are people actually watching this match? Hi everyone!"',
       '"I\'m literally #11 in the entire circuit. That\'s top twelve. Do you know how many people play this?"',
       '"No pressure, I just don\'t want to look bad in front of my fans."',
     ],
@@ -7066,7 +7123,7 @@ const STORY_CHAPTERS = [
     id: 'norm', name: 'NORM', title: 'Peaceful Warlord',
     vsaiKey: '10-norm', emoji: '🟩', color: '#1E90FF', tier: 1,
     personality: 'Peaceful Warlord',
-    difficulty: 'elite', mode: 'mirror_war', aiAsP1: false,
+    difficulty: 'normal', mode: 'mirror_war', aiAsP1: false,
     preDialogue: [
       '"I don\'t start things. I just finish them."',
       '"The circuit isn\'t a stage. You don\'t perform here. You just play."',
@@ -7079,7 +7136,7 @@ const STORY_CHAPTERS = [
     id: 'ohmen', name: 'OHMEN', title: 'Stoic Paranoid',
     vsaiKey: '09-ohmen', emoji: '🟪', color: '#8A6BFF', tier: 1,
     personality: 'Stoic Paranoid',
-    difficulty: 'elite', mode: 'normal', aiAsP1: false,
+    difficulty: 'normal', mode: 'normal', aiAsP1: false,
     preDialogue: [
       '"I\'ve seen your replays. You\'re not what people say you are."',
       '"Everyone has a pattern. Everyone. I\'ll find yours."',
@@ -7092,7 +7149,7 @@ const STORY_CHAPTERS = [
     id: 'teift', name: 'TEIFT', title: 'Just Depressed',
     vsaiKey: '08-teift', emoji: '🔷', color: '#9B5DE5', tier: 1,
     personality: 'Just Depressed',
-    difficulty: 'elite', mode: 'blind_draft', aiAsP1: false,
+    difficulty: 'hard', mode: 'blind_draft', aiAsP1: false,
     preDialogue: [
       '"Oh. You\'re here. Okay."',
       '"I don\'t really care how this goes. I just had nothing else to do."',
@@ -7105,7 +7162,7 @@ const STORY_CHAPTERS = [
     id: 'lilica', name: 'LILICA', title: 'Indecisive Beauty',
     vsaiKey: '07-lilica', emoji: '🩷', color: '#FF47A3', tier: 1,
     personality: 'Indecisive Beauty',
-    difficulty: 'elite', mode: 'mirror_war', aiAsP1: false,
+    difficulty: 'hard', mode: 'mirror_war', aiAsP1: false,
     preDialogue: [
       '"Okay wait should I go aggressive or defensive — I literally cannot decide—"',
       '"You know what, aggressive. No wait. Okay. Aggressive. Final answer. Maybe."',
@@ -7119,7 +7176,7 @@ const STORY_CHAPTERS = [
     id: 'sefia', name: 'SEFIA', title: 'Dangerous Cutie',
     vsaiKey: '06-sefia', emoji: '🌸', color: '#FF4D6D', tier: 2,
     personality: 'Dangerous Cutie',
-    difficulty: 'tactician', mode: 'normal', aiAsP1: false,
+    difficulty: 'master', mode: 'normal', aiAsP1: false,
     preDialogue: [
       '"You tilt your head left when you\'re deciding between two pieces. Did you know that?"',
       '"You\'ve placed the I-piece in the bottom-right corner three times across your last four games."',
@@ -7132,7 +7189,7 @@ const STORY_CHAPTERS = [
     id: 'vlad', name: 'VLAD', title: 'Vegetarian Vampire',
     vsaiKey: '05-vlad', emoji: '🧛', color: '#E63B2E', tier: 2,
     personality: 'Vegetarian Vampire',
-    difficulty: 'tactician', mode: 'blind_draft', aiAsP1: false,
+    difficulty: 'master', mode: 'blind_draft', aiAsP1: false,
     preDialogue: [
       '"I want to be clear: yes, I\'m a vampire. No, I don\'t drink blood. I\'m vegetarian."',
       '"People always expect me to be menacing. And I am. I just also care very deeply about ethical eating."',
@@ -7145,7 +7202,7 @@ const STORY_CHAPTERS = [
     id: 'axia', name: 'AXIA', title: 'Mysterious Extrovert',
     vsaiKey: '04-axia', emoji: '🟡', color: '#F5A623', tier: 3,
     personality: 'Mysterious Extrovert',
-    difficulty: 'grandmaster', mode: 'normal', aiAsP1: true,
+    difficulty: 'expert', mode: 'normal', aiAsP1: true,
     preDialogue: [
       '"I\'ve been SO excited to meet you!! I\'ve heard literally everything about you."',
       '"I know this seems like small talk but I promise I\'m paying very close attention."',
@@ -7158,7 +7215,7 @@ const STORY_CHAPTERS = [
     id: 'mumu', name: 'MUMU', title: 'Pentobattle Creator',
     vsaiKey: '03-mumu', emoji: '🟠', color: '#F5A623', tier: 3,
     personality: 'Pentobattle Creator',
-    difficulty: 'grandmaster', mode: 'mirror_war', aiAsP1: true,
+    difficulty: 'expert', mode: 'mirror_war', aiAsP1: true,
     preDialogue: [
       '"YOOO you\'re actually here!! I built this whole game and you\'re one of my favorite things to come out of it."',
       '"I designed every rule, every interaction, every piece. And I STILL don\'t know what you\'re going to do next."',
@@ -7171,7 +7228,7 @@ const STORY_CHAPTERS = [
     id: 'grand', name: 'GRAND', title: 'First Loser',
     vsaiKey: '02-grand', emoji: '🥈', color: '#C49A3C', tier: 4,
     personality: 'First Loser',
-    difficulty: 'legendary', mode: 'normal', aiAsP1: true,
+    difficulty: 'ultimate', mode: 'normal', aiAsP1: true,
     preDialogue: [
       '"Second place. Three years straight. You know what that means? I\'ve never lost to anyone but ZERO."',
       '"I used to hate the title. Now I wear it. At least it\'s honest."',
@@ -7184,7 +7241,7 @@ const STORY_CHAPTERS = [
     id: 'zero', name: 'ZERO', title: 'Legendary AI',
     vsaiKey: '01-zero', emoji: '⚪', color: '#C8C8C8', tier: 4,
     personality: 'Legendary AI',
-    difficulty: 'legendary', mode: 'mirror_war', aiAsP1: true,
+    difficulty: 'ultimate', mode: 'mirror_war', aiAsP1: true,
     preDialogue: [
       '"You came from nothing. No history, no ranking, no one vouching for you."',
       '"Eleven players between you and this seat. You moved through all of them."',
@@ -7356,7 +7413,7 @@ function closeStoryResult() {
 // Reversed for staircase display: rank #1 at top, rank #12 at bottom
 const storyChaptersReversed = STORY_CHAPTERS.map((ch, idx) => ({ ch, idx })).reverse();
 
-const aiDifficulty = ref('dumbie');
+const aiDifficulty = ref('easy');
 
 // aiPlayer: which player number the AI controls (1 for grandmaster+, 2 for others)
 const aiPlayer = ref(2);
@@ -7364,7 +7421,7 @@ const humanPlayer = computed(() => aiPlayer.value === 2 ? 1 : 2);
 
 // Unlock tracking via localStorage
 const UNLOCK_KEY = 'pb_ai_unlocks_v2';
-const AI_RANK_ORDER = ['dumbie', 'elite', 'tactician', 'grandmaster', 'legendary'];
+const AI_RANK_ORDER = ['easy', 'normal', 'hard', 'master', 'expert', 'ultimate'];
 
 /* ── AI Draft History (localStorage) ───────────────────────────────
    Tracks the human player's draft picks across the last 10 VS AI games
@@ -7399,7 +7456,7 @@ function loadUnlocks() {
     const raw = localStorage.getItem(UNLOCK_KEY);
     if (raw) return JSON.parse(raw);
   } catch {}
-  return { dumbie: true, elite: false, tactician: false, grandmaster: false, legendary: false };
+  return { easy: true, normal: false, hard: false, master: false, expert: false, ultimate: false };
 }
 function saveUnlocks(u) {
   try { localStorage.setItem(UNLOCK_KEY, JSON.stringify(u)); } catch {}
@@ -7419,8 +7476,8 @@ const unlockAnim = reactive({ active: false, rank: '' });
 
 // Challenge animation state (shown when replaying after clearing all stages)
 const challengeAnim = reactive({ active: false, rank: '' });
-const RANK_LABELS = { dumbie:'EASY', elite:'NORMAL', tactician:'HARD', grandmaster:'MASTER', legendary:'ULTIMATE' };
-const RANK_DESC = { dumbie:'The Floor Regular', elite:'Sharpened Strategist', tactician:'Master of Patterns', grandmaster:'The Territorial God', legendary:'Beyond Human Reach' };
+const RANK_LABELS = { easy:'EASY', normal:'NORMAL', hard:'HARD', master:'MASTER', expert:'EXPERT', ultimate:'ULTIMATE' };
+const RANK_DESC = { easy:'The Floor Regular', normal:'Sharpened Strategist', hard:'Master of Patterns', master:'The Territorial God', expert:'Beyond Human Reach', ultimate:'Truly Unbeatable' };
 
 function getNextRank(current) {
   const idx = AI_RANK_ORDER.indexOf(current);
@@ -7462,7 +7519,7 @@ function onLcMainMenu() {
 function onLcPlayAgain() {
   closeLegendaryConqueredAnim();
   // Replay legendary directly, skip challenge intro
-  aiDifficulty.value = 'legendary';
+  aiDifficulty.value = 'expert';
   aiPlayer.value = 1;
   aiRound.value = 1;
   aiScore.p1 = 0;
@@ -7489,7 +7546,7 @@ function onUnlockNextBattle() {
   // Go straight to the game — skip the challenge intro animation
   // so there's no redundant modal chain after the unlock screen.
   aiDifficulty.value = nextRank;
-  aiPlayer.value = (nextRank === 'grandmaster' || nextRank === 'legendary') ? 1 : 2;
+  aiPlayer.value = (nextRank === 'master' || nextRank === 'expert') ? 1 : 2;
   aiRound.value = 1;
   aiScore.p1 = 0;
   aiScore.p2 = 0;
@@ -7511,7 +7568,7 @@ function selectAiDifficulty(diff) {
 function _launchAi(diff) {
   aiDifficulty.value = diff;
   // Grandmaster and Legendary play as P1 (human gets P2)
-  aiPlayer.value = (diff === 'grandmaster' || diff === 'legendary') ? 1 : 2;
+  aiPlayer.value = (diff === 'master' || diff === 'expert') ? 1 : 2;
   aiRound.value = 1;
   aiScore.p1 = 0;
   aiScore.p2 = 0;
@@ -7519,7 +7576,7 @@ function _launchAi(diff) {
   myPlayer.value = null;
 
   // Show challenge intro if player has cleared all stages (legendary unlocked)
-  const masterMode = !!aiUnlocks.value['legendary'];
+  const masterMode = !!aiUnlocks.value['expert'];
   if (masterMode) {
     challengeAnim.rank = diff;
     challengeAnim.active = true;
@@ -7547,7 +7604,7 @@ function closeChallengeAnim() {
 function nextAiRound() {
   aiRound.value++;
   // Keep aiPlayer consistent with current difficulty
-  aiPlayer.value = (aiDifficulty.value === 'grandmaster' || aiDifficulty.value === 'legendary') ? 1 : 2;
+  aiPlayer.value = (aiDifficulty.value === 'master' || aiDifficulty.value === 'expert') ? 1 : 2;
   myPlayer.value = null;
   _startAiGame();
 }
@@ -7619,6 +7676,11 @@ function _doAiMove() {
       if (screen.value !== 'ai' || game.phase !== 'draft' || game.draftTurn !== ap) return;
       const pick = _ai.pickDraftPiece();
       if (pick) game.draftPick(pick);
+      // Snake draft can assign the same player twice in a row — if draftTurn
+      // didn't change, the watcher won't re-fire, so we kick the next pick here.
+      if (game.phase === 'draft' && game.draftTurn === ap) {
+        _doAiMove();
+      }
     }, draftDelay);
     return;
   }
@@ -7834,7 +7896,8 @@ onMounted(() => {
   try { window.setTimeout(() => maybeWarnMobile(), 900); } catch {}
   window.addEventListener("resize", onViewportChange, { passive: true });
   window.addEventListener("orientationchange", onViewportChange, { passive: true });
-  window.addEventListener("mousemove", onGlobalMouseMove, { passive: true });
+  // Fix 18 — use pointermove so hybrid devices don't fire both mouse and touch
+  window.addEventListener("pointermove", onGlobalMouseMove, { passive: true });
 
   // Esc opens in-game settings.
   escHandler = (e) => {
@@ -7863,16 +7926,20 @@ onMounted(() => {
   tickTimer = window.setInterval(() => {
     nowTick.value = Date.now();
 
-    // AI mode: tick battle clock + enforce draft timeout
+    // AI mode: tick battle clock + enforce draft timeout (both directions, Fix 10)
     if (screen.value === 'ai') {
       if (game.phase === 'place') {
         game.tickBattleClock(Date.now());
-      } else if (game.phase === 'draft' && game.draftTurn === humanPlayer.value && game.turnStartedAt) {
-        // If human runs out of time during draft, they lose
+      } else if (game.phase === 'draft' && game.turnStartedAt) {
         const limitSec = game.turnLimitDraftSec || 30;
         const elapsed = (Date.now() - game.turnStartedAt) / 1000;
         if (elapsed >= limitSec) {
-          game.aiDraftTimeout(humanPlayer.value, aiPlayer.value);
+          if (game.draftTurn === humanPlayer.value) {
+            game.aiDraftTimeout(humanPlayer.value, aiPlayer.value);
+          } else {
+            // AI hung (worker froze) — human wins
+            game.aiDraftTimeout(aiPlayer.value, humanPlayer.value);
+          }
         }
       }
     }
@@ -7932,7 +7999,7 @@ onBeforeUnmount(() => {
   _cancelAiTimer();
   try { window.removeEventListener("resize", onViewportChange); } catch {}
   try { window.removeEventListener("orientationchange", onViewportChange); } catch {}
-  try { window.removeEventListener("mousemove", onGlobalMouseMove); } catch {}
+  try { window.removeEventListener("pointermove", onGlobalMouseMove); } catch {}
   try { if (escHandler) window.removeEventListener("keydown", escHandler); } catch {}
   try { if (_fitRaf) cancelAnimationFrame(_fitRaf); } catch {}
   stopPolling();
@@ -8172,6 +8239,35 @@ onBeforeUnmount(() => {
     0 0 60px rgba(0, 229, 255, 0.08),
     0 0 60px rgba(255, 43, 214, 0.06),
     0 20px 70px rgba(0, 0, 0, 0.55);
+}
+
+/* ── Dev mode toggle button ─────────────────────────────── */
+.dev-toggle-btn {
+  position: fixed;
+  bottom: 14px;
+  right: 14px;
+  z-index: 9999;
+  font-family: 'JetBrains Mono', 'Fira Code', monospace;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  padding: 5px 10px;
+  border-radius: 5px;
+  border: 1px solid #2a2a50;
+  background: rgba(13, 13, 24, 0.85);
+  color: #505080;
+  cursor: pointer;
+  backdrop-filter: blur(4px);
+  transition: all 0.15s;
+  opacity: 0.5;
+}
+.dev-toggle-btn:hover { opacity: 1; color: #a080ff; border-color: #5030a0; }
+.dev-toggle-btn.active {
+  opacity: 1;
+  background: rgba(60, 20, 120, 0.85);
+  color: #c0a0ff;
+  border-color: #7c3aed;
+  box-shadow: 0 0 10px rgba(124, 58, 237, 0.4);
 }
 
 .bg {
@@ -9716,11 +9812,11 @@ onBeforeUnmount(() => {
 .fcModeblind_draft { background: rgba(155,93,229,0.15); border-color: rgba(155,93,229,0.3); color: #c48aff; }
 .fcModemirror_war  { background: rgba(0,140,255,0.12); border-color: rgba(0,140,255,0.3); color: #4db8ff; }
 .fcDiffBadge { background: rgba(255,255,255,0.05); border: 1px solid rgba(255,255,255,0.10); color: rgba(255,255,255,0.5); }
-.fcDiffdumbie     { background: rgba(0,201,123,0.12); border-color: rgba(0,201,123,0.3); color: #00C97B; }
-.fcDiffelite      { background: rgba(0,120,255,0.12); border-color: rgba(0,120,255,0.3); color: #4d9dff; }
-.fcDifftactician  { background: rgba(155,93,229,0.15); border-color: rgba(155,93,229,0.3); color: #c48aff; }
-.fcDiffgrandmaster{ background: rgba(245,166,35,0.12); border-color: rgba(245,166,35,0.3); color: #f5a623; }
-.fcDifflegendary  { background: rgba(200,200,200,0.08); border-color: rgba(200,200,200,0.2); color: #d0d0d0; }
+.fcDiffeasy     { background: rgba(0,201,123,0.12); border-color: rgba(0,201,123,0.3); color: #00C97B; }
+.fcDiffnormal      { background: rgba(0,120,255,0.12); border-color: rgba(0,120,255,0.3); color: #4d9dff; }
+.fcDiffhard  { background: rgba(155,93,229,0.15); border-color: rgba(155,93,229,0.3); color: #c48aff; }
+.fcDiffmaster{ background: rgba(245,166,35,0.12); border-color: rgba(245,166,35,0.3); color: #f5a623; }
+.fcDiffexpert  { background: rgba(200,200,200,0.08); border-color: rgba(200,200,200,0.2); color: #d0d0d0; }
 .fcFightDivider {
   align-self: stretch; height: 1px;
   background: rgba(255,255,255,0.06); margin: 2px 0;
@@ -10139,6 +10235,7 @@ onBeforeUnmount(() => {
 .unlockTier2{ --u: 160,80,255; border-color: rgba(160,80,255,0.4); background: radial-gradient(ellipse 80% 60% at 50% 0%, rgba(160,80,255,0.14), transparent 70%), linear-gradient(180deg, rgba(14,8,28,0.97), rgba(8,4,16,0.97)); box-shadow: 0 0 80px rgba(160,80,255,0.24), 0 30px 80px rgba(0,0,0,0.7); }
 .unlockTier3{ --u: 255,140,40; border-color: rgba(255,140,40,0.4); background: radial-gradient(ellipse 80% 60% at 50% 0%, rgba(255,140,40,0.14), transparent 70%), linear-gradient(180deg, rgba(28,16,4,0.97), rgba(16,8,4,0.97)); box-shadow: 0 0 80px rgba(255,140,40,0.24), 0 30px 80px rgba(0,0,0,0.7); }
 .unlockTier4{ --u: 255,40,80; border-color: rgba(255,40,80,0.4); background: radial-gradient(ellipse 80% 60% at 50% 0%, rgba(255,40,80,0.14), transparent 70%), linear-gradient(180deg, rgba(28,4,8,0.97), rgba(16,4,8,0.97)); box-shadow: 0 0 80px rgba(255,40,80,0.24), 0 30px 80px rgba(0,0,0,0.7); }
+.unlockTier5{ --u: 220,220,255; border-color: rgba(220,220,255,0.5); background: radial-gradient(ellipse 80% 60% at 50% 0%, rgba(220,220,255,0.18), transparent 70%), linear-gradient(180deg, rgba(12,12,20,0.98), rgba(6,6,12,0.98)); box-shadow: 0 0 100px rgba(220,220,255,0.35), 0 30px 80px rgba(0,0,0,0.8); }
 
 .unlockGlowRing{
   position: absolute;
@@ -10154,6 +10251,7 @@ onBeforeUnmount(() => {
 .unlockTier2 .unlockGlowRing{ background: radial-gradient(circle at 50% 50%, rgba(160,80,255,0.22), transparent 70%); }
 .unlockTier3 .unlockGlowRing{ background: radial-gradient(circle at 50% 50%, rgba(255,140,40,0.22), transparent 70%); }
 .unlockTier4 .unlockGlowRing{ background: radial-gradient(circle at 50% 50%, rgba(255,40,80,0.22), transparent 70%); }
+.unlockTier5 .unlockGlowRing{ background: radial-gradient(circle at 50% 50%, rgba(220,220,255,0.28), transparent 70%); }
 
 .unlockEmoji{
   font-size: 52px;
@@ -10187,6 +10285,7 @@ onBeforeUnmount(() => {
 .unlockTier2 .unlockRankName{ background: linear-gradient(90deg, rgba(160,80,255,1), rgba(210,140,255,1)); -webkit-background-clip: text; background-clip: text; }
 .unlockTier3 .unlockRankName{ background: linear-gradient(90deg, rgba(255,140,40,1), rgba(255,200,80,1)); -webkit-background-clip: text; background-clip: text; }
 .unlockTier4 .unlockRankName{ background: linear-gradient(90deg, rgba(255,40,80,1), rgba(255,120,80,1)); -webkit-background-clip: text; background-clip: text; }
+.unlockTier5 .unlockRankName{ background: linear-gradient(90deg, rgba(200,200,255,1), rgba(255,255,255,1)); -webkit-background-clip: text; background-clip: text; }
 .unlockRankDesc{
   font-size: 13px;
   opacity: .55;
@@ -10524,6 +10623,9 @@ onBeforeUnmount(() => {
 .leftPanel,.rightPanel{ min-width:0; }
 .leftPanel{ display:flex; flex-direction: column; gap: 12px; min-height: 0; }
 .rightPanel{ display:flex; flex-direction: column; gap: 10px; min-height: 0; }
+/* Fix 19 — adjacency hint for P2 first move */
+.adjacencyHint{text-align:center;padding:7px 16px;border-radius:10px;background:rgba(0,0,0,.60);border:1px solid rgba(255,200,80,.30);color:rgba(255,220,120,.92);font-size:12px;font-weight:700;letter-spacing:.03em;pointer-events:none;animation:adjFadeIn .35s ease;}
+@keyframes adjFadeIn{from{opacity:0;transform:translateY(4px)}to{opacity:1;transform:translateY(0)}}
 .panelHead{ padding: 14px; border-radius: 18px; border: 1px solid rgba(255,255,255,.10); background: rgba(10,10,16,.55); backdrop-filter: blur(10px); }
 .hudPanel{ padding: 14px; display: flex; flex-direction: column; gap: 10px; }
 
