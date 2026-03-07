@@ -1,21 +1,30 @@
 /**
- * PentoBattle AI Engine v4.0 — TERRITORY PLANNER + OPPORTUNITY SCANNER + MCTS
+ * PentoBattle AI Engine v6.1 — POST-MORTEM PATCH
+ * Based on v5.0 "ZERO" + v4.2 Legacy Systems
  *
- * Difficulty map (internal → UI):
- *   dumbie      → Easy
- *   elite       → Normal
- *   tactician   → Hard
- *   grandmaster → Master
- *   legendary   → Expert    (was Ultimate in v3)
- *   god         → Ultimate  (new in v4 — MCTS + proactive draft + 2-ply draft sim)
+ * NEW in v6.1 (post-mortem fixes):
+ * - FIX A: Joint Feasibility Check in endgameSolve — solveTiling() now validates
+ *   that placing a candidate move leaves ALL remaining pieces packable together
+ *   (not just individually). Eliminates the "U and W both fit independently but
+ *   not simultaneously" failure that caused both recorded losses.
+ * - FIX B: Shape-Aware Leaf Survival — _fastLeafSurvival() now uses actual
+ *   pieceCanFitInRegion() for U, W, X, F instead of the bounding-box shortcut,
+ *   which was giving false confidence for irregular shapes.
+ * - FIX C: Proactive Hard-Piece Urgency — TRICKY_PIECES (X, U, W, F) receive a
+ *   score boost in movesLegendary beam selection proportional to how few placements
+ *   they have left, ensuring they are front-loaded before board fragmentation.
+ * - FIX D: SHAPE_SCORE corrected — U downgraded from 5 to 3 (matching W/X tier)
+ *   to prevent the draft engine over-valuing irregular, hard-to-place pieces.
+ * - FIX E: endgameSolve now includes opponent lookahead for 'ultimate' difficulty
+ *   (previously silently skipped — only ran for expert/master).
+ * - FIX F: godDraftScore BLOCKER cap — hard penalty for drafting 2+ BLOCKER pieces
+ *   in the same hand, applied consistently in the ultimate/god draft path.
  *
- * Power hierarchy:
- *   Easy    — 80% random, no planning
- *   Normal  — Voronoi territory only, weak pressure
- *   Hard    — Territory plan + basic mistake detection
- *   Master  — Full opportunity scanner, plan pivoting, 3-ply minimax
- *   Expert  — Everything + stranded exploitation + opponent disruption + 4-ply
- *   Ultimate— Expert heuristic + MCTS post-filter + proactive draft + 2-ply draft sim
+ * Preserved from v5.0:
+ * - Mathematical Parity Dead-Zone Detection
+ * - 7-ply Deep Alpha-Beta with Zobrist TT + killer heuristic
+ * - Unique Cavity Banking, Anti-Bulky Drafting
+ * - All territory-planning, fork detection, articulation-point systems
  */
 
 const DIRS = [[1,0],[-1,0],[0,1],[0,-1]];
@@ -25,17 +34,23 @@ const PIECE_ROLES = {
   LINEAR:   new Set(['I']),
   FILLER:   new Set(['Z']),
   BLOCKER:  new Set(['X','W','F','U']),
+  COMPACT:  new Set(['P','U']), // New role: Fits in 3x2/2x3
+  BULKY:    new Set(['I','L','N','Y','T','Z']) // Requires 4x2, 5x1, or 3x3
 };
 
 const VERSATILE_PIECES = new Set(['I','L','T','Y','N','Z','P']);
 const TRICKY_PIECES    = new Set(['F','W','X','U','V']);
 const UNPAIRABLE       = new Set(['X','W','F','U']);
-const SHAPE_SCORE      = { I:5, L:5, Y:5, N:4, T:4, Z:4, P:3, W:3, F:2, U:2, X:1, V:2 };
+
+// FIX D: U downgraded 5→3, F downgraded 4→3 — placement difficulty now reflected
+const SHAPE_SCORE = { I:5, L:4, Y:4, N:4, T:4, Z:4, P:5, U:3, W:3, F:3, X:3, V:2 };
 
 const SYNERGY_PAIRS = {
   P: ['Z','L','N'], Z: ['P'],
   L: ['P','N'],     N: ['P','L'],
-  I: ['I','L','Y','N','Z'], T: ['Y'], Y: ['T','N'],
+  I: ['L','Y','N','Z','U','V'], T: ['Y'], Y: ['T','N'],
+  U: ['I','V'],
+  V: ['I','U'],
 };
 
 // ─────────────────────────────────────────────────────────────────
@@ -46,6 +61,86 @@ function parityImbalance(cells) {
   let b = 0, w = 0;
   for (const [x,y] of cells) (x+y)%2===0 ? b++ : w++;
   return Math.abs(b-w);
+}
+
+// ─────────────────────────────────────────────────────────────────
+//  V5.0 — MATHEMATICAL PARITY DEAD-ZONE DETECTION
+// ─────────────────────────────────────────────────────────────────
+
+/**
+ * Determines whether a region is a "Dead Zone" using checkerboard parity math.
+ *
+ * Every pentomino placed on a checkerboard covers exactly 3 cells of one colour
+ * and 2 of the other, so it always shifts the black/white balance by ±1.
+ * For a region of size 5k to be fully tiled by k pentominoes:
+ *   1. |black − white| ≤ k                    (balance reachable)
+ *   2. |black − white| ≡ k  (mod 2)           (parity achievable)
+ * If either condition fails, tiling is mathematically impossible regardless of
+ * piece shapes — this is a Dead Zone.
+ *
+ * Returns a positive penalty score (higher = worse dead zone for the opponent).
+ */
+function getParityDeadZoneScore(region) {
+  if (!region || region.length === 0) return 0;
+  let b = 0, w = 0;
+  for (const [x, y] of region) (x + y) % 2 === 0 ? b++ : w++;
+  const diff   = Math.abs(b - w);
+  const size   = region.length;
+  const k      = Math.floor(size / 5);          // max pentominoes that fit by size
+  const excess = size % 5;                       // leftover cells (already infeasible if >0)
+
+  // Region not a multiple of 5 → trivially infeasible (already handled elsewhere),
+  // but parity compounds the penalty.
+  if (excess !== 0) return diff * 28 + excess * 18;
+
+  // Condition 1: balance unreachable
+  const balanceFail  = diff > k;
+  // Condition 2: parity mismatch  (diff and k must have same parity)
+  const parityFail   = (diff % 2) !== (k % 2);
+
+  if (balanceFail || parityFail) {
+    // Severity scales with region size and how "wrong" the balance is
+    const severity = balanceFail ? (diff - k) * 40 : 30;
+    return severity + diff * 22 + size * 4;
+  }
+  return 0;
+}
+
+/**
+ * Scans all empty regions on the simulated board and returns the total dead-zone
+ * penalty score.  Regions adjacent only to AI cells are counted as AI-favourable
+ * dead zones (opponent cannot exploit them) — those are actually a bonus so we
+ * return net score = human-adjacent dead zones − ai-adjacent dead zones.
+ */
+function boardParityDeadZoneScore(simBoard, W, H, ap, hp) {
+  const regions = floodFillRegions(simBoard, W, H);
+  let hpDeadPenalty = 0;
+  let aiDeadPenalty = 0;
+
+  for (const reg of regions) {
+    const dz = getParityDeadZoneScore(reg);
+    if (dz === 0) continue;
+
+    let adjAI = false, adjHP = false;
+    outer: for (const [x, y] of reg) {
+      for (const [ox, oy] of DIRS) {
+        const nx = x + ox, ny = y + oy;
+        if (nx < 0 || ny < 0 || nx >= W || ny >= H) continue;
+        const p = simBoard[ny][nx]?.player;
+        if (p === ap) adjAI = true;
+        if (p === hp) adjHP = true;
+        if (adjAI && adjHP) break outer;
+      }
+    }
+    // Dead zone touching only AI → AI owns it, good for AI
+    if (adjAI && !adjHP) aiDeadPenalty += dz;
+    // Dead zone touching only HP → HP is trapped, good for AI
+    if (adjHP && !adjAI) hpDeadPenalty += dz;
+    // Mixed adjacency → partial credit
+    if (adjAI && adjHP) hpDeadPenalty += dz * 0.4;
+  }
+  // Net: positive = good for AI (HP is stuck in dead zones, AI is not)
+  return hpDeadPenalty - aiDeadPenalty * 0.3;
 }
 
 function floodFillRegions(board, W, H) {
@@ -257,8 +352,6 @@ function canTileZone(cells,hand,allowFlip,PENTS,xformFn,timeLimitMs=80){
   const needed=cells.length/5;
   if(needed>hand.length) return{canTile:false,pieces:[]};
   const coordSet=new Set(cells.map(([x,y])=>y*1000+x));
-  // Fix 14 — sort most-constrained cells first (fewer in-zone neighbours = harder to fill)
-  // This dramatically reduces backtracking and makes the 80ms budget go much further.
   const DIRS4=[[1,0],[-1,0],[0,1],[0,-1]];
   const sorted=cells.slice().sort((a,b)=>{
     const ca=DIRS4.filter(([ox,oy])=>coordSet.has((a[1]+oy)*1000+(a[0]+ox))).length;
@@ -338,7 +431,7 @@ function findBestTerritoryZone(hand,board,W,H,ap,hp,allowFlip,PENTS,xformFn,budg
   for(const zone of candidates){
     if(Date.now()>deadline) break;
     if(zone.size/5>hand.length) continue;
-    const r=canTileZone(zone.cells,hand,allowFlip,PENTS,xformFn,50); // Fix 14: was 25
+    const r=canTileZone(zone.cells,hand,allowFlip,PENTS,xformFn,50);
     if(!r.canTile) continue;
     let score=zone.size*1.5+zone.edgeScore+(hand.length-zone.size/5)*4;
     let oppAdj=false;
@@ -424,15 +517,7 @@ function opponentZoneDisruptBonus(abs,oppPlan,W,H){
 }
 
 // ─────────────────────────────────────────────────────────────────
-//  OPPORTUNITY SCANNER  (new v3.1)
-//
-//  Runs once per AI turn to detect four classes of player mistakes:
-//    A) EXPOSED POCKET    — small empty region (≤15) mostly bordered by AI/walls
-//    B) STRANDED PIECES   — opponent cells disconnected from their main cluster
-//    C) PLAN PIVOT        — current plan harder to seal than a newly exposed zone
-//    D) MISTAKE POCKET    — infeasible/parity-bad region adjacent to opponent
-//
-//  Returns an `opportunities` object used by opportunityBonus().
+//  OPPORTUNITY SCANNER
 // ─────────────────────────────────────────────────────────────────
 
 function largestPlayerCluster(board,W,H,player){
@@ -466,16 +551,8 @@ function findStrandedOpponentCells(board,W,H,hp){
   return stranded;
 }
 
-/**
- * Main opportunity scanner — call once at start of AI turn.
- * Returns { exposedPockets, strandedCells, pivotZone, mistakePockets }
- * where each field drives specific bonus functions.
- */
 function scanOpportunities(board,W,H,ap,hp,aiHand,currentPlan,allowFlip,PENTS,xformFn){
   const regions=floodFillRegions(board,W,H);
-
-  // ── A) EXPOSED POCKETS ─────────────────────────────────────────
-  // Empty regions where AI already controls most of the border.
   const exposedPockets=[];
   for(const reg of regions){
     const sz=reg.length;
@@ -490,41 +567,30 @@ function scanOpportunities(board,W,H,ap,hp,aiHand,currentPlan,allowFlip,PENTS,xf
     const sealRatio=(aiEdges+wallEdges)/Math.max(total,1);
     const infeasible=sz%5!==0;
     const parity=parityImbalance(reg)>0;
-    // "Exposed" = AI already controls >40% of border AND no/few hp edges
     if(sealRatio>=0.4&&hpEdges<=aiEdges*0.5){
       exposedPockets.push({cells:reg,sz,sealRatio,infeasible,parity,hpEdges,aiEdges});
     }
   }
-  // Sort best first: high seal ratio, infeasible/parity bonus, small size
   exposedPockets.sort((a,b)=>{
     const va=a.sealRatio*30+(a.infeasible?15:0)+(a.parity?10:0)-(a.sz*0.5);
     const vb=b.sealRatio*30+(b.infeasible?15:0)+(b.parity?10:0)-(b.sz*0.5);
     return vb-va;
   });
 
-  // ── B) STRANDED OPPONENT PIECES ────────────────────────────────
   const strandedCells=findStrandedOpponentCells(board,W,H,hp);
-
-  // ── C) PLAN PIVOT ─────────────────────────────────────────────
-  // Check if there's a new exposed zone better than the current plan.
   let pivotZone=null;
   if(currentPlan){
     const currentSeal=getZoneSealProgress(currentPlan,board,W,H,ap);
-    // Only consider pivoting if current plan is less than 40% sealed
     if(currentSeal.progress<0.4){
       const newPlan=findBestTerritoryZone(aiHand,board,W,H,ap,hp,allowFlip,PENTS,xformFn,100);
       if(newPlan&&newPlan.score>currentPlan.score*1.25){
-        // New plan is meaningfully better — flag it as pivot candidate
         pivotZone=newPlan;
       }
     }
   } else {
-    // No current plan — always scan for one
     pivotZone=findBestTerritoryZone(aiHand,board,W,H,ap,hp,allowFlip,PENTS,xformFn,100);
   }
 
-  // ── D) MISTAKE POCKETS ─────────────────────────────────────────
-  // Infeasible or parity-bad regions adjacent to opponent territory
   const mistakePockets=[];
   for(const reg of regions){
     const sz=reg.length;
@@ -542,24 +608,17 @@ function scanOpportunities(board,W,H,ap,hp,aiHand,currentPlan,allowFlip,PENTS,xf
     }
     if(hpAdj) mistakePockets.push({cells:reg,sz,infeasible,parity});
   }
-
   return{exposedPockets,strandedCells,pivotZone,mistakePockets};
 }
 
-/**
- * Score a candidate move based on detected opportunities.
- * Higher weight = higher difficulty gets more benefit from exploiting mistakes.
- */
 function opportunityBonus(abs,opp,board,simBoard,W,H,ap,hp,weightMult){
   if(!opp) return 0;
   weightMult=weightMult||1.0;
   let bonus=0;
   const simSet=new Set(abs.map(([x,y])=>y*W+x));
 
-  // ── A) Exposed pockets: reward moves that seal or approach them ──
   for(const pkt of opp.exposedPockets.slice(0,4)){
     const pktSet=new Set(pkt.cells.map(([x,y])=>y*W+x));
-    // Border cells of pocket
     const pktBorder=new Set();
     for(const[x,y]of pkt.cells) for(const[ox,oy]of DIRS){
       const nx=x+ox,ny=y+oy;
@@ -579,7 +638,6 @@ function opportunityBonus(abs,opp,board,simBoard,W,H,ap,hp,weightMult){
       const val=(pkt.sealRatio*25+(pkt.infeasible?20:0)+(pkt.parity?15:0)+pkt.sz*0.8)*touched;
       bonus+=val*weightMult;
     }
-    // Check if this move COMPLETES the seal of the pocket
     let hpCanReachAfter=false;
     for(const[x,y]of pkt.cells) for(const[ox,oy]of DIRS){
       const nx=x+ox,ny=y+oy;
@@ -589,24 +647,20 @@ function opportunityBonus(abs,opp,board,simBoard,W,H,ap,hp,weightMult){
     }
     const hpCouldReachBefore=pkt.hpEdges>0;
     if(hpCouldReachBefore&&!hpCanReachAfter){
-      // Seal completed!
       const sealVal=pkt.sz*(pkt.infeasible?55:35)+(pkt.parity?pkt.sz*20:0);
       bonus+=sealVal*weightMult;
     }
   }
 
-  // ── B) Stranded pieces: reward cutting them off further ─────────
   if(opp.strandedCells.length>0){
     const strandedSet=new Set(opp.strandedCells.map(([x,y])=>y*W+x));
     for(const[x,y]of abs) for(const[ox,oy]of DIRS){
       const nx=x+ox,ny=y+oy;
       if(nx<0||ny<0||nx>=W||ny>=H) continue;
       if(strandedSet.has(ny*W+nx)){
-        // We placed adjacent to a stranded piece — cutting off escape routes
         bonus+=30*weightMult;
       }
     }
-    // Big bonus for isolating the stranded cluster entirely (no empty neighbors)
     for(const[sx,sy]of opp.strandedCells){
       let hasEmptyNeighbor=false;
       for(const[ox,oy]of DIRS){
@@ -618,7 +672,6 @@ function opportunityBonus(abs,opp,board,simBoard,W,H,ap,hp,weightMult){
     }
   }
 
-  // ── C) Pivot zone: reward moves that start building new plan ────
   if(opp.pivotZone){
     const pz=opp.pivotZone;
     const pzBorder=new Set();
@@ -633,7 +686,6 @@ function opportunityBonus(abs,opp,board,simBoard,W,H,ap,hp,weightMult){
     }
   }
 
-  // ── D) Mistake pockets: reward moves that lock opponent in them ──
   for(const mpkt of opp.mistakePockets){
     const mpktBorder=new Set();
     for(const[x,y]of mpkt.cells) for(const[ox,oy]of DIRS){
@@ -799,11 +851,6 @@ function opponentShapeReadScore(simBoard,W,H,hp,remHp,placedCount,allowFlip,PENT
   return denialScore;
 }
 
-// Self-shape read: reward placements that create territory compatible with
-// the AI's OWN remaining hand. Mirrors opponentShapeReadScore but asks
-// "can I actually fill the space I'm claiming?" instead of "can they fill it?".
-
-// Helper: get all valid absolute placements of a piece on the current board
 function getPiecePlacements(pk,board,W,H,flipOpts,PENTS,xformFn){
   const placements=[];
   for(const flip of flipOpts) for(let rot=0;rot<4;rot++){
@@ -825,8 +872,6 @@ function getPiecePlacements(pk,board,W,H,flipOpts,PENTS,xformFn){
   });
 }
 
-// ── PROACTIVE CAVITY PLANNER ────────────────────────────────────────────────
-// Pick a reserved piece and find its ideal future slot so the AI can frame it.
 function buildPieceCavityPlan(hand,board,W,H,ap,hp,allowFlip,PENTS,xformFn){
   if(!hand||hand.length<2) return null;
   const flipOpts=allowFlip?[false,true]:[false];
@@ -842,7 +887,6 @@ function buildPieceCavityPlan(hand,board,W,H,ap,hp,allowFlip,PENTS,xformFn){
         if(x===0||x===W-1) edgeBonus+=2;
         if(y===0||y===H-1) edgeBonus+=2;
       }
-      // Count how many OTHER pieces (any) also fit this exact footprint
       let oppFitCount=0;
       for(const opk of Object.keys(PENTS)){
         if(opk!==pk&&pieceCanFitInRegion(opk,abs,flipOpts,PENTS,xformFn)) oppFitCount++;
@@ -859,14 +903,12 @@ function buildPieceCavityPlan(hand,board,W,H,ap,hp,allowFlip,PENTS,xformFn){
   return null;
 }
 
-// ── CAVITY FRAMING BONUS ────────────────────────────────────────────────────
-// Reward placements adjacent to the reserved cavity; penalize filling it.
 function cavityFramingBonus(abs,cavityPlan,simBoard,W,H,ap){
   if(!cavityPlan) return 0;
   let bonus=0;
   for(const[x,y]of abs){
     if(cavityPlan.cellSet.has(y*W+x)){
-      bonus-=80; // filling our own reserved slot — bad
+      bonus-=80; 
     } else {
       for(const[ox,oy]of DIRS){
         const nx=x+ox,ny=y+oy;
@@ -881,11 +923,6 @@ function cavityFramingBonus(abs,cavityPlan,simBoard,W,H,ap){
   return bonus;
 }
 
-// ── OPPONENT CAVITY DETECTOR ────────────────────────────────────────────────
-// Find the specific piece-shaped hole the opponent is building toward.
-// FIXED: scans ALL empty regions, not just ones adjacent to opponent cells.
-// The P-trap was bordered by AI pieces + walls so the old adjacency check
-// made the danger zone completely invisible.
 function detectOpponentCavity(board,W,H,hp,remHp,allowFlip,PENTS,xformFn){
   if(!remHp||!remHp.length) return null;
   const flipOpts=allowFlip?[false,true]:[false];
@@ -893,7 +930,6 @@ function detectOpponentCavity(board,W,H,hp,remHp,allowFlip,PENTS,xformFn){
   let bestCavity=null,bestScore=-Infinity;
   for(const reg of regions){
     if(reg.length<5||reg.length>20) continue;
-    // Adjacency to opponent is now a scoring bonus, not a hard requirement
     let oppAdjCount=0;
     for(const[x,y]of reg) for(const[ox,oy]of DIRS){
       const nx=x+ox,ny=y+oy;
@@ -912,8 +948,7 @@ function detectOpponentCavity(board,W,H,hp,remHp,allowFlip,PENTS,xformFn){
             abs.push([ox+dx,oy+dy]);
           }
           if(!valid) continue;
-          const leftover=reg.length-abs.length;
-          const snugness=15-leftover;
+          const snugness = (abs.length / reg.length) * 20; 
           const sizeScore=20-reg.length;
           const adjBonus=Math.min(8,oppAdjCount*2);
           const score=snugness+sizeScore+adjBonus;
@@ -928,15 +963,12 @@ function detectOpponentCavity(board,W,H,hp,remHp,allowFlip,PENTS,xformFn){
   return bestCavity;
 }
 
-// ── OPPONENT CAVITY INTRUSION BONUS ─────────────────────────────────────────
-// Heavily reward moves that place inside the opponent's building cavity.
 function opponentCavityIntrusionBonus(abs,oppCavity,W){
   if(!oppCavity) return 0;
   let bonus=0;
-  // Extra urgency: exact 5-cell fit = opponent is one move from a sealed trap
   const exactFit=oppCavity.cells&&oppCavity.cells.length===5;
-  const baseHit=exactFit?110:70;
-  const baseAdj=exactFit?35:20;
+  const baseHit=exactFit?200:130;  
+  const baseAdj=exactFit?70:40;   
   for(const[x,y]of abs){
     if(oppCavity.cellSet.has(y*W+x)) bonus+=baseHit;
     else for(const[ox,oy]of DIRS){
@@ -948,7 +980,6 @@ function opponentCavityIntrusionBonus(abs,oppCavity,W){
   return bonus;
 }
 
-// Helper: check if a specific piece fits anywhere inside a region
 function pieceCanFitInRegion(pk,reg,flipOpts,PENTS,xformFn){
   for(const flip of flipOpts) for(let rot=0;rot<4;rot++){
     const shape=xformFn(PENTS[pk],rot,flip);
@@ -972,7 +1003,6 @@ function selfShapeReadScore(simBoard,W,H,ap,hp,remAp,remHp,placedCount,allowFlip
   const flipOpts=allowFlip?[false,true]:[false];
 
   for(const reg of regions){
-    // Only evaluate regions adjacent to own pieces (territory we're actively claiming)
     let adjToSelf=false;
     outer0:for(const[x,y]of reg) for(const[ox,oy]of DIRS){
       const nx=x+ox,ny=y+oy;
@@ -981,13 +1011,10 @@ function selfShapeReadScore(simBoard,W,H,ap,hp,remAp,remHp,placedCount,allowFlip
     }
     if(!adjToSelf) continue;
 
-    // Dead pocket penalty — region too small for any piece
     if(reg.length<5){fitScore-=(5-reg.length)*10;continue;}
 
-    // For each of our pieces, check if it fits AND whether opponent's pieces also fit
-    // Track which AI pieces fit and which opponent pieces fit
-    const aiFitting=[];   // our pieces that fit in this region
-    const oppFitting=[];  // opponent pieces that fit in this region
+    const aiFitting=[];   
+    const oppFitting=[];  
 
     for(const pk of remAp){
       if(pieceCanFitInRegion(pk,reg,flipOpts,PENTS,xformFn)) aiFitting.push(pk);
@@ -997,7 +1024,6 @@ function selfShapeReadScore(simBoard,W,H,ap,hp,remAp,remHp,placedCount,allowFlip
     }
 
     if(!aiFitting.length){
-      // We own this region but none of our pieces fit — big problem
       fitScore-=reg.length*8;
       continue;
     }
@@ -1005,53 +1031,30 @@ function selfShapeReadScore(simBoard,W,H,ap,hp,remAp,remHp,placedCount,allowFlip
     const aiRatio=aiFitting.length/remAp.length;
     const oppRatio=remHp?.length?oppFitting.length/remHp.length:0;
 
-    // Base fit reward
     fitScore+=reg.length*aiRatio*6;
 
-    // ── EXCLUSIVE CAVITY BONUS ──────────────────────────────────────
-    // This is the key insight: a region where OUR pieces fit but
-    // opponent's pieces DON'T is a GUARANTEED future move.
-    // Weight this very heavily — it's the endgame decisive advantage.
     if(oppFitting.length===0 && aiFitting.length>0){
-      // Completely exclusive: opponent cannot contest this territory at all
       fitScore+=reg.length*18;
-      // Extra bonus if region is exactly divisible by 5 (perfectly fillable)
       if(reg.length%5===0) fitScore+=reg.length*8;
     } else if(aiRatio>oppRatio+0.3){
-      // Partially exclusive: we fit far more pieces here than opponent
       fitScore+=reg.length*(aiRatio-oppRatio)*10;
     }
 
-    // Penalize regions where opponent fits more pieces than we do
     if(oppRatio>aiRatio) fitScore-=reg.length*(oppRatio-aiRatio)*8;
-
-    // Penalty for non-divisible-by-5 regions (wasted cells)
     if(reg.length%5!==0) fitScore-=(reg.length%5)*4;
   }
   return fitScore;
 }
 
-
-// ── HUMAN STRATEGY 1: P+U EXCLUSIVE PAIR TERRITORY ──────────────────────────
-// Human insight: P and U together tile a 2×5 (10-cell) rectangle that is very
-// hard for the opponent to contest unless they also have P or U. When the AI
-// holds both P and U, it should actively scout for 10-cell connected regions
-// adjacent to its own territory where P+U can tile exclusively, then frame
-// those regions with its other pieces.
-// Also generalises: any 2 pieces the AI holds that together can tile a region
-// which the OPPONENT cannot fill (because they lack those pieces) is gold.
 function pairExclusiveTerritoryScore(simBoard,W,H,ap,hp,remAp,remHp,allowFlip,PENTS,xformFn){
   if(!remAp||remAp.length<2) return 0;
   const flipOpts=allowFlip?[false,true]:[false];
   const regions=floodFillRegions(simBoard,W,H);
   let totalScore=0;
 
-  // Build all 2-piece combos from AI hand
   for(let i=0;i<remAp.length;i++) for(let j=i+1;j<remAp.length;j++){
     const pkA=remAp[i], pkB=remAp[j];
-    const targetSize=10; // 2 pentominoes = 10 cells
 
-    // Find regions of exactly 10 cells (or close) adjacent to AI pieces
     for(const reg of regions){
       if(reg.length<8||reg.length>14) continue;
       let adjToSelf=false;
@@ -1061,7 +1064,6 @@ function pairExclusiveTerritoryScore(simBoard,W,H,ap,hp,remAp,remHp,allowFlip,PE
       }
       if(!adjToSelf) continue;
 
-      // Check if pkA can fit in region
       const placementsA=[];
       for(const flip of flipOpts) for(let rot=0;rot<4;rot++){
         const shape=xformFn(PENTS[pkA],rot,flip);
@@ -1078,7 +1080,6 @@ function pairExclusiveTerritoryScore(simBoard,W,H,ap,hp,remAp,remHp,allowFlip,PE
       }
       if(!placementsA.length) continue;
 
-      // For each A placement, check if B fills the remainder
       let pairCanTile=false;
       for(const absA of placementsA){
         const setA=new Set(absA.map(([x,y])=>y*W+x));
@@ -1090,49 +1091,35 @@ function pairExclusiveTerritoryScore(simBoard,W,H,ap,hp,remAp,remHp,allowFlip,PE
       }
       if(!pairCanTile) continue;
 
-      // How many opponent pieces can also tile any 5-cell sub-region here?
       let oppCanContest=false;
       for(const pk of (remHp||[])){
         if(pieceCanFitInRegion(pk,reg,flipOpts,PENTS,xformFn)){oppCanContest=true;break;}
       }
 
       const exclusivityBonus=oppCanContest?30:120;
-      // Extra bonus for the famous P+U pair specifically (human's go-to tactic)
       const puBonus=(pkA==='P'&&pkB==='U')||(pkA==='U'&&pkB==='P')?60:0;
       totalScore+=exclusivityBonus+puBonus;
     }
   }
-  return Math.min(totalScore,300); // cap to prevent runaway
+  return Math.min(totalScore,300); 
 }
 
-// ── HUMAN STRATEGY 2: MULTI-PIECE COMBO SETUP ───────────────────────────────
-// Human insight: deliberately place pieces A and B so their combined shape
-// creates a cavity that ONLY piece C from the hand can fill — guaranteeing a
-// future placement while opponent has no answer.
-// Implementation: for each move being evaluated, check if placing this piece
-// + any one other piece in hand would create a 5-cell exclusive region for a
-// third piece. If yes, large bonus — this move is "step 1 of a 3-piece combo".
 function comboCavitySetupBonus(movAbs,pk,board,simBoard,W,H,ap,hp,remAp,remHp,placedCount,allowFlip,PENTS,xformFn){
   if(!remAp||remAp.length<3) return 0;
   const flipOpts=allowFlip?[false,true]:[false];
   const otherPieces=remAp.filter(p=>p!==pk);
   let bestBonus=0;
 
-  // For each other piece in hand, simulate placing it on the simBoard
-  // and check if a 5-cell exclusive cavity for a 3rd piece would form
   for(const pkB of otherPieces){
     const placementsB=getPiecePlacements(pkB,simBoard,W,H,flipOpts,PENTS,xformFn);
-    // Only sample top placements (performance)
     const sample=placementsB.slice(0,12);
     for(const absB of sample){
-      // Simulate A+B both placed
       const sim2=simBoard.map(r=>[...r]);
       for(const[x,y]of absB) sim2[y][x]={player:ap,pieceKey:pkB};
 
-      // Find new regions adjacent to AI
       const regions2=floodFillRegions(sim2,W,H);
       for(const reg of regions2){
-        if(reg.length!==5) continue; // looking for exactly-5-cell cavities
+        if(reg.length!==5) continue; 
         let adjToSelf=false;
         for(const[x,y]of reg) for(const[ox,oy]of DIRS){
           const nx=x+ox,ny=y+oy;
@@ -1140,7 +1127,6 @@ function comboCavitySetupBonus(movAbs,pk,board,simBoard,W,H,ap,hp,remAp,remHp,pl
         }
         if(!adjToSelf) continue;
 
-        // Find 3rd pieces (not pk, not pkB) that fit this cavity
         const thirdPieces=otherPieces.filter(p=>p!==pkB);
         let aiCanFill=false,oppCanFill=false;
         for(const pkC of thirdPieces){
@@ -1151,7 +1137,6 @@ function comboCavitySetupBonus(movAbs,pk,board,simBoard,W,H,ap,hp,remAp,remHp,pl
         }
 
         if(aiCanFill&&!oppCanFill){
-          // Perfect: we set up a 3-piece combo the opponent can't counter
           bestBonus=Math.max(bestBonus,150);
         } else if(aiCanFill&&oppCanFill){
           bestBonus=Math.max(bestBonus,40);
@@ -1162,54 +1147,74 @@ function comboCavitySetupBonus(movAbs,pk,board,simBoard,W,H,ap,hp,remAp,remHp,pl
   return bestBonus;
 }
 
-// ── HUMAN STRATEGY 3: I-LANE FENCING ────────────────────────────────────────
-// Human insight: when holding I, identify the best available 5-cell row or
-// column lane and proactively "fence" it — place pieces on both sides of the
-// chosen lane so opponent's elongated pieces (L, Y, N) can't snake into it,
-// while keeping the lane itself clear. This guarantees the I placement later.
 function iLaneFencingBonus(movAbs,pk,board,simBoard,W,H,aiHand,hpHand,allowFlip,PENTS,xformFn){
   if(!aiHand.includes('I')) return 0;
-  if(pk==='I') return 0; // already placing I — handled elsewhere
+  if(pk==='I') return 0; 
   let bonus=0;
 
-  // Find best candidate I-lane: a full row or column that's still empty
   const flipOpts=allowFlip?[false,true]:[false];
-  let bestLane=null,bestLaneScore=-Infinity;
 
-  // Check all rows for horizontal I-lane
-  for(let y=0;y<H;y++){
-    let clearCount=0;
-    for(let x=0;x<W-4;x++){
-      let clear=true;
-      for(let dx=0;dx<5;dx++) if(board[y][x+dx]!==null){clear=false;break;}
-      if(clear) clearCount++;
+  // ── V6.0: True bisection analysis (replaces simple lane scan) ───
+  const bisect = iBisectionAnalysis(board, W, H);
+  let bestLane = null, bestLaneScore = -Infinity;
+
+  if (bisect) {
+    // Convert bisection data to the legacy lane format
+    bestLane = bisect.type === 'row' ? { type: 'row', y: bisect.y } : { type: 'col', x: bisect.x };
+    bestLaneScore = bisect.score;
+
+    // Extra bonus if this bisection splits the board into two balanced halves
+    // (true bisection creates two independent sub-games)
+    const sl = buildSpreadLookup(W, H);
+    const emptyBefore = boardToEmptyBig(board, W, H);
+    const blobsBefore = bbBlobRegions(board, W, H, sl);
+    const blobsAfter  = bbBlobRegions(simBoard, W, H, sl);
+
+    // If placing this piece INCREASES the number of independent regions, it bisects the board
+    if (blobsAfter.length > blobsBefore.length) {
+      // Evaluate quality of the split: both halves should be divisible by 5
+      const newBlobs = blobsAfter.filter(b => !blobsBefore.some(a => a.size === b.size));
+      for (const blob of newBlobs) {
+        if (blob.size % 5 === 0) {
+          bonus += blob.size * 12; // clean bisection — excellent
+        } else {
+          bonus += blob.size * 4;  // rough bisection — still useful
+        }
+      }
+      bonus += 200; // bisection accomplished bonus
     }
-    if(clearCount>0){
-      // Edge rows get a huge multiplier — interior rows are almost never worth fencing
-      const edgeBonus=(y===0||y===H-1)?80:(y===1||y===H-2)?20:0;
-      const score=clearCount*3+edgeBonus;
-      if(score>bestLaneScore){bestLaneScore=score;bestLane={type:'row',y};}
+  } else {
+    // Fallback: original lane scan
+    for(let y=0;y<H;y++){
+      let clearCount=0;
+      for(let x=0;x<W-4;x++){
+        let clear=true;
+        for(let dx=0;dx<5;dx++) if(board[y][x+dx]!==null){clear=false;break;}
+        if(clear) clearCount++;
+      }
+      if(clearCount>0){
+        const edgeBonus=(y===0||y===H-1)?80:(y===1||y===H-2)?20:0;
+        const score=clearCount*3+edgeBonus;
+        if(score>bestLaneScore){bestLaneScore=score;bestLane={type:'row',y};}
+      }
     }
-  }
-  // Check all columns for vertical I-lane
-  for(let x=0;x<W;x++){
-    let clearCount=0;
-    for(let y=0;y<H-4;y++){
-      let clear=true;
-      for(let dy=0;dy<5;dy++) if(board[y+dy][x]!==null){clear=false;break;}
-      if(clear) clearCount++;
-    }
-    if(clearCount>0){
-      const edgeBonus=(x===0||x===W-1)?80:(x===1||x===W-2)?20:0;
-      const score=clearCount*3+edgeBonus;
-      if(score>bestLaneScore){bestLaneScore=score;bestLane={type:'col',x};}
+    for(let x=0;x<W;x++){
+      let clearCount=0;
+      for(let y=0;y<H-4;y++){
+        let clear=true;
+        for(let dy=0;dy<5;dy++) if(board[y+dy][x]!==null){clear=false;break;}
+        if(clear) clearCount++;
+      }
+      if(clearCount>0){
+        const edgeBonus=(x===0||x===W-1)?80:(x===1||x===W-2)?20:0;
+        const score=clearCount*3+edgeBonus;
+        if(score>bestLaneScore){bestLaneScore=score;bestLane={type:'col',x};}
+      }
     }
   }
 
   if(!bestLane) return 0;
 
-  // Bonus: does THIS move place cells adjacent to the lane (fencing it in)
-  // WITHOUT occupying the lane itself?
   const laneSet=new Set();
   if(bestLane.type==='row'){
     for(let x=0;x<W;x++) laneSet.add(bestLane.y*W+x);
@@ -1220,20 +1225,16 @@ function iLaneFencingBonus(movAbs,pk,board,simBoard,W,H,aiHand,hpHand,allowFlip,
   let touchesLane=0, blocksLane=false;
   for(const[x,y]of movAbs){
     if(laneSet.has(y*W+x)){blocksLane=true;break;}
-    // Check if adjacent to lane
     for(const[ox,oy]of DIRS){
       if(laneSet.has((y+oy)*W+(x+ox))){touchesLane++;break;}
     }
   }
 
-  if(blocksLane) return -200; // heavily penalise moves that step on our I-lane
-  if(touchesLane>0) bonus+=touchesLane*25; // reward fencing adjacent to lane
+  if(blocksLane) return -200; 
+  if(touchesLane>0) bonus+=touchesLane*35; // V6: boosted from 25 to 35
 
-  // Extra: penalise moves that leave opponent's elongated pieces (L/Y/N) able
-  // to reach the I-lane after this move
   const elongOpp=['L','Y','N','Z'].filter(p=>(hpHand||[]).includes(p));
   if(elongOpp.length>0){
-    // Count I-lane positions still open after this move
     let laneOpenAfter=0;
     if(bestLane.type==='row'){
       for(let x=0;x<W-4;x++){
@@ -1248,33 +1249,22 @@ function iLaneFencingBonus(movAbs,pk,board,simBoard,W,H,aiHand,hpHand,allowFlip,
         if(clear) laneOpenAfter++;
       }
     }
-    // Fencing that reduces available I positions is good
     const before=bestLaneScore/3;
     const reduction=before-laneOpenAfter;
-    if(reduction>0&&touchesLane>0) bonus+=reduction*15;
+    if(reduction>0&&touchesLane>0) bonus+=reduction*20; // V6: boosted from 15 to 20
   }
 
   return bonus;
 }
 
-// ── EXCLUSIVE PIECE CAVITY BONUS ────────────────────────────────────────────
-// Reward placements that create, maintain, or frame a cavity that ONLY one of
-// the AI's held pieces can fill — and the opponent cannot.
-// Covers: P-shaped holes, U-shaped holes, 3×2 rectangles (P+U), and any
-// exclusive 5-cell shape for pieces in hand.
-//
-// Also used as a proactive signal: if AI holds P or U and a 3×2 region already
-// exists adjacent to AI territory, reward moves that frame/protect that region.
 function exclusivePieceCavityBonus(movAbs,pk,board,simBoard,W,H,ap,hp,remAp,remHp,placedCount,allowFlip,PENTS,xformFn){
   if(!remAp||remAp.length===0) return 0;
   const flipOpts=allowFlip?[false,true]:[false];
   let totalBonus=0;
 
-  // ── Part A: scan NEW 5-cell or 10-cell cavities created by this move ──────
   const regionsBefore=floodFillRegions(board,W,H);
   const regionsAfter=floodFillRegions(simBoard,W,H);
 
-  // Find regions that got SMALLER (or newly formed) after this move
   const beforeSizes=new Map(regionsBefore.map(r=>{
     const key=r.map(([x,y])=>y*W+x).sort((a,b)=>a-b).join(',');
     return [key,r];
@@ -1283,9 +1273,8 @@ function exclusivePieceCavityBonus(movAbs,pk,board,simBoard,W,H,ap,hp,remAp,remH
   for(const reg of regionsAfter){
     if(reg.length<5||reg.length>10) continue;
     const key=reg.map(([x,y])=>y*W+x).sort((a,b)=>a-b).join(',');
-    if(beforeSizes.has(key)) continue; // unchanged region — skip
+    if(beforeSizes.has(key)) continue; 
 
-    // Must be adjacent to AI territory
     let adjToSelf=false;
     for(const[x,y]of reg) for(const[ox,oy]of DIRS){
       const nx=x+ox,ny=y+oy;
@@ -1293,56 +1282,44 @@ function exclusivePieceCavityBonus(movAbs,pk,board,simBoard,W,H,ap,hp,remAp,remH
     }
     if(!adjToSelf) continue;
 
-    // ── 3×2 rectangle check (P+U combo) ──────────────────────────────────
     if(reg.length===10&&remAp.includes('P')&&remAp.includes('U')){
-      // Verify it's a 3×2 or 2×3 block
       const xs=reg.map(([x])=>x), ys=reg.map(([,y])=>y);
       const minX=Math.min(...xs),maxX=Math.max(...xs);
       const minY=Math.min(...ys),maxY=Math.max(...ys);
       const is3x2=(maxX-minX===2&&maxY-minY===1)||(maxX-minX===1&&maxY-minY===2);
       if(is3x2){
         const oppContest=(remHp||[]).some(opk=>pieceCanFitInRegion(opk,reg,flipOpts,PENTS,xformFn));
-        totalBonus+=oppContest?60:180; // exclusive 3×2 is gold
+        totalBonus+=oppContest?60:180; 
         continue;
       }
     }
 
-    // ── 5-cell exclusive cavity ───────────────────────────────────────────
     if(reg.length===5){
       const aiFitting=remAp.filter(apk=>pieceCanFitInRegion(apk,reg,flipOpts,PENTS,xformFn));
       const oppFitting=(remHp||[]).filter(opk=>pieceCanFitInRegion(opk,reg,flipOpts,PENTS,xformFn));
 
-      if(aiFitting.length===0) continue; // we can't fill it either — bad
+      if(aiFitting.length===0) continue; 
 
       if(oppFitting.length===0){
-        // Completely exclusive cavity — massive bonus
-        // Extra bonus if it specifically fits P or U (easiest to set up)
         const puBonus=(aiFitting.includes('P')||aiFitting.includes('U'))?50:0;
         totalBonus+=200+puBonus;
       } else if(aiFitting.length>0&&oppFitting.length<aiFitting.length){
-        // Partially exclusive
         totalBonus+=60;
       }
     }
   }
 
-  // ── Part B: proactive framing — protect existing exclusive zones ──────────
-  // If a 3×2 or 5-cell exclusive region ALREADY exists (from before this move),
-  // reward moves adjacent to it that don't fill it.
   for(const reg of regionsBefore){
     if(reg.length<5||reg.length>10) continue;
     const regSet=new Set(reg.map(([x,y])=>y*W+x));
 
-    // Check exclusivity
     const aiFit=remAp.filter(apk=>pieceCanFitInRegion(apk,reg,flipOpts,PENTS,xformFn));
     const oppFit=(remHp||[]).filter(opk=>pieceCanFitInRegion(opk,reg,flipOpts,PENTS,xformFn));
-    if(aiFit.length===0||oppFit.length>0) continue; // not exclusive
+    if(aiFit.length===0||oppFit.length>0) continue; 
 
-    // Does this move fill it? Bad.
     const fillsIt=movAbs.some(([x,y])=>regSet.has(y*W+x));
     if(fillsIt){totalBonus-=150;continue;}
 
-    // Does this move frame (touch) the exclusive region? Good.
     let frames=0;
     for(const[mx,my]of movAbs) for(const[ox,oy]of DIRS){
       if(regSet.has((my+oy)*W+(mx+ox))){frames++;break;}
@@ -1353,20 +1330,59 @@ function exclusivePieceCavityBonus(movAbs,pk,board,simBoard,W,H,ap,hp,remAp,remH
   return totalBonus;
 }
 
-// ── FORK THREAT DETECTOR ────────────────────────────────────────────────────
-// A fork threat exists when the opponent's pieces border 2+ DISTINCT open
-// zones of meaningful size (≥5 cells). This forces the AI to defend two
-// fronts simultaneously — the classic fork problem.
-//
-// Returns { active, zones, pivotCells, severity } where:
-//   zones      = array of region arrays the opponent threatens
-//   pivotCells = Set of cells that, if occupied, would cut the connection
-//                between two threatened zones (the fork "pivot")
-//   severity   = size of the smaller threatened zone (higher = more urgent)
+function antiExclusiveTerritoryBonus(movAbs, board, simBoard, W, H, ap, hp, remAp, remHp, allowFlip, PENTS, xformFn) {
+  if (!remAp || !remAp.length) return 0;
+  const flipOpts = allowFlip ? [false, true] : [false];
+  let totalBonus = 0;
+
+  const regionsBefore = floodFillRegions(board, W, H);
+  const regionsAfter  = floodFillRegions(simBoard, W, H);
+
+  const beforeKeys = new Set(regionsBefore.map(r =>
+    r.map(([x,y]) => y * W + x).sort((a,b) => a-b).join(',')
+  ));
+
+  for (const reg of regionsAfter) {
+    if (reg.length < 5 || reg.length > 30) continue;
+
+    let adjToSelf = false, adjToOpp = false;
+    for (const [x, y] of reg) {
+      for (const [ox, oy] of DIRS) {
+        const nx = x + ox, ny = y + oy;
+        if (nx < 0 || ny < 0 || nx >= W || ny >= H) continue;
+        const p = simBoard[ny][nx]?.player;
+        if (p === ap) adjToSelf = true;
+        if (p === hp)  adjToOpp  = true;
+      }
+    }
+
+    const aiFitting  = remAp.filter(pk => pieceCanFitInRegion(pk, reg, flipOpts, PENTS, xformFn));
+    const oppFitting = (remHp || []).filter(pk => pieceCanFitInRegion(pk, reg, flipOpts, PENTS, xformFn));
+
+    const regKey = reg.map(([x,y]) => y * W + x).sort((a,b) => a-b).join(',');
+    const isNew  = !beforeKeys.has(regKey); 
+
+    if (adjToSelf && aiFitting.length > 0 && oppFitting.length === 0) {
+      const divisible = reg.length % 5 === 0;
+      const base = reg.length * (divisible ? 40 : 22);
+      totalBonus += isNew ? base * 1.6 : base * 0.8; 
+    } else if (adjToSelf && aiFitting.length > 0 &&
+               aiFitting.length > oppFitting.length * 1.5) {
+      totalBonus += reg.length * (aiFitting.length - oppFitting.length) * 6;
+    }
+
+    if (isNew && adjToSelf && aiFitting.length === 0 && oppFitting.length > 0) {
+      totalBonus -= reg.length * 50;
+    } else if (isNew && adjToSelf && oppFitting.length > aiFitting.length * 1.5 && oppFitting.length > 0) {
+      totalBonus -= reg.length * (oppFitting.length - aiFitting.length) * 14;
+    }
+  }
+
+  return totalBonus;
+}
+
 function detectForkThreat(board,W,H,hp,remHp,allowFlip,PENTS,xformFn){
   const regions=floodFillRegions(board,W,H);
-
-  // Find all open regions that the opponent's pieces border
   const threatenedRegions=[];
   for(const reg of regions){
     if(reg.length<5) continue;
@@ -1380,15 +1396,11 @@ function detectForkThreat(board,W,H,hp,remHp,allowFlip,PENTS,xformFn){
 
   if(threatenedRegions.length<2) return {active:false,zones:[],pivotCells:new Set(),severity:0};
 
-  // Compute severity: the smallest threatened zone (hardest to match if human
-  // commits to it) — small zones are the most urgent to contest or cut off
   const sortedBySize=[...threatenedRegions].sort((a,b)=>a.length-b.length);
-  const severity=sortedBySize[0].length; // smallest zone = most urgent threat
+  const severity=sortedBySize[0].length; 
 
-  // Compute pivot cells: empty cells adjacent to 2+ distinct threatened regions
-  // Placing AI piece here would cut the fork's connections
   const pivotCells=new Set();
-  const regionIndex=new Map(); // cell → region index
+  const regionIndex=new Map(); 
   threatenedRegions.forEach((reg,i)=>reg.forEach(([x,y])=>regionIndex.set(y*W+x,i)));
 
   for(let y=0;y<H;y++) for(let x=0;x<W;x++){
@@ -1401,7 +1413,6 @@ function detectForkThreat(board,W,H,hp,remHp,allowFlip,PENTS,xformFn){
         if(regionIndex.has(k)) touchedRegions.add(regionIndex.get(k));
       }
     }
-    // Also check the cell itself
     const selfKey=y*W+x;
     if(regionIndex.has(selfKey)) touchedRegions.add(regionIndex.get(selfKey));
     if(touchedRegions.size>=2) pivotCells.add(y*W+x);
@@ -1415,68 +1426,41 @@ function detectForkThreat(board,W,H,hp,remHp,allowFlip,PENTS,xformFn){
   };
 }
 
-// ── FORK COUNTER BONUS ───────────────────────────────────────────────────────
-// Three counter-strategies, scored and summed:
-//
-// 1. PIVOT OCCUPATION: if this move lands on/near a fork pivot cell → big bonus.
-//    Breaking the pivot cuts the opponent's connection to one of their zones.
-//
-// 2. ZONE ISOLATION (speed-seal): if this move helps AI fully seal/claim one of
-//    the two threatened zones before the opponent can develop it → bonus.
-//    "Take one for free while they develop the other."
-//
-// 3. ZONE COMMITMENT PENALTY: if this move neither threatens a pivot NOR
-//    advances into a threatened zone → small penalty (AI is ignoring the fork).
 function forkCounterBonus(movAbs,board,simBoard,W,H,ap,hp,forkThreat){
   if(!forkThreat||!forkThreat.active) return 0;
   const {pivotCells,zones,severity}=forkThreat;
   let bonus=0;
 
-  // ── Strategy 1: Pivot occupation ──────────────────────────────────────────
   let hitsPivot=false;
   for(const[x,y]of movAbs){
     if(pivotCells.has(y*W+x)){hitsPivot=true; bonus+=120; break;}
-    // Adjacent to pivot is also valuable
     for(const[ox,oy]of DIRS){
       const nx=x+ox,ny=y+oy;
       if(nx>=0&&ny>=0&&nx<W&&ny<H&&pivotCells.has(ny*W+nx)){bonus+=45; break;}
     }
   }
 
-  // ── Strategy 2: Speed-seal the smaller threatened zone ────────────────────
-  // Check if this move advances into the smallest threatened zone (most urgent)
   const smallestZone=zones.reduce((a,b)=>a.length<b.length?a:b);
   const smallZoneSet=new Set(smallestZone.map(([x,y])=>y*W+x));
 
   let cellsInSmallZone=0;
   for(const[x,y]of movAbs) if(smallZoneSet.has(y*W+x)) cellsInSmallZone++;
 
-  // After this move, how many AI-adjacent cells does the small zone have?
   let aiZonePressure=0;
   for(const[x,y]of smallestZone) for(const[ox,oy]of DIRS){
     const nx=x+ox,ny=y+oy;
     if(nx>=0&&ny>=0&&nx<W&&ny<H&&simBoard[ny][nx]?.player===ap) aiZonePressure++;
   }
 
-  if(cellsInSmallZone>0) bonus+=cellsInSmallZone*30; // entering the contested zone
-  if(aiZonePressure>0) bonus+=aiZonePressure*8; // pressuring it from outside
+  if(cellsInSmallZone>0) bonus+=cellsInSmallZone*30; 
+  if(aiZonePressure>0) bonus+=aiZonePressure*8; 
 
-  // Severity scaling: smaller zone = more urgent
   const urgency=Math.min(1.5,20/Math.max(5,severity));
   bonus*=urgency;
 
   return bonus;
 }
 
-// ── COOPERATIVE CAVITY PENALTY ───────────────────────────────────────────────
-// The most insidious AI mistake: placing a piece that FRAMES or CREATES a region
-// where only the opponent's remaining pieces fit. The AI is literally building
-// the walls of the human's exclusive cavity.
-//
-// This is the inverse of exclusivePieceCavityBonus — instead of rewarding AI for
-// creating its own exclusive zones, we PENALISE AI for creating the opponent's.
-//
-// Penalty is proportional to: region size × how exclusively the opponent fits it.
 function cooperativeCavityPenalty(movAbs,board,simBoard,W,H,ap,hp,remAp,remHp,allowFlip,PENTS,xformFn){
   if(!remHp||remHp.length===0) return 0;
   const flipOpts=allowFlip?[false,true]:[false];
@@ -1485,15 +1469,13 @@ function cooperativeCavityPenalty(movAbs,board,simBoard,W,H,ap,hp,remAp,remHp,al
   const regionsBefore=floodFillRegions(board,W,H);
   const regionsAfter=floodFillRegions(simBoard,W,H);
 
-  // Build lookup of regions that changed
   const beforeKeys=new Set(regionsBefore.map(r=>r.map(([x,y])=>y*W+x).sort((a,b)=>a-b).join(',')));
 
   for(const reg of regionsAfter){
     if(reg.length<5||reg.length>15) continue;
     const key=reg.map(([x,y])=>y*W+x).sort((a,b)=>a-b).join(',');
-    if(beforeKeys.has(key)) continue; // region unchanged — skip
+    if(beforeKeys.has(key)) continue; 
 
-    // Only care about regions adjacent to OPPONENT pieces (human's developing territory)
     let adjToOpp=false;
     for(const[x,y]of reg) for(const[ox,oy]of DIRS){
       const nx=x+ox,ny=y+oy;
@@ -1501,41 +1483,29 @@ function cooperativeCavityPenalty(movAbs,board,simBoard,W,H,ap,hp,remAp,remHp,al
     }
     if(!adjToOpp) continue;
 
-    // Check who fits in this region
     const oppFitting=remHp.filter(pk=>pieceCanFitInRegion(pk,reg,flipOpts,PENTS,xformFn));
     const aiFitting=(remAp||[]).filter(pk=>pieceCanFitInRegion(pk,reg,flipOpts,PENTS,xformFn));
 
-    if(oppFitting.length===0) continue; // opponent can't use it either — fine
+    if(oppFitting.length===0) continue; 
 
-    // Did THIS move's cells touch this region? (i.e., did AI just frame it?)
     let aiFramed=false;
     const regSet=new Set(reg.map(([x,y])=>y*W+x));
     for(const[mx,my]of movAbs) for(const[ox,oy]of DIRS){
       if(regSet.has((my+oy)*W+(mx+ox))){aiFramed=true;break;}
     }
-    if(!aiFramed) continue; // AI didn't create this framing
+    if(!aiFramed) continue; 
 
     if(aiFitting.length===0){
-      // Worst case: AI just framed a cavity ONLY the opponent can use
-      totalPenalty+=reg.length*28; // severe
+      totalPenalty+=reg.length*28; 
     } else if(oppFitting.length>aiFitting.length){
-      // Opponent fits more pieces here than AI — AI is helping them more than itself
       const ratio=(oppFitting.length-aiFitting.length)/Math.max(1,remHp.length);
       totalPenalty+=reg.length*ratio*14;
     }
   }
 
-  return -totalPenalty; // negative = penalty in scoring context
+  return -totalPenalty; 
 }
 
-// ── ABANDONED ZONE PENALTY ───────────────────────────────────────────────────
-// When the board has 2+ large open zones and the AI has placed ALL its recent
-// pieces in only ONE zone, penalise moves that continue this pattern.
-// Specifically: if opponent borders a zone ≥8 cells that AI has NO pieces
-// adjacent to, and this move ALSO doesn't enter that zone, it's zone abandonment.
-//
-// This catches Game 2 (AI played left while human took center+right) and
-// Game 3 (AI played center+right while human took left).
 function abandonedZonePenalty(movAbs,simBoard,W,H,ap,hp,remAp,remHp,allowFlip,PENTS,xformFn){
   if(!remHp||remHp.length===0) return 0;
   const flipOpts=allowFlip?[false,true]:[false];
@@ -1543,9 +1513,8 @@ function abandonedZonePenalty(movAbs,simBoard,W,H,ap,hp,remAp,remHp,allowFlip,PE
   let penalty=0;
 
   for(const reg of regions){
-    if(reg.length<8) continue; // only significant zones
+    if(reg.length<8) continue; 
 
-    // Check if opponent borders this zone but AI does NOT
     let oppBorders=false, aiBorders=false;
     for(const[x,y]of reg) for(const[ox,oy]of DIRS){
       const nx=x+ox,ny=y+oy;
@@ -1555,27 +1524,22 @@ function abandonedZonePenalty(movAbs,simBoard,W,H,ap,hp,remAp,remHp,allowFlip,PE
       if(p===ap) aiBorders=true;
     }
 
-    if(!oppBorders||aiBorders) continue; // not an abandoned zone
+    if(!oppBorders||aiBorders) continue; 
 
-    // This zone is opponent-adjacent but AI-absent after this move.
-    // Check if AI's remaining pieces can even fit here (if not, it's already lost)
     const aiFit=(remAp||[]).some(pk=>pieceCanFitInRegion(pk,reg,flipOpts,PENTS,xformFn));
     const oppFit=remHp.some(pk=>pieceCanFitInRegion(pk,reg,flipOpts,PENTS,xformFn));
 
-    if(!oppFit) continue; // opponent can't use it either — fine
+    if(!oppFit) continue; 
     if(!aiFit){
-      // AI can't fit anything here anyway — penalise less (unavoidable)
       penalty+=reg.length*5;
       continue;
     }
 
-    // AI has pieces that COULD go here but this move didn't enter the zone
-    // Penalty scales with zone size and how many opponent pieces fit
     const oppFitCount=remHp.filter(pk=>pieceCanFitInRegion(pk,reg,flipOpts,PENTS,xformFn)).length;
     penalty+=reg.length*oppFitCount*4;
   }
 
-  return -penalty; // negative = penalty
+  return -penalty; 
 }
 
 function sealingFinisherBonus(abs,preBoard,simBoard,W,H,ap,hp){
@@ -1613,53 +1577,37 @@ function sealingFinisherBonus(abs,preBoard,simBoard,W,H,ap,hp){
   return bonus;
 }
 
-
-// ── ENDGAME PARITY VALIDATOR ─────────────────────────────────────────────────
-// In late game (≤4 pieces each), after simulating a placement, check every
-// empty region against the AI's remaining hand. If any region exists that
-// NONE of AI's pieces can fill, it will become a dead zone — penalize hard.
-// Also penalize if opponent has a region that ONLY their pieces fit (trap setup).
 function endgameParityScore(simBoard,W,H,ap,hp,remAp,remHp,allowFlip,PENTS,xformFn){
   if(!remAp||remAp.length>6) return 0;
-  // Full weight at ≤4 pieces; lighter (45%) at 5-6 so it blends in smoothly
   const weightMul = remAp.length > 4 ? 0.45 : 1.0;
   const flipOpts=allowFlip?[false,true]:[false];
   const regions=floodFillRegions(simBoard,W,H);
   let score=0;
   for(const reg of regions){
-    if(reg.length<5) continue; // sub-5 regions are already dead
+    if(reg.length<5) continue; 
     const size=reg.length;
-    // Check which AI pieces fit this region
     let aiFits=0;
     for(const pk of remAp){
       if(pieceCanFitInRegion(pk,reg,flipOpts,PENTS,xformFn)){aiFits++;break;}
     }
-    // Check which opponent pieces fit this region
     let oppFits=0;
     for(const pk of remHp){
       if(pieceCanFitInRegion(pk,reg,flipOpts,PENTS,xformFn)){oppFits++;break;}
     }
 
     if(aiFits===0 && size%5===0){
-      // AI cannot use this region at all — dead zone forming
       score-=size*(size<=5?60:size<=10?40:20)*weightMul;
     } else if(aiFits===0 && size%5!==0){
       score-=size*15*weightMul;
     } else if(oppFits>0 && aiFits===0){
-      // Opponent can use it, AI cannot — worst case
       score-=size*50*weightMul;
     } else if(oppFits===0 && aiFits>0 && size===5){
-      // Only AI fits this exact 5-cell region — great!
       score+=size*30*weightMul;
     }
   }
   return score;
 }
 
-// ── MOST-CONSTRAINED-PIECE-FIRST (MCPF) ────────────────────────────────────
-// Compute how many valid placements each piece in hand has on the current board.
-// Returns a Map: pieceKey → placement count.
-// "Most constrained" = fewest placements = play it FIRST or risk getting stuck.
 function computePiecePlacementCounts(hand, board, W, H, placed, allowFlip, PENTS, xformFn) {
   const counts = new Map();
   const flipOpts = allowFlip ? [false, true] : [false];
@@ -1695,25 +1643,22 @@ function computePiecePlacementCounts(hand, board, W, H, placed, allowFlip, PENTS
   return counts;
 }
 
-// Returns a flat score bonus based on MCPF urgency.
-// Most constrained piece = huge bonus to ensure it's played first.
-// Least constrained = penalty to defer it.
-function mcpfUrgencyBonus(pk, placementCounts) {
-  if (!placementCounts || !placementCounts.size) return 0;
-  const counts = [...placementCounts.values()];
-  const minCount = Math.min(...counts);
-  const myCount = placementCounts.get(pk) ?? 999;
-  if (myCount === 0)          return  900; // already dead — emergency play
-  if (myCount === minCount)   return  700; // most constrained
-  if (myCount <= minCount*1.5) return  250; // nearly as constrained
-  if (myCount <= minCount*3)   return    0; // average
-  return -250; // least constrained — defer
+function placementCountGradientPenalty(hand, placementCounts) {
+  if (!hand || !hand.length || !placementCounts || !placementCounts.size) return 0;
+  let minCount = Infinity;
+  for (const pk of hand) {
+    const count = placementCounts.get(pk) ?? 999;
+    if (count < minCount) minCount = count;
+  }
+  if (minCount === 0) return -5000;
+  if (minCount === 1) return -2000;
+  if (minCount <= 3) return -800;
+  if (minCount <= 5) return -400;
+  if (minCount <= 8) return -100;
+  if (minCount <= 12) return -30;
+  return 0;
 }
 
-// ── ALL-PIECE VIABILITY CHECK ───────────────────────────────────────────────
-// After simulating a move, verify every remaining piece still has ≥1 placement.
-// Returns a score: 0 if all pieces viable, large negative if any piece is stranded.
-// This is the definitive "don't paint yourself into a corner" check.
 function allPiecesViabilityScore(sim, W, H, remAp, placed, allowFlip, PENTS, xformFn) {
   if (!remAp || !remAp.length) return 0;
   const flipOpts = allowFlip ? [false, true] : [false];
@@ -1746,50 +1691,85 @@ function allPiecesViabilityScore(sim, W, H, remAp, placed, allowFlip, PENTS, xfo
       }
     }
     if (!hasPlacement) {
-      // This move strands a piece — catastrophic
-      penalty -= (pk === 'I' ? 800 : 500);
+      penalty -= (pk === 'X' ? 1000 : pk === 'I' ? 800 : 500);
     }
   }
+
+  // --- NEW (v4.2): Bounding Box Trap Detection ---
+  const aiHasCompact = remAp.includes('P') || remAp.includes('U');
+  const aiHasBulky = remAp.some(p => ['I','L','N','Y','T','Z'].includes(p));
+  
+  if (aiHasBulky && !aiHasCompact) {
+    // If the AI only has bulky pieces, penalize heavily if regions are too small
+    const regions = floodFillRegions(sim, W, H);
+    for (const reg of regions) {
+      // If a region is exactly 5 to 7 cells, check if it's a tight 3x2 or 2x3 trap
+      if (reg.length >= 5 && reg.length <= 7) {
+         let minX=W, maxX=-1, minY=H, maxY=-1;
+         for (const [x,y] of reg) {
+             if(x<minX) minX=x; if(x>maxX) maxX=x;
+             if(y<minY) minY=y; if(y>maxY) maxY=y;
+         }
+         let width = maxX - minX + 1;
+         let height = maxY - minY + 1;
+         
+         // A 3x2 or 2x3 box physically cannot fit L, I, N, T, Y, or Z
+         if ((width <= 3 && height <= 2) || (width <= 2 && height <= 3)) {
+             penalty -= 600; // Panic: We are creating a cavity we cannot use!
+         }
+      }
+    }
+  }
+
   return penalty;
 }
-// After simulating a placement, check if the AI's hardest-to-place pieces
-// (especially I) still have valid placements anywhere on the board.
-// If a piece is now completely stranded, apply a massive penalty — this is
-// the core fix for the "I-piece gets stuck" failure mode.
-function linearPieceSurvivalPenalty(simBoard,W,H,remAp,allowFlip,PENTS,xformFn){
-  const hardPieces=remAp.filter(p=>['I','L','N','Y','Z'].includes(p));
-  if(!hardPieces.length) return 0;
-  const flipOpts=allowFlip?[false,true]:[false];
-  let penalty=0;
-  for(const pk of hardPieces){
-    let hasPlacement=false;
-    outer:for(const flip of flipOpts){
-      for(let rot=0;rot<4;rot++){
-        const shape=xformFn(PENTS[pk],rot,flip);
-        for(let ay=0;ay<H;ay++){
-          for(let ax=0;ax<W;ax++){
-            let valid=true;
-            for(const[dx,dy]of shape){
-              const x=ax+dx,y=ay+dy;
-              if(x<0||y<0||x>=W||y>=H||simBoard[y][x]!==null){valid=false;break;}
+
+const CONSTRAINED_URGENT_SET = ['X','W','U','F','I','L','N','Y','Z'];
+
+function constrainedPieceSurvivalPenalty(simBoard, W, H, remAp, allowFlip, PENTS, xformFn) {
+  const hardPieces = remAp.filter(p => CONSTRAINED_URGENT_SET.includes(p));
+  if (!hardPieces.length) return 0;
+  
+  const flipOpts = allowFlip ? [false, true] : [false];
+  const penalties = { X: 800, W: 600, U: 500, F: 400, I: 500, L: 250, N: 250, Y: 250, Z: 200 };
+  let totalPenalty = 0;
+
+  for (const pk of hardPieces) {
+    // ── V5.1 FIX: Count placements (capped at 4) instead of just binary existence ──
+    // This enables exponential scaling: 0 spots = full penalty, 1 = 60%, 2 = 30%, 3 = 10%
+    let placementCount = 0;
+    const COUNT_CAP = 4; // stop after 4 — we only need to know "0 / 1 / 2 / 3 / safe"
+    outer: for (const flip of flipOpts) {
+      for (let rot = 0; rot < 4; rot++) {
+        const shape = xformFn(PENTS[pk], rot, flip);
+        for (let ay = 0; ay < H; ay++) {
+          for (let ax = 0; ax < W; ax++) {
+            let valid = true;
+            for (const [dx, dy] of shape) {
+              const x = ax + dx, y = ay + dy;
+              if (x < 0 || y < 0 || x >= W || y >= H || simBoard[y][x] !== null) { 
+                valid = false; break; 
+              }
             }
-            if(valid){hasPlacement=true;break outer;}
+            if (valid) {
+              placementCount++;
+              if (placementCount >= COUNT_CAP) break outer;
+            }
           }
         }
       }
     }
-    if(!hasPlacement){
-      // I-piece stranded = almost certain loss; other elongated = very bad
-      penalty-=(pk==='I'?500:250);
-    }
+
+    const basePenalty = penalties[pk] || 200;
+    if      (placementCount === 0) totalPenalty -= basePenalty;           // fully stranded — full penalty
+    else if (placementCount === 1) totalPenalty -= basePenalty * 0.60;   // 1 spot — very dangerous
+    else if (placementCount === 2) totalPenalty -= basePenalty * 0.30;   // 2 spots — at risk
+    else if (placementCount === 3) totalPenalty -= basePenalty * 0.10;   // 3 spots — mild pressure
+    // 4+ placements: no penalty — piece is safe
   }
-  return penalty;
+  return totalPenalty;
 }
 
-// ── I-PIECE URGENCY ──────────────────────────────────────────────────────────
-// The I-piece needs an open 5-in-a-row lane. As the board fills, those lanes
-// disappear. Give a growing bonus for PLAYING I before the board fragments.
-// This directly counters the human strategy of collapsing open rows early.
 function iPieceUrgencyBonus(pk,placedCount,boardW,boardH){
   if(pk!=='I') return 0;
   const fillRatio=(placedCount*5)/(boardW*boardH);
@@ -1797,14 +1777,6 @@ function iPieceUrgencyBonus(pk,placedCount,boardW,boardH){
   return fillRatio*90;
 }
 
-// ── I-PIECE EDGE PLACEMENT ENFORCER ──────────────────────────────────────────
-// Placing I in the interior of the board (not on an edge row/column) is almost
-// always a strategic blunder — it divides the board and forces the AI to abandon
-// one half. Returns large bonus for edge placements, heavy penalty for interior.
-//
-// EDGE definitions (10×6 board):
-//   Horizontal: row 0 or row H-1 (y=0 or y=5)
-//   Vertical:   column 0 or column W-1 (x=0 or x=9)
 function iEdgePlacementBonus(pk,movAbs,W,H){
   if(pk!=='I') return 0;
   if(!movAbs||movAbs.length!==5) return 0;
@@ -1815,25 +1787,18 @@ function iEdgePlacementBonus(pk,movAbs,W,H){
   if(!isHorizontal&&!isVertical) return 0;
   if(isHorizontal){
     const row=ys[0];
-    if(row===0||row===H-1) return 180;  // top/bottom edge row — ideal
-    if(row===1||row===H-2) return 60;   // one row in — acceptable
-    return -220;                         // interior row — punish hard
+    if(row===0||row===H-1) return 180;  
+    if(row===1||row===H-2) return 60;   
+    return -220;                         
   }
-  // Vertical
   const col=xs[0];
-  if(col===0||col===W-1) return 180;   // left/right edge column — ideal
-  if(col===1||col===W-2) return 60;    // one column in — acceptable
-  return -220;                          // interior column — punish hard
+  if(col===0||col===W-1) return 180;   
+  if(col===1||col===W-2) return 60;    
+  return -220;                          
 }
 
-// ── I-LANE CLOSING BONUS ──────────────────────────────────────────────────────
-// When the human still has I in hand, reward moves that break up open 5-in-a-row
-// lanes (horizontal or vertical) on the board. An "I-lane" is any contiguous run
-// of 5+ empty cells in a straight line. Placing into one breaks it permanently.
 function iLaneClosingBonus(abs,board,simBoard,W,H){
-  // Find all I-lanes on the PRE-move board
   const lanes=[];
-  // Horizontal
   for(let y=0;y<H;y++){
     let run=0,start=0;
     for(let x=0;x<=W;x++){
@@ -1841,7 +1806,6 @@ function iLaneClosingBonus(abs,board,simBoard,W,H){
       else{if(run>=5) for(let i=start;i<start+run;i++) lanes.push(y*W+i); run=0;}
     }
   }
-  // Vertical
   for(let x=0;x<W;x++){
     let run=0,start=0;
     for(let y=0;y<=H;y++){
@@ -1851,15 +1815,11 @@ function iLaneClosingBonus(abs,board,simBoard,W,H){
   }
   if(!lanes.length) return 0;
   const laneSet=new Set(lanes);
-  // Check which lanes are broken by simBoard (i.e. we placed into them)
   let bonus=0;
   for(const[x,y]of abs){
-    if(laneSet.has(y*W+x)) bonus+=28; // placing into an I-lane = good
+    if(laneSet.has(y*W+x)) bonus+=28; 
   }
-  // Also: count how many I-lanes survive on the simBoard (fewer = better)
-  // Reward moves that eliminate the most lanes
   let lanesBefore=0,lanesAfter=0;
-  // Horizontal sim-check
   for(let y=0;y<H;y++){
     let run=0;
     for(let x=0;x<=W;x++){
@@ -1889,14 +1849,9 @@ function iLaneClosingBonus(abs,board,simBoard,W,H){
   return bonus;
 }
 
-// ── FIX 2: Count I-lanes that are actually reachable (touch an existing piece) ──
-// Returns the number of distinct 5-in-a-row runs of empty cells that an I-piece
-// could legally land on. Used to penalise moves that leave lanes open when the
-// opponent holds I.
 function countReachableILanes(board,W,H){
   const dirs=[[1,0],[-1,0],[0,1],[0,-1]];
   let count=0;
-  // Horizontal
   for(let y=0;y<H;y++){
     for(let x=0;x<=W-5;x++){
       let allEmpty=true;
@@ -1910,7 +1865,6 @@ function countReachableILanes(board,W,H){
       if(touches) count++;
     }
   }
-  // Vertical
   for(let x=0;x<W;x++){
     for(let y=0;y<=H-5;y++){
       let allEmpty=true;
@@ -1927,7 +1881,6 @@ function countReachableILanes(board,W,H){
   return count;
 }
 
-// ── FIX 6 helper: check if a single piece has ANY valid placement on the board ──
 function pieceHasAnyPlacement(board,pk,W,H,placed,allowFlip,PENTS,xformFn){
   const base=PENTS[pk];
   const flipOpts=allowFlip?[false,true]:[false];
@@ -1959,15 +1912,36 @@ function pieceHasAnyPlacement(board,pk,W,H,placed,allowFlip,PENTS,xformFn){
   return false;
 }
 
+function xSpacePreservationBonus(movAbs, board, simBoard, W, H, remAp, allowFlip, PENTS, xformFn) {
+  if (!remAp.includes('X')) return 0;
+
+  const countPlacements = (b) => {
+    let count = 0;
+    const shape = xformFn(PENTS['X'], 0, false);
+    for (let ay = 0; ay < H; ay++) {
+      for (let ax = 0; ax < W; ax++) {
+        let valid = true;
+        for (const [dx, dy] of shape) {
+          const x = ax + dx, y = ay + dy;
+          if (x < 0 || y < 0 || x >= W || y >= H || b[y][x] !== null) { valid = false; break; }
+        }
+        if (valid) count++;
+      }
+    }
+    return count;
+  };
+
+  const before = countPlacements(board);
+  const after = countPlacements(simBoard);
+  const reduction = before - after;
+  
+  return reduction > 0 ? -(reduction * 40) : 0;
+}
+
 // ══════════════════════════════════════════════════════════════════════════
-//  MCTS (MONTE CARLO TREE SEARCH) HELPERS  —  Ultimate difficulty only
-//  These functions implement fast random game playouts used to estimate
-//  true win probability for candidate moves beyond the heuristic horizon.
+//  MCTS (MONTE CARLO TREE SEARCH) HELPERS
 // ══════════════════════════════════════════════════════════════════════════
 
-// Lazily-built lookup of all unique piece orientations.
-// Avoids repeated transformCells calls inside hot rollout loops.
-// NOTE: must be called with PENTS and xformFn since they are not module-level globals.
 let _godShapes=null;
 function getGodShapes(PENTS,xformFn){
   if(_godShapes) return _godShapes;
@@ -1984,11 +1958,6 @@ function getGodShapes(PENTS,xformFn){
   return _godShapes;
 }
 
-// Single random game playout starting from `board` (AI has already placed a piece).
-// `nextTurn` is the player who moves first in this rollout.
-// Uses rejection-sampling random placement (fast, slightly approximate).
-// Returns the winning player number (ap or hp).
-// ── SMART ROLLOUT HELPER: count valid placements for a piece on board ──────────
 function _rolloutPlacementCount(pk,b,W,H,pc,godShapes){
   const shapes=godShapes[pk]; let count=0;
   for(const shape of shapes){
@@ -2014,7 +1983,6 @@ function _rolloutPlacementCount(pk,b,W,H,pc,godShapes){
   return count;
 }
 
-// Collect all valid placements for a piece, returning abs-cell arrays.
 function _rolloutGetPlacements(pk,b,W,H,pc,godShapes){
   const shapes=godShapes[pk]; const placements=[];
   for(const shape of shapes){
@@ -2040,55 +2008,65 @@ function _rolloutGetPlacements(pk,b,W,H,pc,godShapes){
   return placements;
 }
 
-/**
- * Smart rollout: uses MCPF (most-constrained-piece-first) ordering.
- * For each player, we play the piece with fewest remaining placements first
- * (the one most at risk of getting stuck). Within a piece, pick a random
- * valid placement. This makes rollouts ~3× more representative of good play
- * than pure random, without adding meaningful compute cost.
- */
-function fastRolloutGame(board,W,H,ap,hp,nextTurn,remaining,placed,godShapes){
-  const b=board.map(r=>[...r]);
-  const rem={[ap]:[...(remaining[ap]||[])],[hp]:[...(remaining[hp]||[])]};
-  let curr=nextTurn,pc=placed;
-  for(let turn=0;turn<20;turn++){
-    const hand=rem[curr];
-    if(!hand.length) return curr===ap?hp:ap;
+function fastRolloutGame(board, W, H, ap, hp, nextTurn, remaining, placed, godShapes) {
+  const b = board.map(r => [...r]);
+  const rem = { [ap]: [...(remaining[ap] || [])], [hp]: [...(remaining[hp] || [])] };
+  let curr = nextTurn, pc = placed;
+  
+  for (let turn = 0; turn < 20; turn++) {
+    const hand = rem[curr];
+    if (!hand.length) return curr === ap ? hp : ap;
 
-    // ── MCPF ordering: sort hand by ascending placement count ──────
-    // Piece with 0 placements is stranded — playing it "wins" the tie
-    // (we're already lost that piece, so surface it to the top so the
-    // rollout terminates correctly rather than silently stranding it).
-    const counted=hand.map(pk=>({pk,cnt:_rolloutPlacementCount(pk,b,W,H,pc,godShapes)}));
-    counted.sort((a,b)=>a.cnt-b.cnt);
+    const counted = hand.map(pk => ({ pk, cnt: _rolloutPlacementCount(pk, b, W, H, pc, godShapes) }));
+    counted.sort((a, b) => a.cnt - b.cnt);
 
-    let done=false;
-    for(const{pk,cnt} of counted){
-      if(done) break;
-      if(cnt===0) continue; // stranded — skip (handled by !done check below)
-      const placements=_rolloutGetPlacements(pk,b,W,H,pc,godShapes);
-      if(!placements.length) continue;
-      // Pick a random valid placement from the enumerated list
-      const abs=placements[0|Math.random()*placements.length];
-      for(const[x,y]of abs) b[y][x]={player:curr,pieceKey:pk};
-      rem[curr]=rem[curr].filter(p=>p!==pk);
-      pc++;done=true;
+    let done = false;
+    for (const { pk, cnt } of counted) {
+      if (done) break;
+      if (cnt === 0) return curr === ap ? hp : ap; // Immediate loss if stranded
+
+      const placements = _rolloutGetPlacements(pk, b, W, H, pc, godShapes);
+      if (!placements.length) continue;
+
+      let bestAbs = placements[0];
+      let bestScore = -Infinity;
+      
+      for (const abs of placements) {
+        let score = 0;
+        for (const [x, y] of abs) {
+          for (const [ox, oy] of DIRS) {
+            const nx = x + ox, ny = y + oy;
+            if (nx < 0 || ny < 0 || nx >= W || ny >= H) {
+              score += 1; 
+            } else if (b[ny][nx]?.player === curr) {
+              score += 3; 
+            } else if (b[ny][nx] === null) {
+              score -= 1; 
+            }
+          }
+        }
+        if (score > bestScore) {
+          bestScore = score;
+          bestAbs = abs;
+        }
+      }
+
+      for (const [x, y] of bestAbs) b[y][x] = { player: curr, pieceKey: pk };
+      rem[curr] = rem[curr].filter(p => p !== pk);
+      pc++; 
+      done = true;
     }
-
-    if(!done) return curr===ap?hp:ap; // can't move = lose
-    curr=curr===ap?hp:ap;
+    if (!done) return curr === ap ? hp : ap;
+    curr = curr === ap ? hp : ap;
   }
   return ap;
 }
 
-// Run `numRollouts` random games starting from the board state AFTER candidate
-// move `m` has been applied.  Returns AI win-rate in [0,1].
 function fastMCTS(m,board,W,H,ap,hp,remaining,placed,godShapes,numRollouts){
-  // Apply candidate move to simulation board
   const simBoard=board.map(r=>[...r]);
   for(const[x,y]of m.abs) simBoard[y][x]={player:ap,pieceKey:m.pk};
   const simRem={[ap]:(remaining[ap]||[]).filter(k=>k!==m.pk),[hp]:[...(remaining[hp]||[])]};
-  const nextTurn=hp; // after AI places, human moves first in rollout
+  const nextTurn=hp; 
   let wins=0;
   for(let i=0;i<numRollouts;i++){
     if(fastRolloutGame(simBoard,W,H,ap,hp,nextTurn,simRem,placed+1,godShapes)===ap) wins++;
@@ -2170,8 +2148,488 @@ function pieceReservationPenalty(pk,hand,keyScores,piecesPlaced,totalHandSize){
 
 function isMirrorWar(W,H){return W===15&&H===8;}
 
+function detectDualAnchorThreat(board,W,H,hp){
+  const quadrants=[
+    {cx:0,    cy:0,    dx:1, dy:1}, 
+    {cx:W-1,  cy:0,    dx:-1,dy:1},  
+    {cx:0,    cy:H-1,  dx:1, dy:-1}, 
+    {cx:W-1,  cy:H-1,  dx:-1,dy:-1}, 
+  ];
+  const anchoredQuads=[];
+  for(const q of quadrants){
+    let anchored=false;
+    for(let dy=0;dy<Math.ceil(H/2)&&!anchored;dy++){
+      for(let dx=0;dx<Math.ceil(W/2)&&!anchored;dx++){
+        const nx=q.cx+dx*q.dx, ny=q.cy+dy*q.dy;
+        if(nx<0||ny<0||nx>=W||ny>=H) continue;
+        if(board[ny][nx]?.player===hp) anchored=true;
+      }
+    }
+    if(anchored) anchoredQuads.push(q);
+  }
+  if(anchoredQuads.length<2) return null;
+  const cx=Math.floor(W/2), cy=Math.floor(H/2);
+  return{anchoredCount:anchoredQuads.length,center:[cx,cy]};
+}
+
+function dualAnchorCounterBonus(movAbs,board,W,H,ap,hp){
+  const threat=detectDualAnchorThreat(board,W,H,hp);
+  if(!threat) return 0;
+  const[cx,cy]=threat.center;
+  let bonus=0;
+  for(const[x,y]of movAbs){
+    const dist=Math.abs(x-cx)+Math.abs(y-cy);
+    if(dist<=4) bonus+=(5-dist)*14;
+    let closestAnchoredDist=Infinity;
+    const corners=[[0,0],[W-1,0],[0,H-1],[W-1,H-1]];
+    for(const[qx,qy]of corners){
+      let hasOpp=false;
+      for(let dy=-2;dy<=2&&!hasOpp;dy++) for(let dx=-2;dx<=2&&!hasOpp;dx++){
+        const nx=qx+dx,ny=qy+dy;
+        if(nx<0||ny<0||nx>=W||ny>=H) continue;
+        if(board[ny][nx]?.player===hp) hasOpp=true;
+      }
+      if(!hasOpp){
+        const d=Math.abs(x-qx)+Math.abs(y-qy);
+        if(d<closestAnchoredDist) closestAnchoredDist=d;
+      }
+    }
+    if(closestAnchoredDist<=3) bonus+=20; 
+  }
+  const urgencyMult=threat.anchoredCount>=3?1.6:threat.anchoredCount>=2?1.0:0.5;
+  return bonus*urgencyMult;
+}
+
 // ─────────────────────────────────────────────────────────────────
-//  FACTORY
+//  V5.0 — UNIQUE CAVITY BANKING
+// ─────────────────────────────────────────────────────────────────
+
+/**
+ * Identifies pieces the AI has that the Human does NOT currently hold.
+ * Returns a Set of those "exclusive" piece keys.
+ */
+function getAiExclusivePieces(aiHand, hpHand) {
+  const hpSet = new Set(hpHand);
+  return new Set(aiHand.filter(pk => !hpSet.has(pk)));
+}
+
+/**
+ * For each empty region, checks:
+ *  - Can any of the AI's exclusive pieces fit?
+ *  - Can any of the Human's pieces fit?
+ *
+ * Scores highly when the AI has exclusive access to a region the Human cannot touch.
+ * Also rewards moves that frame/border such exclusive regions.
+ *
+ * @returns positive score — higher = better for AI
+ */
+function uniqueCavityBankingScore(simBoard, W, H, ap, hp, aiHand, hpHand, PENTS, xformFn) {
+  if (!aiHand.length || !hpHand) return 0;
+
+  const exclusiveAI = getAiExclusivePieces(aiHand, hpHand);
+  if (!exclusiveAI.size) return 0;
+
+  const regions = floodFillRegions(simBoard, W, H);
+  const flipOpts = [false, true];
+  let totalScore = 0;
+
+  for (const reg of regions) {
+    if (reg.length < 5) continue;
+
+    // Only score regions adjacent to AI territory
+    let adjAI = false;
+    for (const [x, y] of reg) {
+      for (const [ox, oy] of DIRS) {
+        const nx = x + ox, ny = y + oy;
+        if (nx >= 0 && ny >= 0 && nx < W && ny < H && simBoard[ny][nx]?.player === ap) {
+          adjAI = true; break;
+        }
+      }
+      if (adjAI) break;
+    }
+    if (!adjAI) continue;
+
+    // Which of AI's exclusive pieces can fit here?
+    const excFitting = [...exclusiveAI].filter(pk =>
+      pieceCanFitInRegion(pk, reg, flipOpts, PENTS, xformFn)
+    );
+    if (!excFitting.length) continue;
+
+    // Can ANY of the human's pieces also fit?
+    const hpCanFit = hpHand.some(pk =>
+      pieceCanFitInRegion(pk, reg, flipOpts, PENTS, xformFn)
+    );
+
+    const isPerfectFit = reg.length === 5;
+    const divisible    = reg.length % 5 === 0;
+    const parityOk     = getParityDeadZoneScore(reg) === 0;
+
+    if (!hpCanFit) {
+      // Pure exclusive zone: AI holds the only keys
+      const base = reg.length * (divisible ? 52 : 28);
+      const parityBonus = parityOk ? reg.length * 15 : 0;
+      const sizeBonus   = isPerfectFit ? 80 : 0;
+      totalScore += base + parityBonus + sizeBonus;
+    } else {
+      // Contested zone but AI has exclusive pieces too → partial credit
+      totalScore += reg.length * excFitting.length * 8;
+    }
+  }
+
+  return totalScore;
+}
+
+/**
+ * Rewards the current move for framing (bordering) regions that only the AI's
+ * exclusive pieces can fill.  Called with the simulated board after placing.
+ */
+function exclusiveCavityFramingBonus(movAbs, simBoard, W, H, ap, hp, aiHand, hpHand, PENTS, xformFn) {
+  if (!aiHand.length) return 0;
+  const exclusiveAI = getAiExclusivePieces(aiHand, hpHand);
+  if (!exclusiveAI.size) return 0;
+
+  const regions = floodFillRegions(simBoard, W, H);
+  const flipOpts = [false, true];
+  let bonus = 0;
+
+  for (const reg of regions) {
+    if (reg.length < 5) continue;
+    const excFitting = [...exclusiveAI].filter(pk =>
+      pieceCanFitInRegion(pk, reg, flipOpts, PENTS, xformFn)
+    );
+    if (!excFitting.length) continue;
+    const hpCanFit = hpHand.some(pk => pieceCanFitInRegion(pk, reg, flipOpts, PENTS, xformFn));
+    if (hpCanFit) continue;   // Not exclusive
+
+    const regSet = new Set(reg.map(([x, y]) => y * W + x));
+    for (const [mx, my] of movAbs) {
+      for (const [ox, oy] of DIRS) {
+        const nx = mx + ox, ny = my + oy;
+        if (nx >= 0 && ny >= 0 && nx < W && ny < H && regSet.has(ny * W + nx)) {
+          bonus += 38; break;
+        }
+      }
+    }
+  }
+  return bonus;
+}
+
+// ─────────────────────────────────────────────────────────────────
+//  V5.0 — ANTI-BULKY BOUNDING BOX TRAP SCORER
+// ─────────────────────────────────────────────────────────────────
+
+const BULKY_PIECES  = new Set(['I', 'L', 'N', 'Y', 'T', 'Z']);
+const COMPACT_PIECES = new Set(['P', 'U', 'F']);
+
+/**
+ * Bulky pieces (I, L, N, Y, T, Z) require a minimum bounding box of at least 4×2
+ * or 5×1 to be placed.  A 3×2 or 2×3 cavity physically cannot contain any of them.
+ *
+ * This function scores a simulated board by:
+ *  1. Rewarding creation of tight 3×2 / 2×3 regions when the Human holds Bulky pieces.
+ *  2. Penalising creation of such regions when the AI itself holds only Bulky pieces.
+ *  3. Adding bonus for each Bulky piece the Human has that fits in ZERO post-move regions.
+ */
+function antiBulkyBoundingBoxScore(simBoard, W, H, ap, hp, aiHand, hpHand, PENTS, xformFn) {
+  const humanHasBulky = hpHand.some(pk => BULKY_PIECES.has(pk));
+  if (!humanHasBulky) return 0;
+
+  const regions = floodFillRegions(simBoard, W, H);
+  const flipOpts = [false, true];
+  let score = 0;
+
+  for (const reg of regions) {
+    if (reg.length < 5 || reg.length > 7) continue;
+
+    // ── V6.0: Fast cavity archetype detection (no pieceCanFitInRegion needed) ──
+    const archetype = detectCavityArchetype(reg);
+    const isTightBox = archetype === '3x2'; // 3×2 or 2×3 — hardcoded knowledge
+
+    if (!isTightBox) {
+      // Fall back to bounding box check for non-archetyped regions
+      let minX = W, maxX = -1, minY = H, maxY = -1;
+      for (const [x, y] of reg) {
+        if (x < minX) minX = x; if (x > maxX) maxX = x;
+        if (y < minY) minY = y; if (y > maxY) maxY = y;
+      }
+      const boxW = maxX - minX + 1;
+      const boxH = maxY - minY + 1;
+      if (!((boxW <= 3 && boxH <= 2) || (boxW <= 2 && boxH <= 3))) continue;
+    }
+
+    // Check adjacency
+    let adjHP = false, adjAI = false;
+    for (const [x, y] of reg) {
+      for (const [ox, oy] of DIRS) {
+        const nx = x + ox, ny = y + oy;
+        if (nx < 0 || ny < 0 || nx >= W || ny >= H) continue;
+        const p = simBoard[ny][nx]?.player;
+        if (p === hp) adjHP = true;
+        if (p === ap) adjAI = true;
+      }
+    }
+
+    // ── V6.0: Use hardcoded CANT_FIT_3x2 set — no pieceCanFitInRegion call ──
+    const hpBulkyBlocked = hpHand.filter(pk => CANT_FIT_3x2.has(pk)).length;
+    const aiCompactFits  = aiHand.filter(pk => CAN_FIT_3x2.has(pk)).length;
+
+    if (adjHP && hpBulkyBlocked > 0) {
+      // Trap springs on the human — excellent
+      score += hpBulkyBlocked * reg.length * 30;
+      if (aiCompactFits > 0) score += aiCompactFits * 40;
+    } else if (adjAI && !adjHP) {
+      const aiBulkyTrapped = aiHand.filter(pk => CANT_FIT_3x2.has(pk)).length;
+      if (aiBulkyTrapped > 0 && aiCompactFits === 0) {
+        score -= aiBulkyTrapped * 80;
+      }
+    }
+  }
+
+  // Additional: count how many human bulky pieces are globally stranded
+  for (const pk of hpHand) {
+    if (!BULKY_PIECES.has(pk)) continue;
+    const canPlace = regions.some(reg =>
+      reg.length >= 5 && pieceCanFitInRegion(pk, reg, flipOpts, PENTS, xformFn)
+    );
+    if (!canPlace) score += 220;
+  }
+
+  return score;
+}
+
+// ═══════════════════════════════════════════════════════════════════
+// V6.0 — BITBOARD & ZOBRIST INFRASTRUCTURE
+// ═══════════════════════════════════════════════════════════════════
+
+/**
+ * Build per-cell spread-neighbour lookup (BigInt masks) for fast BFS.
+ * Cached globally because board dimensions rarely change.
+ */
+const _spreadCache = new Map();
+function buildSpreadLookup(W, H) {
+  const key = W + 'x' + H;
+  if (_spreadCache.has(key)) return _spreadCache.get(key);
+  const N = W * H;
+  const sp = new Array(N);
+  for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) {
+    let m = 0n;
+    const i = y * W + x;
+    if (x > 0)   m |= (1n << BigInt(i - 1));
+    if (x < W-1) m |= (1n << BigInt(i + 1));
+    if (y > 0)   m |= (1n << BigInt(i - W));
+    if (y < H-1) m |= (1n << BigInt(i + W));
+    sp[i] = m;
+  }
+  _spreadCache.set(key, sp);
+  return sp;
+}
+
+/** Return BigInt mask of all EMPTY cells in a board array */
+function boardToEmptyBig(board, W, H) {
+  let m = 0n;
+  for (let y = 0; y < H; y++)
+    for (let x = 0; x < W; x++)
+      if (board[y][x] === null) m |= (1n << BigInt(y * W + x));
+  return m;
+}
+
+/**
+ * Bitwise connected-components on empty cells.
+ * Returns [{size, black, white}] — avoids slow array-BFS inside hot loops.
+ */
+function bbBlobRegions(board, W, H, spreadLookup) {
+  let rem = boardToEmptyBig(board, W, H);
+  const sl = spreadLookup || buildSpreadLookup(W, H);
+  const regions = [];
+
+  while (rem !== 0n) {
+    const seed = rem & -rem;
+    let reg = seed;
+    let frontier = seed;
+
+    while (frontier !== 0n) {
+      let spread = 0n;
+      let tmp = frontier;
+      while (tmp !== 0n) {
+        const lsb = tmp & -tmp;
+        const bit = Number(lsb.toString(2).length) - 1;
+        spread |= sl[bit];
+        tmp ^= lsb;
+      }
+      spread &= rem & ~reg;
+      reg |= spread;
+      frontier = spread;
+    }
+
+    // Count cells and checkerboard parity
+    let size = 0, black = 0;
+    let tmp2 = reg;
+    while (tmp2 !== 0n) {
+      const lsb = tmp2 & -tmp2;
+      const bit = Number(lsb.toString(2).length) - 1;
+      const x = bit % W, y = (bit / W) | 0;
+      size++;
+      if ((x + y) % 2 === 0) black++;
+      tmp2 ^= lsb;
+    }
+    regions.push({ size, black, white: size - black });
+    rem &= ~reg;
+  }
+  return regions;
+}
+
+/**
+ * Quick parity-infeasibility score computed with bitwise blobs (no array alloc).
+ * Returns total penalty — higher means more dead zones.
+ */
+function bbParityScore(board, W, H, spreadLookup) {
+  const blobs = bbBlobRegions(board, W, H, spreadLookup);
+  let pen = 0;
+  for (const { size, black, white } of blobs) {
+    const diff = Math.abs(black - white);
+    if (size % 5 !== 0) { pen += diff * 28 + (size % 5) * 18; continue; }
+    const k = (size / 5) | 0;
+    if (diff > k) pen += (diff - k) * 40 + diff * 22 + size * 4;
+    else if ((diff % 2) !== (k % 2)) pen += 30 + diff * 22 + size * 4;
+  }
+  return pen;
+}
+
+// ─── Zobrist Hashing ────────────────────────────────────────────────
+let _ztable = null;
+function getZobristTable(maxCells) {
+  if (_ztable && _ztable.length >= maxCells * 2) return _ztable;
+  // Use seeded deterministic values for reproducibility
+  const t = new Array(maxCells * 2);
+  let s = 0xdeadbeef;
+  for (let i = 0; i < t.length; i++) {
+    s = Math.imul(s ^ (s >>> 17), 0x45d9f3b) >>> 0;
+    s = Math.imul(s ^ (s >>> 7),  0x165667bb) >>> 0;
+    const hi = s >>> 0;
+    s = Math.imul(s ^ (s >>> 11), 0x1b873593) >>> 0;
+    const lo = s >>> 0;
+    t[i] = (BigInt(hi) << 32n) | BigInt(lo);
+  }
+  _ztable = t;
+  return t;
+}
+
+function boardZobristHash(board, W, H) {
+  const N = W * H;
+  const zt = getZobristTable(N);
+  let h = 0n;
+  for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) {
+    const c = board[y][x];
+    if (!c) continue;
+    const i = (y * W + x) * 2 + (c.player === 1 ? 0 : 1);
+    h ^= zt[i];
+  }
+  return h;
+}
+
+// ─── Cavity Archetype Detection ─────────────────────────────────────
+/**
+ * Fast O(N) classification of a region without running pieceCanFitInRegion.
+ * Returns 'exact5' | '3x2' | '2x3' | 'cross' | 'large' | 'tiny' | 'other'
+ */
+function detectCavityArchetype(region) {
+  const sz = region.length;
+  if (sz < 5)  return 'tiny';
+  if (sz > 10) return 'large';
+  if (sz === 5) return 'exact5';
+
+  const xs = region.map(([x]) => x);
+  const ys = region.map(([, y]) => y);
+  const minX = Math.min(...xs), maxX = Math.max(...xs);
+  const minY = Math.min(...ys), maxY = Math.max(...ys);
+  const bw = maxX - minX + 1, bh = maxY - minY + 1;
+
+  // 3×2 or 2×3 bounding box fully filled
+  if ((bw === 3 && bh === 2) || (bw === 2 && bh === 3)) return sz === 6 ? '3x2' : 'other';
+  if (sz === 5) return 'exact5';
+
+  // Cross: centre cell has 4 filled neighbours inside region
+  if (sz === 5) {
+    const regSet = new Set(region.map(([x, y]) => y * 100 + x));
+    for (const [cx, cy] of region) {
+      let cnt = 0;
+      for (const [ox, oy] of DIRS) { if (regSet.has((cy + oy) * 100 + (cx + ox))) cnt++; }
+      if (cnt === 4) return 'cross';
+    }
+  }
+  return 'other';
+}
+
+/**
+ * Pieces that CANNOT fit in a 3×2 / 2×3 bounding box.
+ * I, L, N, Y, Z, T all require at least one dimension ≥ 3 AND the other ≥ 2
+ * in a straight orientation — they don't fit in a compact 6-cell box.
+ * P and U CAN fit. X, W, F, V cannot fit (require more spread).
+ */
+const CANT_FIT_3x2 = new Set(['I', 'L', 'N', 'Y', 'Z', 'T', 'X', 'W', 'F', 'V']);
+const CAN_FIT_3x2  = new Set(['P', 'U']);
+
+// ═══════════════════════════════════════════════════════════════════
+// V6.0 — I-PIECE BOARD BISECTION ANALYSIS
+// ═══════════════════════════════════════════════════════════════════
+
+/**
+ * Identifies the single best row/column to bisect by placing the I-piece,
+ * then returns a score based on how well it divides the board into two
+ * independent sub-games of roughly equal size.
+ *
+ * A true bisection line splits the board into two non-empty connected
+ * components when the line is fully blocked.
+ */
+function iBisectionAnalysis(board, W, H) {
+  const EMPTY_THRESHOLD = 4; // min consecutive empties to consider a cut
+  let bestLine = null, bestScore = -Infinity;
+
+  // Test each row as a potential horizontal cut
+  for (let y = 0; y < H; y++) {
+    let emptyRun = 0, maxRun = 0;
+    for (let x = 0; x < W; x++) {
+      if (board[y][x] === null) { emptyRun++; maxRun = Math.max(maxRun, emptyRun); }
+      else emptyRun = 0;
+    }
+    if (maxRun < 5) continue; // I-piece needs 5 consecutive
+
+    // Estimate sub-game sizes above and below
+    let above = 0, below = 0;
+    for (let dy = 0; dy < H; dy++)
+      for (let dx = 0; dx < W; dx++)
+        if (board[dy][dx] === null) (dy < y ? above : dy > y ? below : null);
+
+    const balance = Math.abs(above - below);
+    const edgeBonus = (y === 0 || y === H - 1) ? 80 : (y === 1 || y === H - 2) ? 30 : 0;
+    const score = maxRun * 4 - balance * 0.5 + edgeBonus;
+    if (score > bestScore) { bestScore = score; bestLine = { type: 'row', y, score }; }
+  }
+
+  // Test each column as a potential vertical cut
+  for (let x = 0; x < W; x++) {
+    let emptyRun = 0, maxRun = 0;
+    for (let y = 0; y < H; y++) {
+      if (board[y][x] === null) { emptyRun++; maxRun = Math.max(maxRun, emptyRun); }
+      else emptyRun = 0;
+    }
+    if (maxRun < 5) continue;
+
+    let left = 0, right = 0;
+    for (let dy = 0; dy < H; dy++)
+      for (let dx = 0; dx < W; dx++)
+        if (board[dy][dx] === null) (dx < x ? left++ : dx > x ? right++ : null);
+
+    const balance = Math.abs(left - right);
+    const edgeBonus = (x === 0 || x === W - 1) ? 80 : (x === 1 || x === W - 2) ? 30 : 0;
+    const score = maxRun * 4 - balance * 0.5 + edgeBonus;
+    if (score > bestScore) { bestScore = score; bestLine = { type: 'col', x, score }; }
+  }
+
+  return bestLine;
+}
+
+// ═══════════════════════════════════════════════════════════════════
 // ─────────────────────────────────────────────────────────────────
 
 export function createAiEngine({game,aiPlayer,humanPlayer,aiDifficulty,PENTOMINOES,transformCells,getDraftHistory}){
@@ -2181,20 +2639,17 @@ export function createAiEngine({game,aiPlayer,humanPlayer,aiDifficulty,PENTOMINO
   const CACHE_MAX=400;
   function _evict(map){if(map.size>CACHE_MAX) map.delete(map.keys().next().value);}
 
-  // Territory plan state
   let _plan=null,_planSig=null;
-  // Opponent zone (Ultimate)
   let _oppZone=null,_oppZoneSig=null;
-  // Opportunity state
   let _opp=null,_oppBoardSig=null;
 
+  let _masterPlan = null;
+  let _masterPlanSig = null;
+
+  // ── Zobrist-based board signature — replaces slow string concat ──
   function _bsig(board,W,H){
-    let s='';
-    for(let y=0;y<H;y++) for(let x=0;x<W;x++){
-      const c=board[y][x];
-      s+=c===null?'.':(c?.player===1?'1':'2');
-    }
-    return s;
+    // Return Zobrist hash as hex string (fast XOR-based, not string scan)
+    return boardZobristHash(board,W,H).toString(16);
   }
   function _remKey(remaining,p){return(remaining[p]||[]).slice().sort().join('');}
   function _mkKey(prefix,p,board,W,H,rem,placed,flip){
@@ -2284,6 +2739,24 @@ export function createAiEngine({game,aiPlayer,humanPlayer,aiDifficulty,PENTOMINO
     _moveCountCache.set(k,v); _evict(_moveCountCache); return v;
   }
 
+  function cornerControlBonus(board,W,H,ap,hp){
+    const corners=[[0,0],[W-1,0],[0,H-1],[W-1,H-1]];
+    let aiScore=0,hpScore=0;
+    for(const[cx,cy]of corners){
+      for(let dy=-2;dy<=2;dy++) for(let dx=-2;dx<=2;dx++){
+        if(Math.abs(dx)+Math.abs(dy)>2) continue;
+        const nx=cx+dx,ny=cy+dy;
+        if(nx<0||ny<0||nx>=W||ny>=H) continue;
+        const dist=Math.abs(dx)+Math.abs(dy);
+        const weight=dist===0?4:dist===1?2.5:1;
+        const p=board[ny][nx]?.player;
+        if(p===ap) aiScore+=weight;
+        else if(p===hp) hpScore+=weight;
+      }
+    }
+    return aiScore-hpScore;
+  }
+
   function quickScore(simBoard,ap,hp,bW,bH){
     const t=territoryAdvantage(simBoard,bW,bH,ap,hp);
     const regs=floodFillRegions(simBoard,bW,bH);
@@ -2293,32 +2766,48 @@ export function createAiEngine({game,aiPlayer,humanPlayer,aiDifficulty,PENTOMINO
     const openZ=largest?largest.length*0.18:0;
     const cluster=aiClusterPenalty(simBoard,bW,bH,ap);
     const seal=territorySealScore(simBoard,bW,bH,ap,hp,regs);
-    return t*12+trap*0.25+fr*0.9+openZ+cluster*1.5+seal*0.4;
+    const cornerCtrl=cornerControlBonus(simBoard,bW,bH,ap,hp);
+    return t*12+trap*0.25+fr*0.9+openZ+cluster*1.5+seal*0.4+cornerCtrl*3;
   }
 
   function connectivityBeam(moves,board,bW,bH,ap,hp,beamSize){
     if(!moves.length) return[];
-    const aiOcc=new Set();
-    for(let y=0;y<bH;y++) for(let x=0;x<bW;x++)
-      if(board[y][x]?.player===ap) aiOcc.add(y*bW+x);
-    const conn=[],disc=[];
-    for(const m of moves){
-      const sim=board.map(r=>[...r]);
-      for(const[x,y]of m.abs) sim[y][x]={player:ap,pieceKey:m.pk};
-      const qs=quickScore(sim,ap,hp,bW,bH);
-      let touches=!aiOcc.size;
-      if(!touches){
-        outer:for(const[x,y]of m.abs) for(const[ox,oy]of DIRS){
-          const nx=x+ox,ny=y+oy;
-          if(nx>=0&&ny>=0&&nx<bW&&ny<bH&&aiOcc.has(ny*bW+nx)){touches=true;break outer;}
+
+    // V5.2 FIX: Removed connected/disconnected split bias.
+    // Original code forced 75% connected moves into the beam, causing tunnel vision:
+    // the AI would build a single blob instead of sprawling to block opponent lanes.
+    // Pure quickScore ranking means a well-placed disconnected move (e.g. seeding a
+    // second territory zone) can beat a mediocre connected move on merit alone.
+
+    const MAX_PRESCORE = beamSize * 8;
+    let candidates = moves;
+    if (moves.length > MAX_PRESCORE) {
+      // Stratified sample by piece type — preserves diversity across all piece keys
+      // so every piece type gets representation in the scored pool.
+      const byPk = new Map();
+      for (const m of moves) {
+        if (!byPk.has(m.pk)) byPk.set(m.pk, []);
+        byPk.get(m.pk).push(m);
+      }
+      const out = [];
+      const perPk = Math.ceil(MAX_PRESCORE / byPk.size);
+      for (const bucket of byPk.values()) {
+        const step = Math.max(1, Math.floor(bucket.length / perPk));
+        for (let i = 0; i < bucket.length && out.length < MAX_PRESCORE; i += step) {
+          out.push(bucket[i]);
         }
       }
-      (touches?conn:disc).push({m,s:qs});
+      candidates = out;
     }
-    conn.sort((a,b)=>b.s-a.s); disc.sort((a,b)=>b.s-a.s);
-    const beam=conn.slice(0,beamSize);
-    if(beam.length<beamSize) beam.push(...disc.slice(0,beamSize-beam.length));
-    return beam;
+
+    const scored = [];
+    for (const m of candidates) {
+      const sim = board.map(r => [...r]);
+      for (const [x,y] of m.abs) sim[y][x] = { player: ap, pieceKey: m.pk };
+      scored.push({ m, s: quickScore(sim, ap, hp, bW, bH) });
+    }
+    scored.sort((a, b) => b.s - a.s);
+    return scored.slice(0, beamSize);
   }
 
   function simulateOppResponse(simBoard,ap,hp,bW,bH,rem,placed,allowFlip){
@@ -2340,13 +2829,72 @@ export function createAiEngine({game,aiPlayer,humanPlayer,aiDifficulty,PENTOMINO
     return worst;
   }
 
-  // ── Plan management ───────────────────────────────────────────
+  function solveTiling(hand, board, W, H, allowFlip, PENTS, xformFn, timeLimitMs) {
+    const deadline = Date.now() + timeLimitMs;
+    const flipOpts = allowFlip ? [false, true] : [false];
+    
+    const sortedHand = [...hand].sort((a, b) => {
+      const constraints = { X: 10, W: 9, U: 8, F: 7, I: 6, L: 5, N: 5, Y: 4, Z: 3, P: 2, T: 1, V: 0 };
+      return (constraints[b] || 0) - (constraints[a] || 0);
+    });
+
+    let bestTiling = null;
+    let maxPiecesPlaced = 0;
+
+    function backtrack(boardState, piecesLeft, currentTiling) {
+      if (Date.now() > deadline) return;
+      
+      if (piecesLeft.length === 0) {
+        bestTiling = [...currentTiling];
+        maxPiecesPlaced = 6;
+        return true; 
+      }
+
+      if (currentTiling.length > maxPiecesPlaced) {
+        maxPiecesPlaced = currentTiling.length;
+        bestTiling = [...currentTiling];
+      }
+
+      const pk = piecesLeft[0];
+      const remaining = piecesLeft.slice(1);
+      
+      const placements = getPiecePlacements(pk, boardState, W, H, flipOpts, PENTS, xformFn);
+      
+      for (const abs of placements) {
+        let touches = currentTiling.length === 0;
+        if (!touches) {
+          outer: for (const [x, y] of abs) {
+            for (const [ox, oy] of DIRS) {
+              const nx = x + ox, ny = y + oy;
+              if (nx >= 0 && nx < W && ny >= 0 && ny < H && boardState[ny][nx] !== null) {
+                touches = true; break outer;
+              }
+            }
+          }
+        }
+        if (!touches) continue;
+
+        for (const [x, y] of abs) boardState[y][x] = { pieceKey: pk };
+        currentTiling.push({ pk, abs });
+
+        const success = backtrack(boardState, remaining, currentTiling);
+        if (success) return true;
+
+        currentTiling.pop();
+        for (const [x, y] of abs) boardState[y][x] = null;
+      }
+      return false;
+    }
+
+    backtrack(board.map(r => [...r]), sortedHand, []);
+    return bestTiling;
+  }
+
   function getOrComputePlan(hand,board,W,H,ap,hp,allowFlip,opp){
     const sig=_bsig(board,W,H)+'|'+hand.slice().sort().join('');
     if(_plan&&_planSig===sig) return _plan;
     if(_plan&&isZoneIntruded(_plan,board,W,H,hp)) _plan=null;
 
-    // If opportunity scanner found a better pivot zone, adopt it
     if(opp?.pivotZone&&(!_plan||opp.pivotZone.score>(_plan.score||0)*1.1)){
       _plan=opp.pivotZone;
       _planSig=sig;
@@ -2357,7 +2905,6 @@ export function createAiEngine({game,aiPlayer,humanPlayer,aiDifficulty,PENTOMINO
     _plan=plan; _planSig=sig; return _plan;
   }
 
-  // ── Opportunity management ─────────────────────────────────────
   function getOrScanOpportunities(board,W,H,ap,hp,aiHand,allowFlip){
     const sig=_bsig(board,W,H);
     if(_opp&&_oppBoardSig===sig) return _opp;
@@ -2366,19 +2913,36 @@ export function createAiEngine({game,aiPlayer,humanPlayer,aiDifficulty,PENTOMINO
     return _opp;
   }
 
-  // ── Endgame solver ────────────────────────────────────────────
   function endgameSolve(moves){
     if(!moves.length) return null;
     const{board,boardW,boardH,remaining,placedCount,allowFlip}=game;
     const ap=aiPlayer.value,hp=humanPlayer.value;
     const diff=aiDifficulty.value;
     const aiHand=remaining[ap]||[];
-    const useRes=(diff==='expert'||diff==='master')&&aiHand.length>3;
+    const useRes=(diff==='expert'||diff==='master'||diff==='ultimate')&&aiHand.length>3;
     const keyPieces=useRes?identifyKeyPieces(aiHand,board,boardW,boardH,ap,allowFlip,PENTOMINOES,transformCells):null;
     const plan=_plan;
 
-    // Endgame MCPF: always play the most constrained piece in late game
-    const egPlacementCounts=(diff==='expert'||diff==='master')
+    // FIX A: For ultimate mode with ≤3 pieces left, try solveTiling first.
+    // This finds a provably-complete packing order instead of relying on heuristics.
+    if((diff==='ultimate'||diff==='expert')&&aiHand.length<=3&&aiHand.length>=1){
+      const tilingResult=solveTiling(aiHand,board,boardW,boardH,allowFlip,PENTOMINOES,transformCells,400);
+      if(tilingResult&&tilingResult.length===aiHand.length){
+        // Found a complete packing — play the first step of the solution
+        const firstStep=tilingResult[0];
+        const matchingMove=moves.find(m=>{
+          if(m.pk!==firstStep.pk) return false;
+          if(m.abs.length!==firstStep.abs.length) return false;
+          return m.abs.every(([x,y],i)=>firstStep.abs[i][0]===x&&firstStep.abs[i][1]===y);
+        });
+        if(matchingMove) return matchingMove;
+        // Tiling found but position mismatch — still use tiling pk to guide choice
+        const pkMoves=moves.filter(m=>m.pk===firstStep.pk);
+        if(pkMoves.length===1) return pkMoves[0];
+      }
+    }
+
+    const egPlacementCounts=(diff==='expert'||diff==='master'||diff==='ultimate')
       ?computePiecePlacementCounts(aiHand,board,boardW,boardH,placedCount,allowFlip,PENTOMINOES,transformCells)
       :null;
 
@@ -2393,15 +2957,28 @@ export function createAiEngine({game,aiPlayer,humanPlayer,aiDifficulty,PENTOMINO
       }
       const regions=floodFillRegions(sim,boardW,boardH);
       const rem={[ap]:aiHand.filter(k=>k!==m.pk),[hp]:[...(remaining[hp]||[])]};
+
+      // FIX A: Joint feasibility — penalise moves that leave remaining pieces unpackable together
+      let jointFeasPenalty=0;
+      if(rem[ap].length>=2){
+        const jointTiling=solveTiling(rem[ap],sim,boardW,boardH,allowFlip,PENTOMINOES,transformCells,120);
+        if(!jointTiling||jointTiling.length<rem[ap].length){
+          // Can't pack all remaining pieces after this move — heavy disqualification
+          jointFeasPenalty=-9999;
+        }
+      }
+
       let score=(aiC-hpC)*22+regionFeasibilityBonus(regions,sim,boardW,boardH,hp)*1.6
               +territoryAdvantage(sim,boardW,boardH,ap,hp)*8+aiClusterPenalty(sim,boardW,boardH,ap)*1.5
               +sealingFinisherBonus(m.abs,board,sim,boardW,boardH,ap,hp)*4
               +territorySealScore(sim,boardW,boardH,ap,hp)*2.5
               +zoneSealBonus(regions,board,sim,boardW,boardH,hp)*2.5
-              +allPiecesViabilityScore(sim,boardW,boardH,rem[ap],placedCount+1,allowFlip,PENTOMINOES,transformCells);
+              +allPiecesViabilityScore(sim,boardW,boardH,rem[ap],placedCount+1,allowFlip,PENTOMINOES,transformCells)*25.0
+              +jointFeasPenalty;
       if(plan) score+=territoryPlanBonus(m.abs,plan,board,sim,boardW,boardH,ap,hp)*3;
       if(keyPieces) score+=pieceReservationPenalty(m.pk,aiHand,keyPieces,placedCount,aiHand.length)*1.2;
-      if(diff==='expert'||diff==='master'){
+      // FIX E: include opponent lookahead for ultimate (previously expert/master only)
+      if(diff==='expert'||diff==='master'||diff==='ultimate'){
         const ra={[ap]:rem[ap],[hp]:[...(remaining[hp]||[])]};
         const omEG=movesOnBoard(hp,sim,boardW,boardH,ra,placedCount+1,allowFlip);
         if(omEG.length){
@@ -2415,24 +2992,17 @@ export function createAiEngine({game,aiPlayer,humanPlayer,aiDifficulty,PENTOMINO
           score+=worst*0.5;
         }
       }
-      // Apply MCPF urgency in endgame too
       if(egPlacementCounts){
-        score+=mcpfUrgencyBonus(m.pk,egPlacementCounts);
+        score+=placementCountGradientPenalty(rem[ap], egPlacementCounts) * 8.0;
       }
       if(score>bestScore){bestScore=score;best=m;}
     }
     return best;
   }
 
-  // ════════════════════════════════════════════════════════════════
-  //  EASY (dumbie) — purely random, occasionally walls
-  //  No territory awareness. Loses intentionally to feel beatable.
-  // ════════════════════════════════════════════════════════════════
   function movesEasy(moves){
     if(!moves.length) return null;
-    // 80% pure random
     if(Math.random()<0.80) return moves[Math.floor(Math.random()*moves.length)];
-    // 20%: weakly prefer adjacency to opponent (at least looks intentional)
     const{board,boardW,boardH}=game; const hp=humanPlayer.value;
     let best=null,bScore=-Infinity;
     for(const m of moves){
@@ -2447,11 +3017,6 @@ export function createAiEngine({game,aiPlayer,humanPlayer,aiDifficulty,PENTOMINO
     return best;
   }
 
-  // ════════════════════════════════════════════════════════════════
-  //  NORMAL (elite) — Voronoi territory + weak pressure
-  //  No territory plan. No opportunity scanner.
-  //  Beats Easy reliably but loses to a decent player.
-  // ════════════════════════════════════════════════════════════════
   function movesNormal(moves){
     if(!moves.length) return null;
     const{board,boardW,boardH,remaining,placedCount,allowFlip}=game;
@@ -2475,18 +3040,12 @@ export function createAiEngine({game,aiPlayer,humanPlayer,aiDifficulty,PENTOMINO
       const oppMobAfter=countTotalMoves(sim,boardW,boardH,hp,rem,placedCount+1,allowFlip);
       s+=(oppMobBefore-oppMobAfter)*0.4;
       s+=pieceEfficiencyScore(m.abs,sim,boardW,boardH,ap)*0.12;
-      s+=Math.random()*0.3; // slight noise so it's not perfectly consistent
+      s+=Math.random()*0.3; 
       if(s>bScore){bScore=s;best=m;}
     }
     return best;
   }
 
-  // ════════════════════════════════════════════════════════════════
-  //  HARD (tactician) — Territory plan + basic mistake detection
-  //  Finds a zone, seals it, fills it.
-  //  Uses opportunityBonus at 0.5x weight for exposed pockets only.
-  //  No stranded exploitation. No plan pivot. No 3-ply lookahead.
-  // ════════════════════════════════════════════════════════════════
   function movesTactician(moves){
     if(!moves.length) return null;
     const{board,boardW,boardH,remaining,placedCount,allowFlip}=game;
@@ -2494,17 +3053,14 @@ export function createAiEngine({game,aiPlayer,humanPlayer,aiDifficulty,PENTOMINO
     if((remaining[ap]?.length||0)<=3||(remaining[hp]?.length||0)<=3) return endgameSolve(moves);
 
     const aiHand=remaining[ap]||[];
-    // Scan opportunities at reduced fidelity (no pivot)
     const opp=getOrScanOpportunities(board,boardW,boardH,ap,hp,aiHand,allowFlip);
-    const plan=getOrComputePlan(aiHand,board,boardW,boardH,ap,hp,allowFlip,null); // no pivot for Hard
+    const plan=getOrComputePlan(aiHand,board,boardW,boardH,ap,hp,allowFlip,null); 
     const seal=plan?getZoneSealProgress(plan,board,boardW,boardH,ap):null;
 
     const oppMobBefore=countTotalMoves(board,boardW,boardH,hp,remaining,placedCount,allowFlip);
     const oppFeaBefore=countFeasiblePieces(board,boardW,boardH,hp,remaining,placedCount,allowFlip);
 
     const baseBeam=isMirrorWar(boardW,boardH)?18:30;
-    // Fix 15 — widen beam when the board has many disconnected regions, which signals
-    // unusual/wide human play that a fixed beam would miss.
     const regionCount=floodFillRegions(board,boardW,boardH).length;
     const adaptiveBeam=baseBeam+Math.min(20,Math.max(0,regionCount-3)*4);
     const beam=connectivityBeam(moves,board,boardW,boardH,ap,hp,adaptiveBeam);
@@ -2530,15 +3086,12 @@ export function createAiEngine({game,aiPlayer,humanPlayer,aiDifficulty,PENTOMINO
       const oppFeaAfter=countFeasiblePieces(sim,boardW,boardH,hp,rem,placedCount+1,allowFlip);
       score-=oppFeaAfter*6+(oppFeaBefore-oppFeaAfter)*(-10);
 
-      // Territory plan (primary)
       if(plan){
         let pw=3.5; if(seal&&seal.progress>0.7) pw=7;
         score+=territoryPlanBonus(m.abs,plan,board,sim,boardW,boardH,ap,hp)*pw;
       }
 
-      // Opportunity: exposed pockets ONLY (no stranded, no pivot) at 0.5x
       score+=opportunityBonus(m.abs,{...opp,pivotZone:null,strandedCells:[]},board,sim,boardW,boardH,ap,hp,0.5);
-
       score+=sealingFinisherBonus(m.abs,board,sim,boardW,boardH,ap,hp)*3;
       score+=territorySealScore(sim,boardW,boardH,ap,hp)*1.5;
       score+=endgameParityScore(sim,boardW,boardH,ap,hp,rem[ap],rem[hp],allowFlip,PENTOMINOES,transformCells)*2.5;
@@ -2549,12 +3102,6 @@ export function createAiEngine({game,aiPlayer,humanPlayer,aiDifficulty,PENTOMINO
     return best;
   }
 
-  // ════════════════════════════════════════════════════════════════
-  //  MASTER (grandmaster) — Full opportunity scanner + plan pivot
-  //  + 3-ply minimax + piece reservation + dynamic weights
-  //  Reactive: will abandon old plan if player opens a better zone.
-  //  Uses opportunityBonus at 1.0x weight (all 4 systems active).
-  // ════════════════════════════════════════════════════════════════
   function movesGrandmaster(moves){
     if(!moves.length) return null;
     const{board,boardW,boardH,remaining,placedCount,allowFlip}=game;
@@ -2567,18 +3114,12 @@ export function createAiEngine({game,aiPlayer,humanPlayer,aiDifficulty,PENTOMINO
     const dw=getDynamicWeights(board,boardW,boardH,ap,hp,placedCount,totalPieces);
     const aiHand=remaining[ap]||[];
 
-    // Scan ALL opportunities first (all 4 systems)
     const opp=getOrScanOpportunities(board,boardW,boardH,ap,hp,aiHand,allowFlip);
-
-    // Plan WITH pivot: Master will switch if a better zone appears
     const plan=getOrComputePlan(aiHand,board,boardW,boardH,ap,hp,allowFlip,opp);
     const seal=plan?getZoneSealProgress(plan,board,boardW,boardH,ap):null;
     const zoneSealed=seal?.isSealed??false;
-
-    // Piece cavity plan: reserve a specific piece slot and frame it
     const cavityPlan=buildPieceCavityPlan(aiHand,board,boardW,boardH,ap,hp,allowFlip,PENTOMINOES,transformCells);
 
-    // Opponent cavity: detect the shape they're building toward and intrude
     const hpHand=remaining[hp]||[];
     const oppCavity=detectOpponentCavity(board,boardW,boardH,hp,hpHand,allowFlip,PENTOMINOES,transformCells);
 
@@ -2589,7 +3130,6 @@ export function createAiEngine({game,aiPlayer,humanPlayer,aiDifficulty,PENTOMINO
     const oppFeaBefore=countFeasiblePieces(board,boardW,boardH,hp,remaining,placedCount,allowFlip);
 
     const baseBeam=mw?35:55;
-    // Fix 15 — adaptive beam
     const regionCount=floodFillRegions(board,boardW,boardH).length;
     const adaptiveBeam=baseBeam+Math.min(30,Math.max(0,regionCount-3)*5);
     const beam=connectivityBeam(moves,board,boardW,boardH,ap,hp,adaptiveBeam);
@@ -2622,7 +3162,6 @@ export function createAiEngine({game,aiPlayer,humanPlayer,aiDifficulty,PENTOMINO
       const oppFea=countFeasiblePieces(sim,boardW,boardH,hp,rem,placedCount+1,allowFlip);
       score+=ownFea*20-oppFea*28+(oppFeaBefore-oppFea)*26*dw.lateBoost;
 
-      // Territory plan (primary)
       if(plan){
         let pw=zoneSealed?4:7*dw.earlyBoost;
         if(!zoneSealed&&seal&&seal.progress>0.5) pw*=1.5;
@@ -2630,9 +3169,7 @@ export function createAiEngine({game,aiPlayer,humanPlayer,aiDifficulty,PENTOMINO
         score+=territoryPlanBonus(m.abs,plan,board,sim,boardW,boardH,ap,hp)*pw;
       }
 
-      // FULL opportunity scanner at 1.0x weight
       score+=opportunityBonus(m.abs,opp,board,sim,boardW,boardH,ap,hp,1.0);
-
       score+=articulationCutBonus(m.abs,board,sim,boardW,boardH,ap,hp,preAPs,regs)*2;
       score+=territorySealScore(sim,boardW,boardH,ap,hp)*2;
       score+=boardSplitBonus(m.abs,board,sim,boardW,boardH,ap,hp)*2.5;
@@ -2640,13 +3177,8 @@ export function createAiEngine({game,aiPlayer,humanPlayer,aiDifficulty,PENTOMINO
       if(dw.progress>(mw?0.4:0.2))
         score+=opponentShapeReadScore(sim,boardW,boardH,hp,rem[hp],placedCount+1,allowFlip,PENTOMINOES,transformCells)*dw.lateBoost*1.5;
 
-      // Self-shape read: reward territory compatible with own remaining hand
       score+=selfShapeReadScore(sim,boardW,boardH,ap,hp,rem[ap],rem[hp],placedCount+1,allowFlip,PENTOMINOES,transformCells)*1.8;
-
-      // Cavity framing: reward moves that frame our reserved piece slot
       score+=cavityFramingBonus(m.abs,cavityPlan,sim,boardW,boardH,ap)*2.0;
-
-      // Opponent cavity intrusion: place inside the shape they're building
       score+=opponentCavityIntrusionBonus(m.abs,oppCavity,boardW)*2.0;
 
       score+=pieceReservationPenalty(m.pk,aiHand,keyPieces,placedCount,aiPC)*2;
@@ -2654,7 +3186,6 @@ export function createAiEngine({game,aiPlayer,humanPlayer,aiDifficulty,PENTOMINO
       score+=endgameParityScore(sim,boardW,boardH,ap,hp,rem[ap],rem[hp],allowFlip,PENTOMINOES,transformCells)*2.5;
       score+=(hpHand.includes('I')?iLaneClosingBonus(m.abs,board,sim,boardW,boardH)*1.8:0);
 
-      // 3-ply minimax
       const oppMoves=movesOnBoard(hp,sim,boardW,boardH,rem,placedCount+1,allowFlip);
       let lookahead=0;
       if(oppMoves.length){
@@ -2672,10 +3203,8 @@ export function createAiEngine({game,aiPlayer,humanPlayer,aiDifficulty,PENTOMINO
           if(s<wS){wS=s;wBoard=ao;wRem={[ap]:[...(rem[ap]||[])],[hp]:(rem[hp]||[]).filter(k=>k!==om.pk)};}
         }
         if(wBoard){
-          // After human's worst-case response, verify AI's remaining pieces still fit.
-          // If they don't, this move path leads to stranded pieces — catastrophic.
           const viabAfterHuman=allPiecesViabilityScore(wBoard,boardW,boardH,wRem[ap],placedCount+2,allowFlip,PENTOMINOES,transformCells);
-          wS+=viabAfterHuman; // negative if pieces stranded after human moves
+          wS+=viabAfterHuman; 
           const fMoves=movesOnBoard(ap,wBoard,boardW,boardH,wRem,placedCount+2,allowFlip);
           if(fMoves.length){
             const fBeam=Math.min(mw?14:28,fMoves.length);
@@ -2699,13 +3228,6 @@ export function createAiEngine({game,aiPlayer,humanPlayer,aiDifficulty,PENTOMINO
     return best;
   }
 
-  // ════════════════════════════════════════════════════════════════
-  //  EXPERT (legendary) — Everything + stranded exploitation
-  //  + opponent zone disruption + history draft + widest beam
-  //  opportunityBonus at 1.5x weight (stranded & pivot fully active).
-  //  Blunder prevention. Adaptive aggression.
-  //  When returnTopK>0, returns sorted array of top-K moves (for god level).
-  // ════════════════════════════════════════════════════════════════
   function movesLegendary(moves,returnTopK=0){
     if(!moves.length) return returnTopK>0?[]:null;
     const{board,boardW,boardH,remaining,placedCount,allowFlip}=game;
@@ -2718,10 +3240,6 @@ export function createAiEngine({game,aiPlayer,humanPlayer,aiDifficulty,PENTOMINO
       return returnTopK>0?(eg?[eg]:[]):eg;
     }
 
-    // ── MCPF HARD PRE-FILTER ─────────────────────────────────────────────────
-    // Before expensive scoring: if ANY piece in hand has 0 or 1 valid placements,
-    // ONLY evaluate moves for that piece (most-constrained-first, hard constraint).
-    // This is the definitive fix for "AI plays compact pieces first and strands I/L/N".
     const aiHand_pre=remaining[ap]||[];
     if(aiHand_pre.length>1){
       const flipOpts_pre=allowFlip?[false,true]:[false];
@@ -2749,49 +3267,34 @@ export function createAiEngine({game,aiPlayer,humanPlayer,aiDifficulty,PENTOMINO
               }
               if(!touches) continue;
             }
-            cnt++; if(cnt>=2) break outer_pre; // only need to know: 0,1, or 2+
+            cnt++; if(cnt>=2) break outer_pre; 
           }
         }
         if(cnt<minCnt){minCnt=cnt;minPk=pk;}
       }
-      // Hard filter: if most-constrained piece has ≤1 placement, only consider its moves
       if(minCnt<=1&&minPk){
         const filtered=moves.filter(m=>m.pk===minPk);
         if(filtered.length){
-          // If exactly one placement → return it immediately (no scoring needed)
           if(filtered.length===1) return returnTopK>0?[filtered[0]]:filtered[0];
-          moves=filtered; // restrict beam to only this piece
+          moves=filtered; 
         }
       }
     }
     const _topKK=returnTopK;
-
-    // topK tracking for god level
     const _topKList=returnTopK>0?[]:null;
     const dw=getDynamicWeights(board,boardW,boardH,ap,hp,placedCount,totalPieces);
     const aggMult=Math.max(1,dw.aggression);
     const aiHand=remaining[ap]||[];
     const hpHand=remaining[hp]||[];
 
-    // ── MCPF: compute placement counts for every piece in hand ──────────────
-    // Used to overwhelmingly bias toward playing the most-constrained piece first.
     const placementCounts=computePiecePlacementCounts(aiHand,board,boardW,boardH,placedCount,allowFlip,PENTOMINOES,transformCells);
 
-    // ── FIX 4: T-as-row-blocker urgency override ─────────────────────────────
-    // When opponent has I AND multiple live I-lanes exist, T's strategic value
-    // vastly exceeds its raw placement-count rank. Force it to max-urgency so the
-    // MCPF bonus overwhelmingly biases toward playing T next.
     if(hpHand.includes('I')&&aiHand.includes('T')){
       const laneCountNow=countReachableILanes(board,boardW,boardH);
-      if(laneCountNow>=2) placementCounts.set('T',0); // 0 = most constrained → 700pt bonus
+      if(laneCountNow>=2) placementCounts.set('T',0); 
     }
 
-    // ── FIX 6: Future viability degradation signal ───────────────────────────
-    // Simulate every human I-placement. If any of them would strand one of our
-    // elongated pieces, pre-emptively treat that elongated piece as most-constrained
-    // so we play it before the I-sweep lands.
-    const ELONGATED_PIECES=['L','N','Y','Z']; // not I itself; I is handled by iPieceUrgencyBonus
-    const aiElongated=aiHand.filter(p=>ELONGATED_PIECES.includes(p));
+    const aiElongated=aiHand.filter(p=>CONSTRAINED_URGENT_SET.includes(p));
     if(hpHand.includes('I')&&aiElongated.length){
       const iMoves=movesOnBoard(hp,board,boardW,boardH,remaining,placedCount,allowFlip)
         .filter(mv=>mv.pk==='I');
@@ -2800,42 +3303,27 @@ export function createAiEngine({game,aiPlayer,humanPlayer,aiDifficulty,PENTOMINO
         for(const[x,y]of im.abs) simI[y][x]={player:hp,pieceKey:'I'};
         for(const pk of aiElongated){
           if(!pieceHasAnyPlacement(simI,pk,boardW,boardH,placedCount+1,allowFlip,PENTOMINOES,transformCells)){
-            // This elongated piece dies if human plays I here — treat as dead now
             const cur=placementCounts.get(pk)??999;
-            placementCounts.set(pk,Math.min(cur,1)); // near-zero → maximum urgency
+            placementCounts.set(pk,Math.min(cur,1)); 
           }
         }
       }
     }
 
-    // ── FIX 7: ELONGATED URGENCY OVERRIDE ────────────────────────────────────
-    // When AI holds 2+ elongated pieces (I/L/N/Y/Z), strategic scoring for compact
-    // pieces (W/F/T/X/V/P) can overwhelm even a +700 MCPF bonus, causing compact
-    // pieces to be played first while elongated pieces pile up and strand.
-    // Fix (upgraded): Hard pre-filter — if AI holds 2+ elongated pieces and the
-    // current MCPF winner is NOT elongated, force the move beam to elongated pieces
-    // only (picking the most-constrained elongated piece).
-    // Soft fallback: tighten urgency caps so elongated always wins the urgency slot.
-    const ELONG_URGENT_SET=['I','L','N','Y','Z'];
-    const elongHandNow=aiHand.filter(p=>ELONG_URGENT_SET.includes(p));
+    const elongHandNow=aiHand.filter(p=>CONSTRAINED_URGENT_SET.includes(p));
     if(elongHandNow.length>=2&&moves.length>1){
-      // Find most-constrained elongated piece
       let minElongCnt=Infinity, minElongPk=null;
       for(const pk of elongHandNow){
         const c=placementCounts.get(pk)??999;
         if(c<minElongCnt){minElongCnt=c;minElongPk=pk;}
       }
-      // Find most-constrained piece overall (could be compact)
       const allCounts=[...placementCounts.entries()];
       const overallMin=Math.min(...allCounts.map(([,v])=>v));
       const overallMinPk=allCounts.find(([,v])=>v===overallMin)?.[0];
-      // Hard filter: if overall winner is compact (non-elongated), force elongated
-      if(overallMinPk&&!ELONG_URGENT_SET.includes(overallMinPk)&&minElongPk){
+      if(overallMinPk&&!CONSTRAINED_URGENT_SET.includes(overallMinPk)&&minElongPk){
         const filtered=moves.filter(m=>m.pk===minElongPk);
         if(filtered.length) moves=filtered;
       } else {
-        // Soft fallback: tighten caps so elongated competes fairly
-        // 2 elongated→cap 2, 3+ elongated→cap 1
         const urgentCap=elongHandNow.length>=3?1:2;
         for(const pk of elongHandNow){
           const cur=placementCounts.get(pk)??999;
@@ -2844,42 +3332,29 @@ export function createAiEngine({game,aiPlayer,humanPlayer,aiDifficulty,PENTOMINO
       }
     }
 
-    // ── FIX 8: MID-GAME ALL-PIECE URGENCY (compact piece stranding prevention) ─
-    // Fix 7 guards elongated pieces. But compact pieces (F, W, etc.) can also
-    // strand when the board is mid-to-late stage and free space becomes fragmented.
-    // When board fill > 40%, compute placement counts for ALL remaining pieces and
-    // treat any piece with count < 5 as urgency-boosted in MCPF — ensuring pieces
-    // at risk of stranding are played before the board fills their last spots.
     const totalCells=boardW*boardH;
     const occupiedCells=board.flat().filter(c=>c!==null).length;
     if(occupiedCells/totalCells>0.40&&aiHand.length>1){
       for(const [pk,cnt] of placementCounts.entries()){
-        if(cnt<5&&cnt>1){ // don't override 0/1 (already handled by hard pre-filter)
-          placementCounts.set(pk,Math.min(cnt,2)); // treat as near-constrained
+        if(cnt<5&&cnt>1){ 
+          placementCounts.set(pk,Math.min(cnt,2)); 
         }
       }
     }
 
-    // Full opportunity scan (all 4 systems active, highest fidelity)
-    const opp=getOrScanOpportunities(board,boardW,boardH,ap,hp,aiHand,allowFlip);
+    if (placedCount === 0 && !_masterPlan) {
+      _masterPlan = solveTiling(aiHand, board, boardW, boardH, allowFlip, PENTOMINOES, transformCells, 500);
+    }
 
-    // Plan with pivot
+    const opp=getOrScanOpportunities(board,boardW,boardH,ap,hp,aiHand,allowFlip);
     const plan=getOrComputePlan(aiHand,board,boardW,boardH,ap,hp,allowFlip,opp);
     const seal=plan?getZoneSealProgress(plan,board,boardW,boardH,ap):null;
     const zoneSealed=seal?.isSealed??false;
 
-    // Piece cavity plan (legendary uses exclusive slots aggressively)
     const cavityPlan=buildPieceCavityPlan(aiHand,board,boardW,boardH,ap,hp,allowFlip,PENTOMINOES,transformCells);
-
-    // Opponent cavity detector (more important at legendary — intrude early)
     const oppCavity=detectOpponentCavity(board,boardW,boardH,hp,hpHand,allowFlip,PENTOMINOES,transformCells);
-
-    // ── Fork threat detector ──────────────────────────────────────────────────
-    // Detect if opponent's placed pieces border 2+ distinct open zones (fork).
-    // Computed once per turn; used in forkCounterBonus per move.
     const forkThreat=detectForkThreat(board,boardW,boardH,hp,hpHand,allowFlip,PENTOMINOES,transformCells);
 
-    // Predict opponent's zone
     const oppSig=_bsig(board,boardW,boardH)+'|opp|'+hpHand.slice().sort().join('');
     if(!_oppZone||_oppZoneSig!==oppSig){
       _oppZone=predictOpponentZone(hpHand,board,boardW,boardH,ap,hp,allowFlip,PENTOMINOES,transformCells);
@@ -2892,10 +3367,12 @@ export function createAiEngine({game,aiPlayer,humanPlayer,aiDifficulty,PENTOMINO
     const oppMobBefore=countTotalMoves(board,boardW,boardH,hp,remaining,placedCount,allowFlip);
     const oppFeaBefore=countFeasiblePieces(board,boardW,boardH,hp,remaining,placedCount,allowFlip);
 
-    const baseBeamL=mw?40:65;
-    // Fix 15 — adaptive beam
+    // Hard cap beam on early placements — empty board has 1000+ moves,
+    // connectivityBeam scores every one with quickScore which is very expensive.
+    const earlyGame = placedCount <= 2;
+    const baseBeamL = earlyGame ? 18 : (mw ? 40 : 65);
     const regionCountL=floodFillRegions(board,boardW,boardH).length;
-    const adaptiveBeamL=baseBeamL+Math.min(30,Math.max(0,regionCountL-3)*5);
+    const adaptiveBeamL = earlyGame ? baseBeamL : baseBeamL+Math.min(30,Math.max(0,regionCountL-3)*5);
     const beam=connectivityBeam(moves,board,boardW,boardH,ap,hp,adaptiveBeamL);
     const preAPs=findArticulationPoints(board,boardW,boardH);
 
@@ -2926,7 +3403,6 @@ export function createAiEngine({game,aiPlayer,humanPlayer,aiDifficulty,PENTOMINO
       const feaRed=oppFeaBefore-oppFea;
       const blunder=ownFea<=2?-280:ownFea<=4?-70:ownFea<=6?-18:0;
 
-      // Territory plan (primary)
       let planBonus=0;
       if(plan){
         let pw=zoneSealed?5:10*dw.earlyBoost;
@@ -2935,12 +3411,24 @@ export function createAiEngine({game,aiPlayer,humanPlayer,aiDifficulty,PENTOMINO
         planBonus=territoryPlanBonus(m.abs,plan,board,sim,boardW,boardH,ap,hp)*pw;
       }
 
-      // FULL opportunity scanner at 1.5x weight (Ultimate exploits harder)
+      if (_masterPlan) {
+        let matched = false;
+        for (const planned of _masterPlan) {
+          if (planned.pk === m.pk) {
+            let matchesAll = true;
+            for (let i = 0; i < m.abs.length; i++) {
+               if (m.abs[i][0] !== planned.abs[i][0] || m.abs[i][1] !== planned.abs[i][1]) {
+                 matchesAll = false; break;
+               }
+            }
+            if (matchesAll) matched = true;
+          }
+        }
+        if (matched) planBonus += 1000;
+      }
+
       const oppBonus=opportunityBonus(m.abs,opp,board,sim,boardW,boardH,ap,hp,1.5);
-
-      // Opponent zone disruption (Ultimate signature)
       const disrupt=_oppZone?opponentZoneDisruptBonus(m.abs,_oppZone,boardW,boardH)*2.5:0;
-
       const apBonus=articulationCutBonus(m.abs,board,sim,boardW,boardH,ap,hp,preAPs,regs);
       const splitBonus=boardSplitBonus(m.abs,board,sim,boardW,boardH,ap,hp);
       const sealTerr=territorySealScore(sim,boardW,boardH,ap,hp,regs);
@@ -2948,69 +3436,45 @@ export function createAiEngine({game,aiPlayer,humanPlayer,aiDifficulty,PENTOMINO
         ?opponentShapeReadScore(sim,boardW,boardH,hp,rem[hp],placedCount+1,allowFlip,PENTOMINOES,transformCells)*aggMult
         :0;
 
-      // Self-shape read: reward territory compatible with own remaining hand (2x weight for Ultimate)
       const selfShapeRead=selfShapeReadScore(sim,boardW,boardH,ap,hp,rem[ap],rem[hp],placedCount+1,allowFlip,PENTOMINOES,transformCells);
 
-      // ── HUMAN STRATEGY BONUSES ──────────────────────────────────────────────
-      // Strategy 1: P+U exclusive pair territory — when holding P+U, reward
-      // moves that build toward a 10-cell zone only those two pieces can tile.
       const pairTerrScore=(aiHand.includes('P')&&aiHand.includes('U'))
         ?pairExclusiveTerritoryScore(sim,boardW,boardH,ap,hp,rem[ap],rem[hp],allowFlip,PENTOMINOES,transformCells)
         :0;
 
-      // Strategy 2: 3-piece combo cavity setup — reward moves that (with one
-      // follow-up placement) create a 5-cell exclusive cavity for a 3rd piece.
       const comboSetup=aiHand.length>=3
         ?comboCavitySetupBonus(m.abs,m.pk,board,sim,boardW,boardH,ap,hp,rem[ap],rem[hp],placedCount+1,allowFlip,PENTOMINOES,transformCells)
         :0;
 
-      // Strategy 3: I-lane fencing — when holding I, reward moves adjacent to
-      // the best available I-lane WITHOUT blocking it; penalise stepping on it.
       const iLaneFence=aiHand.includes('I')&&m.pk!=='I'
         ?iLaneFencingBonus(m.abs,m.pk,board,sim,boardW,boardH,aiHand,hpHand,allowFlip,PENTOMINOES,transformCells)
         :0;
 
-      // Strategy 4: Exclusive piece cavity — P-holes, U-holes, 3×2 P+U zones,
-      // and any exclusive 5-cell cavity for AI's held pieces. This is the core
-      // of the human's "make a hole only I can fill" tactic.
       const excCavity=exclusivePieceCavityBonus(m.abs,m.pk,board,sim,boardW,boardH,ap,hp,rem[ap],rem[hp],placedCount+1,allowFlip,PENTOMINOES,transformCells);
+      const antiExclusive=antiExclusiveTerritoryBonus(m.abs,board,sim,boardW,boardH,ap,hp,rem[ap],rem[hp],allowFlip,PENTOMINOES,transformCells);
 
-      // Strategy 5: Fork counter — when opponent's pieces border 2+ open zones,
-      // reward moves that occupy the pivot cell(s) connecting those zones, or
-      // that speed-seal the smaller threatened zone before opponent claims it.
       const forkCounter=forkThreat.active
         ?forkCounterBonus(m.abs,board,sim,boardW,boardH,ap,hp,forkThreat)
         :0;
 
-      // Strategy 6: Cooperative cavity penalty — penalise moves that frame a
-      // region where ONLY the opponent's pieces fit. This is the "AI building
-      // walls for human's exclusive hole" bug found in game logs.
       const coopCavPenalty=cooperativeCavityPenalty(m.abs,m.pk,board,sim,boardW,boardH,ap,hp,rem[ap],rem[hp],allowFlip,PENTOMINOES,transformCells);
-
-      // Strategy 7: Abandoned zone penalty — penalise moves that leave a large
-      // opponent-adjacent zone completely uncontested by the AI. Prevents the
-      // "AI plays entirely left while human colonises right" failure mode.
       const abandonedZone=abandonedZonePenalty(m.abs,sim,boardW,boardH,ap,hp,rem[ap],rem[hp],allowFlip,PENTOMINOES,transformCells);
+      const dualAnchorCounter=dualAnchorCounterBonus(m.abs,board,boardW,boardH,ap,hp);
 
-      // ── FIX 3: 3-ply minimax — opponent beam sorted by viability, not just quickScore ──
-      // Previously oppScored used only quickScore, missing game-ending moves like an I-sweep
-      // that scores modestly on territory but strands all AI elongated pieces.
-      // Now we mix in allPiecesViabilityScore so board-shattering moves rise to the top.
       const oppMoves=movesOnBoard(hp,sim,boardW,boardH,rem,placedCount+1,allowFlip);
       let lookahead=0;
       if(oppMoves.length){
         const oppBeam=Math.min(mw?18:45,oppMoves.length);
-        const checkOppViab=rem[ap].some(p=>['I','L','N','Y','Z'].includes(p));
+        const checkOppViab=rem[ap].some(p=>CONSTRAINED_URGENT_SET.includes(p));
         const oppScored=oppMoves.map(om=>{
           const ao=sim.map(r=>[...r]);
           for(const[x,y]of om.abs) ao[y][x]={player:hp,pieceKey:om.pk};
           const qs=quickScore(ao,ap,hp,boardW,boardH);
-          // FIX 3: viability component so stranding moves bubble to top of danger beam
           const remAfterOpp={[ap]:[...(rem[ap]||[])],[hp]:(rem[hp]||[]).filter(k=>k!==om.pk)};
           const viab=checkOppViab
             ?allPiecesViabilityScore(ao,boardW,boardH,remAfterOpp[ap],placedCount+2,allowFlip,PENTOMINOES,transformCells)
             :0;
-          return{om,s:qs+viab*0.6}; // viab is 0 or large negative → combined score lower = more dangerous
+          return{om,s:qs+viab*0.6}; 
         }).sort((a,b)=>a.s-b.s);
         let wBoard=null,wRem=null,wS=Infinity;
         for(const{om}of oppScored.slice(0,oppBeam)){
@@ -3034,9 +3498,6 @@ export function createAiEngine({game,aiPlayer,humanPlayer,aiDifficulty,PENTOMINO
               const rem3={[ap]:wRem[ap].filter(k=>k!==fm.pk),[hp]:[...(wRem[hp]||[])]};
               const s3=quickScore(af,ap,hp,boardW,boardH)
                       +allPiecesViabilityScore(af,boardW,boardH,rem3[ap],placedCount+3,allowFlip,PENTOMINOES,transformCells);
-              // ── FIX 1: 4th ply — simulate human's response to AI's ply-3 move ──────
-              // The 3-ply couldn't see: AI plays Z → human P → AI T → human I (game over).
-              // This inner loop evaluates the worst human ply-4 move after AI's ply-3.
               let worstPly4=0;
               if(checkOppViab){
                 const h2Moves=movesOnBoard(hp,af,boardW,boardH,rem3,placedCount+3,allowFlip);
@@ -3055,59 +3516,94 @@ export function createAiEngine({game,aiPlayer,humanPlayer,aiDifficulty,PENTOMINO
         }
       }
 
-      // ── FIX 2: I-lane survival penalty ──────────────────────────────────────
-      // Penalise moves that leave reachable I-lanes open when opponent holds I.
-      // This is a direct cost (not just a reward for closing lanes) so it can
-      // override territory/plan scores that otherwise look fine.
       let iLanePenalty=0;
       if(hpHand.includes('I')){
         const lanesAfterMove=countReachableILanes(sim,boardW,boardH);
-        const urgency=Math.min(1.0,(aiPC+hpPC)<=8?1.0:0.45);
-        // Base penalty per surviving lane
-        iLanePenalty=-(lanesAfterMove*85*urgency);
-        // Extra penalty if we still hold elongated pieces that I could strand
+        const urgency=1.0;
+        iLanePenalty=-(lanesAfterMove*150*urgency);
         if(rem[ap].some(p=>['L','N','Y','Z'].includes(p))){
-          iLanePenalty-=(lanesAfterMove*130*urgency);
+          iLanePenalty-=(lanesAfterMove*200*urgency);
         }
       }
 
+      const viabScore = allPiecesViabilityScore(sim,boardW,boardH,rem[ap],placedCount+1,allowFlip,PENTOMINOES,transformCells);
+      const gradPenalty = placementCountGradientPenalty(rem[ap], placementCounts);
+      const survivalPenalty = constrainedPieceSurvivalPenalty(sim, boardW, boardH, rem[ap], allowFlip, PENTOMINOES, transformCells);
+      const xSpaceBonus = xSpacePreservationBonus(m.abs, board, sim, boardW, boardH, rem[ap], allowFlip, PENTOMINOES, transformCells);
+
+      // FIX C: Proactive hard-piece bonus — reward playing tricky pieces NOW
+      // proportional to how constrained their placement count already is.
+      // This front-loads U/W/X/F while the board is still open.
+      const HARD_URGENT = new Set(['X','U','W','F']);
+      let hardPieceBonus = 0;
+      if(HARD_URGENT.has(m.pk)){
+        const myCount = placementCounts.get(m.pk) ?? 999;
+        // Urgency scales inversely: fewer options → bigger bonus for playing it now
+        if(myCount <= 3)       hardPieceBonus = 600;
+        else if(myCount <= 6)  hardPieceBonus = 350;
+        else if(myCount <= 10) hardPieceBonus = 150;
+        else if(myCount <= 18) hardPieceBonus = 60;
+        // Additional bonus: if we have multiple hard pieces, play the most constrained first
+        const otherHardInHand = aiHand.filter(p => HARD_URGENT.has(p) && p !== m.pk);
+        if(otherHardInHand.length > 0){
+          const otherMin = Math.min(...otherHardInHand.map(p => placementCounts.get(p) ?? 999));
+          if(myCount <= otherMin) hardPieceBonus *= 1.4; // we ARE the most urgent hard piece
+        }
+      }
+
+      // ── V5.0 NEW TERMS ──────────────────────────────────────────────
+      const parityDeadZone = boardParityDeadZoneScore(sim, boardW, boardH, ap, hp);
+      const uniqueCavity   = uniqueCavityBankingScore(sim, boardW, boardH, ap, hp, rem[ap], rem[hp], PENTOMINOES, transformCells);
+      const excFraming     = exclusiveCavityFramingBonus(m.abs, sim, boardW, boardH, ap, hp, rem[ap], rem[hp], PENTOMINOES, transformCells);
+      const bbTrap         = antiBulkyBoundingBoxScore(sim, boardW, boardH, ap, hp, rem[ap], rem[hp], PENTOMINOES, transformCells);
+      // ────────────────────────────────────────────────────────────────
+
       let score=
-          tAdv*36+mobRed*14+feaRed*32+infB*2.5+sealB*3
+          tAdv*24+mobRed*28+feaRed*32+infB*2.5+sealB*3   // V6: mobRed weight doubled (28 vs 14), mobility > territory
          +frontCtrl*2.5+eff*2+lookahead*22-exposure*1.5
-         +ownFea*24-oppFea*36
+         +ownFea*30-oppFea*40                              // V6: mobility counts weighted up
          +openTerritoryBonus(m.abs,sim,boardW,boardH,ap,regs)*2
          +aiClusterPenalty(sim,boardW,boardH,ap)*2.5+blunder
          +apBonus*3+splitBonus*2.5+sealTerr*2+shapeRead*1.8
          +planBonus+oppBonus+disrupt
-         +selfShapeRead*2.2
+         +selfShapeRead*4.5                                         
          +cavityFramingBonus(m.abs,cavityPlan,sim,boardW,boardH,ap)*2.5
-         +opponentCavityIntrusionBonus(m.abs,oppCavity,boardW)*2.5
+         +opponentCavityIntrusionBonus(m.abs,oppCavity,boardW)*5.0  
          +pieceReservationPenalty(m.pk,aiHand,keyPieces,placedCount,aiPC)*3
          +sealingFinisherBonus(m.abs,board,sim,boardW,boardH,ap,hp)*3.5
          +endgameParityScore(sim,boardW,boardH,ap,hp,rem[ap],rem[hp],allowFlip,PENTOMINOES,transformCells)*3.0
-         +linearPieceSurvivalPenalty(sim,boardW,boardH,rem[ap],allowFlip,PENTOMINOES,transformCells)*1.0
          +iPieceUrgencyBonus(m.pk,placedCount,boardW,boardH)
          +iEdgePlacementBonus(m.pk,m.abs,boardW,boardH)*2.0
-         +(hpHand.includes('I')?iLaneClosingBonus(m.abs,board,sim,boardW,boardH)*2.2:0)
+         +(hpHand.includes('I')?iLaneClosingBonus(m.abs,board,sim,boardW,boardH)*3.5:0)
          +iLanePenalty
-         +allPiecesViabilityScore(sim,boardW,boardH,rem[ap],placedCount+1,allowFlip,PENTOMINOES,transformCells)*2.0
-         +mcpfUrgencyBonus(m.pk,placementCounts)
-         +pairTerrScore*1.8
-         +comboSetup*1.5
+         +pairTerrScore*2.5                                         
+         +comboSetup*2.0
          +iLaneFence*1.2
-         +excCavity*2.0
-         +forkCounter*2.2
-         +coopCavPenalty*2.5
-         +abandonedZone*1.8;
+         +excCavity*5.5                                             
+         +antiExclusive*1.0                                         
+         +forkCounter*5.0                                           
+         +coopCavPenalty*6.0                                        
+         +abandonedZone*4.0                                         
+         +dualAnchorCounter*6.0                                     
+         +cornerControlBonus(sim,boardW,boardH,ap,hp)*5.5
+         +viabScore*25.0
+         +gradPenalty*8.0
+         +survivalPenalty*15.0    // V5.1 FIX: boosted from 4.0 → 15.0 to override denial logic
+         +xSpaceBonus*3.0
+         // ── V5.0 contributions ────────────────────────────────────
+         +parityDeadZone*4.5   // dead-zone math favours AI
+         +uniqueCavity*3.5     // exclusive piece-cavity banking
+         +excFraming*3.0       // framing exclusive cavities
+         +bbTrap*3.5           // anti-bulky bounding box traps
+         +hardPieceBonus;      // FIX C: proactive hard-piece urgency
 
-      // Aggression amplifier when behind
       if(aggMult>1){
         const aggSig=apBonus+splitBonus+mobRed*3+disrupt+oppBonus*0.5;
         score+=aggSig*(aggMult-1)*10;
       }
 
       if(score>bScore){bScore=score;best=m;}
-      if(_topKList) _topKList.push({m,score}); // collected for god level MCTS
+      if(_topKList) _topKList.push({m,score}); 
     }
     if(_topKList){
       _topKList.sort((a,b)=>b.score-a.score);
@@ -3116,16 +3612,445 @@ export function createAiEngine({game,aiPlayer,humanPlayer,aiDifficulty,PENTOMINO
     return best;
   }
 
-  // ════════════════════════════════════════════════════════════════
-  //  ULTIMATE (god) — Expert heuristic + MCTS post-filter
-  //  Architecture:
-  //    1. Run full Expert (legendary) scoring on all candidates
-  //    2. Keep top 6 by heuristic score
-  //    3. Run 50 random game completions (MCTS) for each candidate
-  //    4. Pick by combined score: 40% heuristic rank + 60% MCTS win-rate
-  //  This catches deep positional traps that no static heuristic can see.
-  //  Draft: proactive elongated cap + 2-ply simulation of human response.
-  // ════════════════════════════════════════════════════════════════
+  // ─────────────────────────────────────────────────────────────────
+  //  V6.0 — DEEP ALPHA-BETA ENGINE (5-ply Expert / 7-ply Ultimate)
+  // ─────────────────────────────────────────────────────────────────
+
+  /**
+   * Recursive alpha-beta with:
+   *  - Zobrist transposition table (instant hash lookups)
+   *  - Killer heuristic: moves that caused beta-cutoffs tried first
+   *  - Mobility-Reduction primary move ordering (Killer Heuristic spec)
+   *  - Parity-Induced Pruning: regions where area%5≠0 or checkerboard
+   *    parity is impossible get -Infinity score on the AI's branch
+   *  - Domination Analysis: prune strictly dominated moves before search
+   *  - Bitwise blob detection (bbBlobRegions) — no floodFill inside tree
+   *  - Time-budgeted iterative deepening: exits gracefully on timeout
+   *
+   * @param {object[]} topMoves   Pre-filtered top-K candidates from movesLegendary
+   * @returns {object|null}       Best move found within time budget
+   */
+  function deepAlphaBeta(topMoves) {
+    if (!topMoves.length) return null;
+
+    const { board, boardW: W, boardH: H, remaining, placedCount, allowFlip } = game;
+    const ap = aiPlayer.value, hp = humanPlayer.value;
+    const diff = aiDifficulty.value;
+
+    // Depth: 5-ply Expert, 7-ply Ultimate
+    const MAX_DEPTH  = diff === 'ultimate' ? 7 : 5;
+    // Time budget: generous enough to reach target depth for most positions
+    const BUDGET_MS  = diff === 'ultimate' ? 3500 : 2000;
+    const DEADLINE   = Date.now() + BUDGET_MS;
+    const flipOpts   = allowFlip ? [false, true] : [false];
+
+    // Pre-build spread lookup for this board size (cached)
+    const sl = buildSpreadLookup(W, H);
+
+    // ── Transposition Table (Zobrist) ──────────────────────────────
+    // Maps zobristHash|remAP|remHP  →  {depth, score, flag, move}
+    // flag: 'exact' | 'lower' | 'upper'
+    const TT   = new Map();
+    const TT_MAX = 80000;
+    function ttKey(b, remAP, remHP) {
+      return boardZobristHash(b, W, H).toString(16) +
+             '|' + remAP.slice().sort().join('') +
+             '|' + remHP.slice().sort().join('');
+    }
+
+    // ── Killer Move Table ──────────────────────────────────────────
+    // killers[depth] = [pk1, pk2] — piece keys that caused β-cutoffs
+    const killers = Array.from({ length: MAX_DEPTH + 2 }, () => []);
+    function updateKiller(depth, pk) {
+      const k = killers[depth];
+      if (k[0] === pk) return;
+      k[1] = k[0]; k[0] = pk;
+    }
+
+    // ── Move Ordering ───────────────────────────────────────────────
+    // Primary key: killer piece first; secondary: mobility reduction
+    function orderMoves(rawMoves, b, rem, pc, depth, isAI) {
+      if (rawMoves.length <= 1) return rawMoves;
+      const kArr = killers[depth] || [];
+      const before = _mobileCount(b, W, H, isAI ? hp : ap, rem, pc);
+
+      const scored = rawMoves.map(m => {
+        const sim = b.map(r => [...r]);
+        for (const [x, y] of m.abs) sim[y][x] = { player: m._owner, pieceKey: m.pk };
+        const after = _mobileCount(sim, W, H, isAI ? hp : ap, rem, pc + 1);
+        const killerBonus = kArr.includes(m.pk) ? 100000 : 0;
+        return { m, s: killerBonus + (before - after) };
+      });
+      scored.sort((a, b) => b.s - a.s);
+      return scored.map(x => x.m);
+    }
+
+    // Approximate move count (count feasible pieces × avg placements)
+    function _mobileCount(b, bW, bH, player, rem, pc) {
+      const hand = rem[player] || [];
+      let cnt = 0;
+      for (const pk of hand) {
+        const base = PENTOMINOES[pk];
+        const seen = new Set();
+        outer: for (const fl of flipOpts) for (let r = 0; r < 4; r++) {
+          const shape = transformCells(base, r, fl);
+          const k = shape.map(([x, y]) => `${x},${y}`).join('|');
+          if (seen.has(k)) continue; seen.add(k);
+          for (let ay = 0; ay < bH; ay++) for (let ax = 0; ax < bW; ax++) {
+            let valid = true;
+            for (const [dx, dy] of shape) {
+              const x = ax + dx, y = ay + dy;
+              if (x < 0 || y < 0 || x >= bW || y >= bH || b[y][x] !== null) { valid = false; break; }
+            }
+            if (!valid) continue;
+            if (pc > 0) {
+              let t = false;
+              tO: for (const [dx, dy] of shape) {
+                const x = ax + dx, y = ay + dy;
+                for (const [ox, oy] of DIRS) {
+                  const nx = x + ox, ny = y + oy;
+                  if (nx >= 0 && ny >= 0 && nx < bW && ny < bH && b[ny][nx] !== null) { t = true; break tO; }
+                }
+              }
+              if (!t) continue;
+            }
+            cnt++; continue outer;
+          }
+        }
+      }
+      return cnt;
+    }
+
+    // Sample moves for a player inside the search tree (most-constrained first)
+    function sampleMovesAB(player, hand, b, pc, maxMoves) {
+      if (!hand.length) return [];
+      // Find piece with fewest valid placements
+      let minCnt = Infinity, minPk = hand[0];
+      for (const pk of hand) {
+        let cnt = 0;
+        const base = PENTOMINOES[pk];
+        const seen = new Set();
+        outerC: for (const fl of flipOpts) for (let r = 0; r < 4; r++) {
+          const shape = transformCells(base, r, fl);
+          const k = shape.map(([x, y]) => `${x},${y}`).join('|');
+          if (seen.has(k)) continue; seen.add(k);
+          for (let ay = 0; ay < H; ay++) for (let ax = 0; ax < W; ax++) {
+            let valid = true;
+            for (const [dx, dy] of shape) {
+              const x = ax + dx, y = ay + dy;
+              if (x < 0 || y < 0 || x >= W || y >= H || b[y][x] !== null) { valid = false; break; }
+            }
+            if (!valid) continue;
+            cnt++; if (cnt >= 20) break outerC;
+          }
+        }
+        if (cnt < minCnt) { minCnt = cnt; minPk = pk; }
+      }
+      if (minCnt === 0) return []; // stranded
+
+      // Gather placements for minPk
+      const moves = [];
+      const base = PENTOMINOES[minPk];
+      const seen = new Set();
+      outerP: for (const fl of flipOpts) for (let r = 0; r < 4; r++) {
+        const shape = transformCells(base, r, fl);
+        const k = shape.map(([x, y]) => `${x},${y}`).join('|');
+        if (seen.has(k)) continue; seen.add(k);
+        for (let ay = 0; ay < H; ay++) for (let ax = 0; ax < W; ax++) {
+          let valid = true; const abs = [];
+          for (const [dx, dy] of shape) {
+            const x = ax + dx, y = ay + dy;
+            if (x < 0 || y < 0 || x >= W || y >= H || b[y][x] !== null) { valid = false; break; }
+            abs.push([x, y]);
+          }
+          if (!valid) continue;
+          if (pc > 0) {
+            let t = false;
+            tOm: for (const [x, y] of abs) for (const [ox, oy] of DIRS) {
+              const nx = x + ox, ny = y + oy;
+              if (nx >= 0 && ny >= 0 && nx < W && ny < H && b[ny][nx] !== null) { t = true; break tOm; }
+            }
+            if (!t) continue;
+          }
+          moves.push({ pk: minPk, abs, _owner: player });
+          if (moves.length >= maxMoves) break outerP;
+        }
+      }
+      return moves;
+    }
+
+    // ── Leaf Evaluation ────────────────────────────────────────────
+    //
+    // V5.1: Added _fastLeafSurvival (bounding-box approximation, no rotation loop).
+    // V5.2: Three additional improvements:
+    //
+    //  FIX 3 (BB Trap Detection in AB):
+    //    If AI holds only bulky pieces and a compact 3×2/2×3 pocket exists, apply
+    //    a heavy penalty. This catches the self-trapping the 7-ply horizon misses.
+    //
+    //  FIX 4 (Phase Transition — Voronoi fade):
+    //    On a 10×6 board the territory metric is meaningful only in the opening.
+    //    After 4 placements the board often fragments; Voronoi becomes misleading.
+    //    Blend it out smoothly: full weight at pc=0, zero at pc≥6.
+    //
+    //  FIX 5 (I-Piece Defense):
+    //    If the opponent still holds I, every reachable 5-in-a-row gap is a live
+    //    threat. Penalise open I-lanes directly in the leaf so the search actively
+    //    works to close them. Scaled to -220/lane (less aggressive than user's -500
+    //    to avoid overcorrecting mid-game when lanes naturally exist).
+
+    const _LEAF_MIN_SPAN = { I:5, L:4, N:4, Y:4, T:3, Z:3, F:3, U:3, W:3, X:3, V:3, P:2 };
+    const _LEAF_BASE_PEN = { X:200, I:200, W:160, F:160, U:130, N:120, L:120, Y:120, Z:100, T:100, P:80, V:80 };
+
+    // FIX B: Shape-aware survival — U/W/X/F have irregular shapes that bbox cannot verify.
+    // We store actual region cells for these pieces so pieceCanFitInRegion can be called.
+    function _fastLeafSurvival(b, remAP) {
+      if (!remAP.length) return 0;
+      const regions = floodFillRegions(b, W, H);
+      const viable = [];
+      const viableRegCells = []; // store actual cells for shape-aware checks
+      for (const reg of regions) {
+        if (reg.length < 5) continue;
+        let minX = W, maxX = 0, minY = H, maxY = 0;
+        for (const [x, y] of reg) {
+          if (x < minX) minX = x; if (x > maxX) maxX = x;
+          if (y < minY) minY = y; if (y > maxY) maxY = y;
+        }
+        viable.push({ size: reg.length, bw: maxX - minX + 1, bh: maxY - minY + 1 });
+        viableRegCells.push(reg);
+      }
+
+      if (!viable.length) return remAP.length * -300;
+
+      // FIX B: Pieces whose shapes cannot be verified by bbox alone
+      const NEEDS_SHAPE_CHECK = new Set(['U', 'W', 'X', 'F']);
+      const flipOpts = allowFlip ? [false, true] : [false];
+
+      let penalty = 0;
+      for (const pk of remAP) {
+        const minSpan = _LEAF_MIN_SPAN[pk] || 3;
+        let canFit = false;
+        if (NEEDS_SHAPE_CHECK.has(pk)) {
+          // Use actual region geometry for irregular pieces
+          for (const reg of viableRegCells) {
+            if (pieceCanFitInRegion(pk, reg, flipOpts, PENTOMINOES, transformCells)) {
+              canFit = true; break;
+            }
+          }
+        } else {
+          canFit = viable.some(r => r.bw >= minSpan || r.bh >= minSpan);
+        }
+        if (!canFit) penalty -= (_LEAF_BASE_PEN[pk] || 100);
+      }
+      return penalty;
+    }
+
+    function leafEval(b, remAP, remHP, pc) {
+      const aiMob = _mobileCount(b, W, H, ap, { [ap]: remAP, [hp]: remHP }, pc);
+      const hpMob = _mobileCount(b, W, H, hp, { [ap]: remAP, [hp]: remHP }, pc);
+      const parity = bbParityScore(b, W, H, sl);
+      const aiSurvival = _fastLeafSurvival(b, remAP);
+
+      // FIX 4: Voronoi territory fades out as board fragments (pc = pieces placed so far)
+      // Full weight [0..3 placements], linear fade [4..5], zero [6+]
+      const terrWeight = pc <= 3 ? 8 : pc <= 5 ? 8 * (1 - (pc - 3) / 3) : 0;
+      const terrAdv = terrWeight > 0 ? territoryAdvantage(b, W, H, ap, hp) : 0;
+
+      // FIX 5: I-piece defense — penalise every reachable 5-in-a-row lane
+      let iLanePenalty = 0;
+      if (remHP.includes('I')) {
+        const openLanes = countReachableILanes(b, W, H);
+        // -220 per open lane: meaningful deterrent without locking the AI into
+        // I-blocking at the expense of its own placement quality
+        iLanePenalty = openLanes * -220;
+      }
+
+      // FIX 3: BB trap detection — if AI has bulky pieces but no compact filler,
+      // penalise any tight 3×2/2×3 pocket it just created
+      let bbTrapPenalty = 0;
+      const aiHasBulkyLeaf = remAP.some(p => ['I','L','N','Y','T','Z'].includes(p));
+      const aiHasCompactLeaf = remAP.some(p => ['P','U'].includes(p));
+      if (aiHasBulkyLeaf && !aiHasCompactLeaf) {
+        const regs = floodFillRegions(b, W, H);
+        for (const reg of regs) {
+          if (reg.length < 5 || reg.length > 7) continue;
+          let minX = W, maxX = -1, minY = H, maxY = -1;
+          for (const [x, y] of reg) {
+            if (x < minX) minX = x; if (x > maxX) maxX = x;
+            if (y < minY) minY = y; if (y > maxY) maxY = y;
+          }
+          const bw = maxX - minX + 1, bh = maxY - minY + 1;
+          if ((bw <= 3 && bh <= 2) || (bw <= 2 && bh <= 3)) bbTrapPenalty -= 500;
+        }
+      }
+
+      return (aiMob - hpMob) * 18
+           + terrAdv * terrWeight
+           + parity * 2
+           + aiSurvival * 8.0
+           + iLanePenalty
+           + bbTrapPenalty;
+    }
+
+    // ── Parity-Induced Pruning check ───────────────────────────────
+    function parityPruningScore(b) {
+      const blobs = bbBlobRegions(b, W, H, sl);
+      let penalty = 0;
+      for (const { size, black, white } of blobs) {
+        const diff = Math.abs(black - white);
+        if (size % 5 !== 0) { penalty += 999; }
+        else {
+          const k = (size / 5) | 0;
+          if (diff > k || (diff % 2) !== (k % 2)) penalty += 500;
+        }
+      }
+      return penalty;
+    }
+
+    // ── Domination Analysis ────────────────────────────────────────
+    // Before the search proper, discard moves where another move is
+    // strictly better in BOTH territory AND mobility reduction.
+    function removeDominatedMoves(candidates) {
+      if (candidates.length <= 2) return candidates;
+      const assessed = candidates.map(m => {
+        const sim = board.map(r => [...r]);
+        for (const [x, y] of m.abs) sim[y][x] = { player: ap, pieceKey: m.pk };
+        const remAP = remaining[ap].filter(k => k !== m.pk);
+        const remHP = remaining[hp] || [];
+        const terr = territoryAdvantage(sim, W, H, ap, hp);
+        const aiMob = _mobileCount(sim, W, H, ap, { [ap]: remAP, [hp]: remHP }, placedCount + 1);
+        const hpMobBefore = _mobileCount(board, W, H, hp, remaining, placedCount);
+        const hpMobAfter  = _mobileCount(sim,  W, H, hp, { [ap]: remAP, [hp]: remHP }, placedCount + 1);
+        const mobRed = hpMobBefore - hpMobAfter;
+        return { m, terr, aiMob, mobRed };
+      });
+      return assessed.filter(a => {
+        // Keep m unless there exists another move b where
+        //   b.terr >= a.terr AND b.mobRed >= a.mobRed AND b.aiMob >= a.aiMob
+        //   AND at least one is strictly greater
+        for (const b of assessed) {
+          if (b === a) continue;
+          if (b.terr >= a.terr && b.mobRed >= a.mobRed && b.aiMob >= a.aiMob &&
+              (b.terr > a.terr || b.mobRed > a.mobRed || b.aiMob > a.aiMob)) {
+            return false; // a is dominated by b
+          }
+        }
+        return true;
+      }).map(a => a.m);
+    }
+
+    // ── Core Alpha-Beta ────────────────────────────────────────────
+    function ab(b, remAP, remHP, depth, alpha, beta, isAI, pc) {
+      if (Date.now() > DEADLINE) return { score: isAI ? alpha : beta, timed: true };
+
+      const key = ttKey(b, remAP, remHP);
+      const tte = TT.get(key);
+      if (tte && tte.depth >= depth) {
+        if (tte.flag === 'exact')                      return { score: tte.score, move: tte.move };
+        if (tte.flag === 'lower' && tte.score >= beta) return { score: tte.score, move: tte.move };
+        if (tte.flag === 'upper' && tte.score <= alpha)return { score: tte.score, move: tte.move };
+      }
+
+      const hand   = isAI ? remAP : remHP;
+      const player = isAI ? ap    : hp;
+
+      if (!hand.length || depth === 0) {
+        const s = leafEval(b, remAP, remHP, pc);
+        if (TT.size < TT_MAX) TT.set(key, { depth: 0, score: s, flag: 'exact', move: null });
+        return { score: s, move: null };
+      }
+
+      // Sample most-constrained piece moves for this ply
+      const PLY_SAMPLE = depth >= 4 ? 5 : depth >= 2 ? 8 : 12;
+      let rawMoves = sampleMovesAB(player, hand, b, pc, PLY_SAMPLE * 3);
+      if (!rawMoves.length) {
+        const s = isAI ? -4000 : 4000;
+        return { score: s, move: null };
+      }
+
+      // Order by killer heuristic + mobility reduction
+      const ordered = orderMoves(rawMoves, b, { [ap]: remAP, [hp]: remHP }, pc, depth, isAI);
+      const capped  = ordered.slice(0, PLY_SAMPLE);
+
+      let bestScore = isAI ? -Infinity : Infinity;
+      let bestMove  = capped[0];
+      let flag = isAI ? 'upper' : 'lower';
+
+      for (const m of capped) {
+        if (Date.now() > DEADLINE) return { score: bestScore, timed: true, move: bestMove };
+
+        const sim = b.map(r => [...r]);
+        for (const [x, y] of m.abs) sim[y][x] = { player, pieceKey: m.pk };
+        const newRemAP = isAI ? remAP.filter(k => k !== m.pk) : [...remAP];
+        const newRemHP = isAI ? [...remHP] : remHP.filter(k => k !== m.pk);
+
+        // ── Parity-Induced Pruning ──────────────────────────────
+        // If this move creates provably impossible regions, prune aggressively.
+        // Only apply from depth >= 3 to avoid over-pruning near leaves.
+        if (depth >= 3) {
+          const pp = parityPruningScore(sim);
+          if (isAI && pp > 1500) {
+            // Move creates massive parity debt — prune unless last candidate
+            if (capped.length > 1) continue;
+          }
+        }
+
+        const result = ab(sim, newRemAP, newRemHP, depth - 1, alpha, beta, !isAI, pc + 1);
+        if (result.timed) return { score: bestScore, timed: true, move: bestMove };
+
+        if (isAI) {
+          if (result.score > bestScore) { bestScore = result.score; bestMove = m; }
+          if (bestScore > alpha) { alpha = bestScore; flag = 'exact'; }
+          if (alpha >= beta) {
+            updateKiller(depth, m.pk);
+            if (TT.size < TT_MAX) TT.set(key, { depth, score: bestScore, flag: 'lower', move: m });
+            return { score: bestScore, move: bestMove };
+          }
+        } else {
+          if (result.score < bestScore) { bestScore = result.score; bestMove = m; }
+          if (bestScore < beta) { beta = bestScore; flag = 'exact'; }
+          if (beta <= alpha) {
+            if (TT.size < TT_MAX) TT.set(key, { depth, score: bestScore, flag: 'upper', move: m });
+            return { score: bestScore, move: bestMove };
+          }
+        }
+      }
+
+      if (TT.size < TT_MAX) TT.set(key, { depth, score: bestScore, flag, move: bestMove });
+      return { score: bestScore, move: bestMove };
+    }
+
+    // ── Domination filter on entry ─────────────────────────────────
+    const filtered = removeDominatedMoves(topMoves);
+    const candidates = filtered.length ? filtered : topMoves;
+
+    // ── Iterative deepening: 2-ply up to MAX_DEPTH ─────────────────
+    let bestFinalMove = candidates[0];
+    for (let d = 2; d <= MAX_DEPTH; d += 1) {
+      if (Date.now() > DEADLINE) break;
+      const result = ab(
+        board,
+        (remaining[ap] || []).slice(),
+        (remaining[hp] || []).slice(),
+        d, -Infinity, Infinity, true, placedCount
+      );
+      if (result.timed) break;
+      // Map back to a concrete move from topMoves (ab returns minimax best
+      // which may be a sub-move; find closest match in topMoves by pk)
+      if (result.move) {
+        const match = topMoves.find(m =>
+          m.pk === result.move.pk &&
+          m.abs.length === result.move.abs.length &&
+          m.abs.every(([x, y], i) => result.move.abs[i][0] === x && result.move.abs[i][1] === y)
+        );
+        if (match) bestFinalMove = match;
+        // If no exact match, keep using topMoves[0] from scoring
+      }
+    }
+
+    return bestFinalMove;
+  }
+
   function movesGod(moves){
     if(!moves.length) return null;
     const{board,boardW,boardH,remaining,placedCount,allowFlip}=game;
@@ -3133,75 +4058,113 @@ export function createAiEngine({game,aiPlayer,humanPlayer,aiDifficulty,PENTOMINO
     const aiPC=(remaining[ap]||[]).length,hpPC=(remaining[hp]||[]).length;
     if(aiPC<=3||hpPC<=3) return endgameSolve(moves);
 
-    // ── Step 1: Get top 12 candidates from full expert heuristic ──────────────
-    const K=Math.min(12,moves.length);
+    const diff=aiDifficulty.value;
+
+    // FIX C: Proactive Hard-Piece Urgency
+    // Before beam selection, check if any TRICKY pieces have very few placements.
+    // If so, bias the candidate set toward those pieces NOW while board is open.
+    const HARD_PIECES_URGENT = new Set(['X','U','W','F']);
+    const aiHandGod = remaining[ap] || [];
+    const hardInHand = aiHandGod.filter(p => HARD_PIECES_URGENT.has(p));
+    if(hardInHand.length > 0){
+      const flipOptsGod = allowFlip ? [false, true] : [false];
+      let mostUrgentPk = null, lowestCnt = Infinity;
+      for(const pk of hardInHand){
+        let cnt = 0;
+        const base = PENTOMINOES[pk]; const seen = new Set();
+        outerGod: for(const flip of flipOptsGod) for(let rot = 0; rot < 4; rot++){
+          const shape = transformCells(base, rot, flip);
+          const oKey = shape.map(([x,y])=>`${x},${y}`).join('|');
+          if(seen.has(oKey)) continue; seen.add(oKey);
+          for(let ay = 0; ay < boardH; ay++) for(let ax = 0; ax < boardW; ax++){
+            let valid = true;
+            for(const [dx,dy] of shape){
+              const x=ax+dx, y=ay+dy;
+              if(x<0||y<0||x>=boardW||y>=boardH||board[y][x]!==null){valid=false;break;}
+            }
+            if(!valid) continue;
+            cnt++; if(cnt >= 6) break outerGod; // cap at 6 — "safe" threshold
+          }
+        }
+        // If a hard piece has ≤5 placements, it's getting dangerous
+        if(cnt < lowestCnt){ lowestCnt = cnt; mostUrgentPk = pk; }
+      }
+      // Force play of the most constrained hard piece if it has ≤5 options
+      if(mostUrgentPk && lowestCnt <= 5){
+        const hardMoves = moves.filter(m => m.pk === mostUrgentPk);
+        if(hardMoves.length > 0){
+          // Use legendary scoring within this filtered set to find the best placement
+          const savedMoves = [...moves];
+          const topHard = movesLegendary(hardMoves, Math.min(3, hardMoves.length));
+          if(topHard && topHard.length > 0){
+            const candidate = Array.isArray(topHard) ? topHard[0] : topHard;
+            // Double-check this move doesn't strand other pieces
+            const simHard = board.map(r=>[...r]);
+            for(const[x,y]of candidate.abs) simHard[y][x]={player:ap,pieceKey:candidate.pk};
+            const remHard = aiHandGod.filter(k=>k!==candidate.pk);
+            const viabHard = allPiecesViabilityScore(simHard,boardW,boardH,remHard,placedCount+1,allowFlip,PENTOMINOES,transformCells);
+            if(viabHard >= -400) return candidate;
+          }
+        }
+      }
+    }
+
+    // ── V6.0: Get top-K candidates from Legendary heuristic evaluator ──
+    // K=8 for Ultimate (more alpha-beta candidates), K=5 for Expert
+    const earlyPlacement = placedCount <= 2;
+    const K = earlyPlacement
+      ? Math.min(3, moves.length)
+      : diff === 'ultimate' ? Math.min(8, moves.length) : Math.min(5, moves.length);
     const topK=movesLegendary(moves,K);
     if(!topK||!topK.length) return movesLegendary(moves);
     if(topK.length===1) return topK[0];
 
-    // ── Step 2: MCTS win-rate estimation for each candidate ──────────────────
-    const godShapes=getGodShapes(PENTOMINOES,transformCells);
-    // More rollouts = more accurate win-rate. Scale by game phase AND candidate
-    // count. Early game has more branching so we keep per-candidate budget high.
-    // Budget: ~600 total rollouts split across K candidates minimum.
-    const rollouts=Math.max(50,Math.min(120,Math.floor(720/K)));
-
-    let bestMove=null,bestCombined=-Infinity;
-    for(let i=0;i<topK.length;i++){
-      const m=topK[i];
-      // Heuristic rank score: 1st = 1.0, last = 1/K
-      const rankScore=(topK.length-i)/topK.length;
-      // MCTS win rate
-      const wr=fastMCTS(m,board,boardW,boardH,ap,hp,remaining,placedCount,godShapes,rollouts);
-      // Combined: MCTS dominates (catches traps heuristic misses)
-      const combined=rankScore*0.35+wr*0.65;
-      if(combined>bestCombined){bestCombined=combined;bestMove=m;}
+    // ── V6.0: Deep Alpha-Beta — Expert 5-ply, Ultimate 7-ply ──────────
+    // Skip on very early placements where board is nearly empty (too many moves)
+    let bestAB = null;
+    if (!earlyPlacement) {
+      bestAB = deepAlphaBeta(topK);
     }
 
-    // ── Step 3: Guaranteed viability post-filter ─────────────────────────────
-    // Before returning, verify that the chosen move leaves ALL remaining pieces
-    // with at least 1 valid placement. If not, fall back to the best move that
-    // does guarantee viability (even if its MCTS score was lower).
-    // This catches deep traps that MCTS rollouts still miss occasionally.
-    if(bestMove){
-      const simCheck=board.map(r=>[...r]);
-      for(const[x,y]of bestMove.abs) simCheck[y][x]={player:ap,pieceKey:bestMove.pk};
-      const remCheck=(remaining[ap]||[]).filter(k=>k!==bestMove.pk);
-      const viab=allPiecesViabilityScore(simCheck,boardW,boardH,remCheck,placedCount+1,allowFlip,PENTOMINOES,transformCells);
-      if(viab<-400){
-        // Chosen move strands a piece — find best viable alternative from topK
-        let safeBest=null,safeCombined=-Infinity;
-        for(let i=0;i<topK.length;i++){
-          const m=topK[i];
-          const sim2=board.map(r=>[...r]);
-          for(const[x,y]of m.abs) sim2[y][x]={player:ap,pieceKey:m.pk};
-          const rem2=(remaining[ap]||[]).filter(k=>k!==m.pk);
-          const v2=allPiecesViabilityScore(sim2,boardW,boardH,rem2,placedCount+1,allowFlip,PENTOMINOES,transformCells);
-          if(v2<-400) continue; // also strands pieces — skip
-          const rankScore=(topK.length-i)/topK.length;
-          const wr=fastMCTS(m,board,boardW,boardH,ap,hp,remaining,placedCount,godShapes,rollouts);
-          const combined=rankScore*0.35+wr*0.65;
-          if(combined>safeCombined){safeCombined=combined;safeBest=m;}
-        }
-        if(safeBest) bestMove=safeBest;
-        // If ALL topK strand pieces, MCPF emergency: play the most-constrained piece first
-        if(!safeBest){
-          const allMoves=getAllValidMoves();
-          const pcMap=computePiecePlacementCounts(
-            remaining[ap]||[],board,boardW,boardH,placedCount,allowFlip,PENTOMINOES,transformCells
-          );
-          const minCnt=Math.min(...[...(remaining[ap]||[])].map(pk=>pcMap.get(pk)??999));
-          const urgentPk=[...(remaining[ap]||[])].find(pk=>(pcMap.get(pk)??999)===minCnt);
-          if(urgentPk){
-            const urgentMoves=allMoves.filter(m=>m.pk===urgentPk);
-            if(urgentMoves.length) bestMove=urgentMoves[0|Math.random()*urgentMoves.length];
-          }
+    // ── Safety net: viability check on the chosen move ────────────────
+    let bestMove = bestAB || topK[0];
+
+    const simCheck=board.map(r=>[...r]);
+    for(const[x,y]of bestMove.abs) simCheck[y][x]={player:ap,pieceKey:bestMove.pk};
+    const remCheck=(remaining[ap]||[]).filter(k=>k!==bestMove.pk);
+    const viab=allPiecesViabilityScore(simCheck,boardW,boardH,remCheck,placedCount+1,allowFlip,PENTOMINOES,transformCells);
+
+    if(viab<-400){
+      // Chosen move leaves AI in trouble — fall back to safest move in topK
+      let safeBest=null,safeScore=-Infinity;
+      for(const m of topK){
+        const sim2=board.map(r=>[...r]);
+        for(const[x,y]of m.abs) sim2[y][x]={player:ap,pieceKey:m.pk};
+        const rem2=(remaining[ap]||[]).filter(k=>k!==m.pk);
+        const v2=allPiecesViabilityScore(sim2,boardW,boardH,rem2,placedCount+1,allowFlip,PENTOMINOES,transformCells);
+        if(v2<-400) continue;
+        const s2=quickScore(sim2,ap,hp,boardW,boardH)+v2*0.5;
+        if(s2>safeScore){safeScore=s2;safeBest=m;}
+      }
+      if(safeBest) bestMove=safeBest;
+      if(!safeBest){
+        // All topK moves are dangerous — play the urgent piece
+        const allMoves=getAllValidMoves();
+        const pcMap=computePiecePlacementCounts(
+          remaining[ap]||[],board,boardW,boardH,placedCount,allowFlip,PENTOMINOES,transformCells
+        );
+        const minCnt=Math.min(...[...(remaining[ap]||[])].map(pk=>pcMap.get(pk)??999));
+        const urgentPk=[...(remaining[ap]||[])].find(pk=>(pcMap.get(pk)??999)===minCnt);
+        if(urgentPk){
+          const urgentMoves=allMoves.filter(m=>m.pk===urgentPk);
+          if(urgentMoves.length) bestMove=urgentMoves[0|Math.random()*urgentMoves.length];
         }
       }
     }
 
     return bestMove||topK[0];
   }
+
   function getSynergyTargets(picks,pool){
     const out=new Set();
     for(const k of picks) for(const p of(SYNERGY_PAIRS[k]||[])) if(pool.includes(p)) out.add(p);
@@ -3221,32 +4184,28 @@ export function createAiEngine({game,aiPlayer,humanPlayer,aiDifficulty,PENTOMINO
 
   function legendarySmallPool(pool,aiPicks,hpPicks){
     if(pool.length>4) return null;
-    // Apply the same hard cap as legScore — critical to prevent overriding it
     const ELONGATED_LEG=['I','L','N','Y','Z'];
     const elongatedInHand=aiPicks.filter(p=>ELONGATED_LEG.includes(p)).length;
     const COMPACT_LEG=['F','W','V','U','X'];
     const compactInHand=aiPicks.filter(p=>COMPACT_LEG.includes(p)).length;
     const humanHasILeg=hpPicks.includes('I');
-    // Build eligible pool — respect hard caps unless no alternative exists
     const eligible=pool.filter(k=>{
       if(ELONGATED_LEG.includes(k)&&elongatedInHand>=2){
-        // Only allow if ALL remaining pieces are elongated (forced pick)
         const nonElong=pool.filter(p=>!ELONGATED_LEG.includes(p));
         return nonElong.length===0;
       }
-      if(COMPACT_LEG.includes(k)&&compactInHand>=3&&!humanHasILeg){
+      if(COMPACT_LEG.includes(k)&&compactInHand>=2&&!humanHasILeg){
         const nonComp=pool.filter(p=>!COMPACT_LEG.includes(p));
         return nonComp.length===0;
       }
       return true;
     });
-    const candidates=eligible.length?eligible:pool; // fallback if all blocked
-    const SHAPE_SC={I:5,L:5,Y:5,N:4,T:4,Z:4,P:3,W:3,F:2,U:2,X:1,V:2};
+    const candidates=eligible.length?eligible:pool; 
     let bestPick=null,bScore=-Infinity;
     for(const pick of candidates){
       const hGets=pool.filter(k=>k!==pick);
-      const hScore=[...hpPicks,...hGets].reduce((s,k)=>s+(SHAPE_SC[k]||2)-(PIECE_ROLES.BLOCKER.has(k)?1.5:0),0);
-      const score=(SHAPE_SC[pick]||2)-hScore*0.8;
+      const hScore=[...hpPicks,...hGets].reduce((s,k)=>s+(SHAPE_SCORE[k]||2)-(PIECE_ROLES.BLOCKER.has(k)?1.5:0),0);
+      const score=(SHAPE_SCORE[pick]||2)-hScore*0.8;
       if(score>bScore){bScore=score;bestPick=pick;}
     }
     return bestPick;
@@ -3258,33 +4217,57 @@ export function createAiEngine({game,aiPlayer,humanPlayer,aiDifficulty,PENTOMINO
     const hp=humanPlayer.value,ap=aiPlayer.value;
     const hpPicks=game.picks[hp]||[],aiPicks=game.picks[ap]||[];
 
-    // ── Snake-draft position awareness ──────────────────────────────
-    // The draft follows a 4-pick cycle: [opener, other, other, opener]
-    // repeating. Knowing where we are in that cycle tells the AI how
-    // many consecutive human picks follow *this* pick before the AI
-    // gets another turn — which directly changes the optimal strategy.
-    //
-    //   humanPicksNext = 2 → human gets two uninterrupted picks next
-    //                        → DENY aggressively (they can grab two good pieces)
-    //   humanPicksNext = 0 → AI picks again immediately after this
-    //                        → be GREEDY (focus on own hand quality)
-    const nextIdx      = hpPicks.length + aiPicks.length; // 0-based index of THIS pick
+    // ── V6.0: DENIAL OVERRIDE — "Only Fit" Logic ─────────────────────
+    // If any piece in the pool is the ONLY piece that can fit in a board
+    // opening adjacent to the opponent, draft it regardless of SHAPE_SCORE.
+    // This prevents the human from claiming a cavity that only one piece fills.
+    if ((diff === 'ultimate' || diff === 'expert' || diff === 'legendary') &&
+        game.board && game.boardW && game.boardH) {
+      const { board, boardW, boardH, allowFlip } = game;
+      const flipOpts = allowFlip ? [false, true] : [false];
+      const regions = floodFillRegions(board, boardW, boardH);
+
+      for (const reg of regions) {
+        if (reg.length < 5 || reg.length > 10) continue;
+        // Only consider regions adjacent to human territory
+        let adjHp = false;
+        for (const [x, y] of reg) {
+          for (const [ox, oy] of DIRS) {
+            const nx = x + ox, ny = y + oy;
+            if (nx >= 0 && ny >= 0 && nx < boardW && ny < boardH &&
+                board[ny][nx]?.player === hp) { adjHp = true; break; }
+          }
+          if (adjHp) break;
+        }
+        if (!adjHp) continue;
+
+        // Find pieces in the pool that fit
+        const fitting = pool.filter(pk =>
+          pieceCanFitInRegion(pk, reg, flipOpts, PENTOMINOES, transformCells)
+        );
+        if (fitting.length === 1) {
+          // This piece is the ONLY one that fits — must draft it for denial
+          return fitting[0];
+        }
+      }
+    }
+    // ─────────────────────────────────────────────────────────────────
+
+    const nextIdx      = hpPicks.length + aiPicks.length; 
     const cyclePos     = nextIdx % 4;
     const openerIsAI   = (game._draftOpener ?? 1) === ap;
-    // Positions where the human gets two consecutive picks next:
-    //   opener=AI  → cycle pos 0 (human fills slots 1 & 2)
-    //   opener=Hum → cycle pos 2 (human fills slots 3 & 0 of next group)
     const humanPicksNext = (openerIsAI && cyclePos === 0) || (!openerIsAI && cyclePos === 2) ? 2 : 0;
-    // Denial multiplier: 1× normal, 1.5× when human gets two free picks
     const denialMult   = humanPicksNext === 2 ? 1.5 : 1.0;
-    // Greed multiplier: 1.3× when AI picks again immediately (build freely)
     const greedMult    = humanPicksNext === 0 ? 1.3 : 1.0;
 
-    // Easy: pure random — unaffected by draft position
+    let iUtilityModifier = 1.0;
+    if (aiPicks.includes('I')) {
+      const humanCompactCount = hpPicks.filter(p => ['F', 'W', 'X', 'U'].includes(p)).length;
+      if (humanCompactCount >= 3) iUtilityModifier = 0.2; 
+    }
+
     if(diff==='easy') return pool[Math.floor(Math.random()*pool.length)];
 
-    // Normal: 50% random, otherwise pick versatile.
-    // Slight awareness: when human gets two picks next, prefer stealing versatile pieces.
     if(diff==='normal'){
       if(Math.random() < (humanPicksNext===2 ? 0.25 : 0.5))
         return pool[Math.floor(Math.random()*pool.length)];
@@ -3292,9 +4275,6 @@ export function createAiEngine({game,aiPlayer,humanPlayer,aiDifficulty,PENTOMINO
       return good.length?good[Math.floor(Math.random()*good.length)]:pool[Math.floor(Math.random()*pool.length)];
     }
 
-    // Hard: synergy-denial + versatile pick, now draft-position aware.
-    //   • When human has two picks coming: heavily favour denial over own utility.
-    //   • When AI picks again next: allow more greed (tricky/versatile for self).
     if(diff==='hard'){
       const targets=getSynergyTargets(hpPicks,pool);
       const denyChance = Math.min(0.97, 0.85 * denialMult);
@@ -3303,19 +4283,14 @@ export function createAiEngine({game,aiPlayer,humanPlayer,aiDifficulty,PENTOMINO
       const versatileChance = Math.min(0.96, 0.80 * greedMult);
       if(good.length&&Math.random()<versatileChance) return good[Math.floor(Math.random()*good.length)];
       const tricky=pool.filter(k=>TRICKY_PIECES.has(k));
-      // Only pick tricky pieces for self when greedy (AI picks again next)
       if(tricky.length&&humanPicksNext===0&&Math.random()<0.65) return tricky[Math.floor(Math.random()*tricky.length)];
       return pool[Math.floor(Math.random()*pool.length)];
     }
 
-    // Master: snake-aware scoring. Denial weight scales with denialMult;
-    // own-hand quality scales with greedMult.
     if(diff==='master'){
       function gmSnakeScore(k){
         let s = gmDraftScore(k,aiPicks) * greedMult;
-        // Deny human synergies — boosted when human gets two picks next
         if(getSynergyTargets(hpPicks,[k]).length) s += 8 * denialMult;
-        // Pool-narrowing bonus: does picking k reduce human synergy options?
         const poolAfter=pool.filter(p=>p!==k);
         const synBefore=getSynergyTargets(hpPicks,pool).length;
         const synAfter =getSynergyTargets(hpPicks,poolAfter).length;
@@ -3323,7 +4298,6 @@ export function createAiEngine({game,aiPlayer,humanPlayer,aiDifficulty,PENTOMINO
         return s;
       }
       const targets=getSynergyTargets(hpPicks,pool);
-      // When human gets two picks next always run the denial path
       if(targets.length && (humanPicksNext===2 || Math.random()<0.9))
         return targets.reduce((b,k)=>gmSnakeScore(k)>gmSnakeScore(b)?k:b,targets[0]);
       const rectFriendly=pool.filter(k=>['I','L','Y','P','N','T','V'].includes(k));
@@ -3332,33 +4306,21 @@ export function createAiEngine({game,aiPlayer,humanPlayer,aiDifficulty,PENTOMINO
       return pool.reduce((b,k)=>gmSnakeScore(k)>gmSnakeScore(b)?k:b);
     }
 
-    // Ultimate: full position-aware scoring. legScore gets denial and greed
-    // weights directly from the snake cycle position.
     const sp=legendarySmallPool(pool,aiPicks,hpPicks); if(sp) return sp;
 
-    // ── GOD DRAFT (Ultimate difficulty) ──────────────────────────────────────
-    // Differences from Expert (legendary) draft:
-    //   1. PROACTIVE elongated cap: cap at 1 elongated if pool still contains I
-    //      AND 2+ compact pieces, even before the human reveals their strategy.
-    //   2. 2-ply simulation: for every pick, simulate the human's best counter-
-    //      pick and choose the AI pick that gives the best worst-case hand.
     if(diff==='ultimate'){
-      const ELONG_G=['I','L','N','Y','Z'];
+      const ELONG_G=['I','L','N','Y']; 
       const COMP_G=['F','W','V','U','X'];
       const elongInHand_G=aiPicks.filter(p=>ELONG_G.includes(p)).length;
       const compInHand_G=aiPicks.filter(p=>COMP_G.includes(p)).length;
       const humanHasI_G=hpPicks.includes('I');
       const humanCompact_G=hpPicks.filter(p=>COMP_G.includes(p)).length;
-      // Proactive cap: if we already have 1 elongated AND the pool still has I + 2 compact,
-      // cap at 1 regardless of what human has picked yet. This prevents the replay-2 disaster.
       const poolHasI_G=pool.includes('I');
       const poolCompact_G=pool.filter(p=>COMP_G.includes(p)).length;
       const proactiveCap=(elongInHand_G>=1&&poolHasI_G&&poolCompact_G>=2)?1:2;
-      // Reactive cap (same as legendary): tighten if threat confirmed
       const reactiveCap=(humanHasI_G&&humanCompact_G>=1)?1:2;
       const elongCapG=Math.min(proactiveCap,reactiveCap);
 
-      // Hand quality estimator: returns delta (positive = good for AI)
       const dh_g=_getDraftHistory();
       const freq_g={};
       for(const e of dh_g) for(const pk of(e.humanPicks||[])) freq_g[pk]=(freq_g[pk]||0)+1;
@@ -3377,18 +4339,78 @@ export function createAiEngine({game,aiPlayer,humanPlayer,aiDifficulty,PENTOMINO
         if(aiEl>=2&&(hpHasI2||hpComp2>=2)) score-=22;
         if(hpHasI2) score-=16;
         for(const pk of aiH) for(const sp of(SYNERGY_PAIRS[pk]||[])) if(aiH.includes(sp)) score+=4;
+        const AI_CORNER_ANCHOR=['U','V','W'];
+        const AI_FLEX_FILLER=['Z','N','P'];
+        const aiHasAnchor=aiH.some(p=>AI_CORNER_ANCHOR.includes(p));
+        const aiHasFiller=aiH.some(p=>AI_FLEX_FILLER.includes(p));
+        if(aiHasAnchor&&aiHasFiller) score+=9;
+        const hpHasAnchor=hpH.some(p=>AI_CORNER_ANCHOR.includes(p));
+        const hpHasFiller=hpH.some(p=>AI_FLEX_FILLER.includes(p));
+        if(hpHasAnchor&&hpHasFiller) score-=11;
         return score;
       }
 
       function godDraftScore(pick){
-        if(ELONG_G.includes(pick)&&elongInHand_G>=elongCapG){
-          if(pool.filter(p=>!ELONG_G.includes(p)).length>0) return -9999;
-        }
-        if(COMP_G.includes(pick)&&compInHand_G>=3&&!humanHasI_G){
-          if(pool.filter(p=>!COMP_G.includes(p)).length>0) return -9999;
-        }
-        // Base scoring (same as legScore)
         let s=(SHAPE_SCORE[pick]||2)*4*greedMult;
+
+        // FIX F: Hard BLOCKER cap — drafting 2+ BLOCKER/UNPAIRABLE pieces in
+        // the same hand is a proven failure mode (Game 1: U+X+W; Game 2: X+F).
+        // Apply escalating penalties to discourage stacking these irregular shapes.
+        const blockerInHand = aiPicks.filter(p => PIECE_ROLES.BLOCKER.has(p)).length;
+        if(PIECE_ROLES.BLOCKER.has(pick)){
+          if(blockerInHand >= 1) s -= 20 * greedMult; // strong penalty for 2nd blocker
+          if(blockerInHand >= 2) s -= 45 * greedMult; // near-disqualification for 3rd
+        }
+
+        // ── V5.2 FIX: TRICKY-RIGID CAP — cap only genuinely self-trapping pieces ─
+        // F and N require unusual open shapes and tangle themselves in tight boards.
+        // X and W are DENIAL pieces with high board presence — do NOT cap them.
+        // Drafting X/W is often the correct move precisely to deny the human.
+        const TRICKY_RIGID = ['F', 'N']; // X and W deliberately excluded
+        const trickyInHand = aiPicks.filter(p => TRICKY_RIGID.includes(p)).length;
+        if (TRICKY_RIGID.includes(pick) && trickyInHand >= 1) {
+          s -= 22 * greedMult; // softer than before — still discourages F+N stacking
+        }
+        if (['P', 'V', 'U'].includes(pick) && trickyInHand >= 1) {
+          s += 30 * greedMult; // glue pieces support the tricky one
+        }
+        // ─────────────────────────────────────────────────────────────────────────
+
+        // ── V5.0: ANTI-BULKY DRAFTING (enhanced) ──────────────────────
+        const compactInHand  = aiPicks.filter(p => PIECE_ROLES.COMPACT.has(p)).length;
+        const humanBulky_G   = hpPicks.filter(p => BULKY_PIECES.has(p)).length;
+        const humanCompact   = hpPicks.filter(p => COMPACT_PIECES.has(p) || p === 'X' || p === 'F').length;
+
+        // If human is drafting bulky pieces, aggressively grab compact pieces
+        if (humanBulky_G >= 1 && COMPACT_PIECES.has(pick)) {
+          s += humanBulky_G * 28 * denialMult;   // Each human bulky = +28 per compact pick
+        }
+        if (humanBulky_G >= 2 && COMPACT_PIECES.has(pick) && compactInHand === 0) {
+          s += 55 * greedMult;  // Emergency: must have at least one compact
+        }
+
+        // Anti-hoarding counter: if human is stockpiling compact pieces, steal them
+        if (humanCompact >= 2 && ['P','U','F','X'].includes(pick)) {
+          s += 35 * denialMult;
+        }
+
+        // Forced anchor prioritization: compact pieces are essential endgame tools
+        if (['P','U'].includes(pick) && compactInHand === 0) {
+          s += 40 * greedMult;
+        }
+
+        // Prevent Bulky stacking if we lack an anchor and compact is still available
+        if (PIECE_ROLES.BULKY.has(pick) && compactInHand === 0 && (pool.includes('P') || pool.includes('U'))) {
+          s -= 22;   // Stronger penalty in v5.0
+        }
+
+        // If AI already has 2+ compact pieces, reward more bulky variety instead
+        if (COMPACT_PIECES.has(pick) && compactInHand >= 2 && !humanHasI_G) {
+          s -= 15;   // Diminishing returns on compact hoarding
+        }
+        // ──────────────────────────────────────────────────────────────
+
+        if (pick === 'I') s *= iUtilityModifier;
         for(const hk of hpPicks) if((SYNERGY_PAIRS[hk]||[]).includes(pick)) s+=16*denialMult;
         const poolAP=pool.filter(k=>k!==pick);
         s+=(hTargets_g-getSynergyTargets(hpPicks,poolAP).length)*6*denialMult;
@@ -3407,25 +4429,25 @@ export function createAiEngine({game,aiPlayer,humanPlayer,aiDifficulty,PENTOMINO
         if(VERSATILE_PIECES.has(pick)) s+=4;
         if(UNPAIRABLE.has(pick)) s-=6;
 
-        // ── P+U PAIR SYNERGY (human strategy mirror) ─────────────────────────
-        // Holding both P and U enables the exclusive 3×2 tiling strategy.
-        // Heavily reward completing the pair; also deny the partner if human took one.
         const aiHasP=aiPicks.includes('P'), aiHasU=aiPicks.includes('U');
         const hpHasP=hpPicks.includes('P'), hpHasU=hpPicks.includes('U');
-        if(pick==='U'&&aiHasP&&pool.includes('U')) s+=32*greedMult; // completing own pair
-        if(pick==='P'&&aiHasU&&pool.includes('P')) s+=32*greedMult;
-        if(pick==='U'&&hpHasP&&pool.includes('U')) s+=28*denialMult; // deny their pair
-        if(pick==='P'&&hpHasU&&pool.includes('P')) s+=28*denialMult;
-        // If neither side has either piece yet and both are in pool, prioritise P slightly
-        // (P is more flexible as a 3×2 anchor)
+        if(pick==='U'&&aiHasP&&pool.includes('U')) s+=50*greedMult; 
+        if(pick==='P'&&aiHasU&&pool.includes('P')) s+=50*greedMult;
+        if(pick==='U'&&hpHasP&&pool.includes('U')) s+=45*denialMult; 
+        if(pick==='P'&&hpHasU&&pool.includes('P')) s+=45*denialMult;
         if(!aiHasP&&!aiHasU&&!hpHasP&&!hpHasU&&(pick==='P'||pick==='U')) s+=10*greedMult;
-
-        // ── CAVITY POTENTIAL BONUS ────────────────────────────────────────────
-        // P and U are the best cavity-makers (easy to make exclusive holes).
-        // Reward picking them if the opponent can't also make the same shape.
         if((pick==='P'||pick==='U')&&!hpPicks.includes(pick==='P'?'U':'P')) s+=14*greedMult;
 
-        // ── 2-ply: simulate best human counter-pick ─────────────────────────
+        const hpHasX_G = hpPicks.includes('X');
+        if (hpHasX_G) {
+          if (['T', 'N', 'Z', 'P'].includes(pick)) s += 18 * greedMult; 
+        }
+        if (pick === 'X' && !hpHasX_G) s += 30 * denialMult; 
+
+        if ((SHAPE_SCORE[pick] || 2) <= 2 && aiPicks.length >= 1) {
+          const highUtilInPool = godPool.filter(p => (SHAPE_SCORE[p] || 2) >= 4).length;
+          if (highUtilInPool > 0) s *= 0.55; 
+        }
         const projAI=[...aiPicks,pick];
         const poolAfterMe=pool.filter(k=>k!==pick);
         let worstOutcome=0;
@@ -3433,10 +4455,10 @@ export function createAiEngine({game,aiPlayer,humanPlayer,aiDifficulty,PENTOMINO
           let worstDelta=Infinity;
           for(const hpick of poolAfterMe){
             const projHP=[...hpPicks,hpick];
-            const delta=evalHand(projAI,projHP); // from AI's perspective
+            const delta=evalHand(projAI,projHP); 
             if(delta<worstDelta){worstDelta=delta;worstOutcome=delta;}
           }
-          s+=worstOutcome*0.45; // blend 2-ply worst-case into score
+          s+=worstOutcome*0.45; 
         }
         return s;
       }
@@ -3444,15 +4466,21 @@ export function createAiEngine({game,aiPlayer,humanPlayer,aiDifficulty,PENTOMINO
       const godElig=pool.filter(k=>{
         if(ELONG_G.includes(k)&&elongInHand_G>=elongCapG)
           return pool.filter(p=>!ELONG_G.includes(p)).length===0;
-        if(COMP_G.includes(k)&&compInHand_G>=3&&!humanHasI_G)
+        if(COMP_G.includes(k)&&compInHand_G>=2&&!humanHasI_G)
           return pool.filter(p=>!COMP_G.includes(p)).length===0;
+        
+        // Anti-Trap Bulky Hard Cap
+        const bulkyInHand = aiPicks.filter(p => PIECE_ROLES.BULKY.has(p)).length;
+        if(PIECE_ROLES.BULKY.has(k) && bulkyInHand >= 3) {
+            return pool.filter(p => !PIECE_ROLES.BULKY.has(p)).length === 0;
+        }
+
         return true;
       });
       const godPool=godElig.length?godElig:pool;
       return godPool.reduce((b,k)=>godDraftScore(k)>godDraftScore(b)?k:b,godPool[0]);
     }
 
-    // Expert (legendary): full position-aware scoring
     const draftHistory=_getDraftHistory();
     const freq={};
     for(const e of draftHistory) for(const pk of(e.humanPicks||[])) freq[pk]=(freq[pk]||0)+1;
@@ -3460,52 +4488,57 @@ export function createAiEngine({game,aiPlayer,humanPlayer,aiDifficulty,PENTOMINO
     const hTargetsBefore=getSynergyTargets(hpPicks,pool).length;
     const humanHasI=hpPicks.includes('I');
 
-    // ── PROACTIVE ELONGATED CAP (mirrored from god level) ──────────────────────
-    // If we already hold 1+ elongated piece AND the pool still has I + 2 compact
-    // pieces available for the human, cap at 1 elongated regardless. This prevents
-    // drafting L+N before human reveals I — the root cause of game-1 loss.
-    const ELONG_LEG_PRE=['I','L','N','Y','Z'];
+    const ELONG_LEG_PRE=['I','L','N','Y']; 
     const COMP_LEG_PRE=['F','W','V','U','X'];
     const elongInHandLeg=aiPicks.filter(p=>ELONG_LEG_PRE.includes(p)).length;
     const poolHasI_Leg=pool.includes('I');
     const poolCompact_Leg=pool.filter(p=>COMP_LEG_PRE.includes(p)).length;
     const humanCompact_Leg=hpPicks.filter(p=>COMP_LEG_PRE.includes(p)).length;
-    // Proactive: cap = 1 if we have 1 elongated AND pool still has I AND 2+ compact for human
     const proactiveCapLeg=(elongInHandLeg>=1&&poolHasI_Leg&&poolCompact_Leg>=2)?1:2;
-    // Reactive: cap = 1 if human already has I + a compact piece
     const reactiveCapLeg=(humanHasI&&humanCompact_Leg>=1)?1:2;
     const elongCapLeg=Math.min(proactiveCapLeg,reactiveCapLeg);
 
     function legScore(pick){
-      // ── HARD LIMITS — applied before any scoring ──────────────────────────
-      // These are non-negotiable constraints to prevent unplayable hands.
-      const ELONGATED_SET=['I','L','N','Y','Z'];
-      const elongatedInHand=aiPicks.filter(p=>ELONGATED_SET.includes(p)).length;
-      // Declare humanHasI at the top so all code below (including Fix 5) can use it
-      const humanHasI=hpPicks.includes('I');
-
-      // HARD CAP: use the tighter proactive/reactive cap computed above.
-      // elongCapLeg = 1 when the pool still has I + 2 compact (proactive threat),
-      // or when human already has I + compact (reactive confirmation).
-      if(ELONGATED_SET.includes(pick)&&elongatedInHand>=elongCapLeg) return -9999;
-
-      // HARD CAP: avoid drafting 3rd blocker/compact piece for own hand.
-      // These are "space fillers" that compete for the same corner/pocket slots.
-      const COMPACT_SET=['F','W','V','U','X'];
-      const compactInHand=aiPicks.filter(p=>COMPACT_SET.includes(p)).length;
-      if(COMPACT_SET.includes(pick)&&compactInHand>=3&&!humanHasI) return -9999;
-
-      // Self-utility (scaled by greed: up to 1.3× when AI picks again next)
       let s=(SHAPE_SCORE[pick]||2) * 4 * greedMult;
-      // Human synergy: does this piece pair with what the human already has?
+
+      // ── V5.2 FIX: TRICKY-RIGID CAP (mirrors godDraftScore fix) ──────────
+      // Only cap F and N — X and W are denial pieces and must not be suppressed.
+      const TRICKY_RIGID_L = ['F', 'N'];
+      const trickyInHandL  = aiPicks.filter(p => TRICKY_RIGID_L.includes(p)).length;
+      if (TRICKY_RIGID_L.includes(pick) && trickyInHandL >= 1) {
+        s -= 22 * greedMult;
+      }
+      if (['P', 'V', 'U'].includes(pick) && trickyInHandL >= 1) {
+        s += 30 * greedMult;
+      }
+      // ─────────────────────────────────────────────────────────────────────
+
+      // --- NEW: Compact Meta Patch ---
+      const compactInHandRole = aiPicks.filter(p => PIECE_ROLES.COMPACT.has(p)).length;
+      const humanCompact = hpPicks.filter(p => PIECE_ROLES.COMPACT.has(p) || p === 'X' || p === 'F').length;
+
+      // Anti-hoarding counter
+      if (humanCompact >= 2 && ['P','U','F','X'].includes(pick)) {
+          s += 35 * denialMult;
+      }
+
+      // Forced anchor prioritization
+      if (['P','U'].includes(pick) && compactInHandRole === 0) {
+          s += 40 * greedMult; 
+      }
+
+      // Prevent Bulky stacking if we lack an anchor
+      if (PIECE_ROLES.BULKY.has(pick) && compactInHandRole === 0 && (pool.includes('P') || pool.includes('U'))) {
+          s -= 15;
+      }
+      // -------------------------------
+
+      if (pick === 'I') s *= iUtilityModifier;
       for(const hk of hpPicks) if((SYNERGY_PAIRS[hk]||[]).includes(pick)) s += 16 * denialMult;
-      // Pool narrowing: does grabbing this reduce future human synergy options?
       const poolAfter=pool.filter(k=>k!==pick);
       s += (hTargetsBefore-getSynergyTargets(hpPicks,poolAfter).length) * 6 * denialMult;
-      // History: human tends to pick this piece → deny it
       const hw=Math.min(1,draftHistory.length/5);
       s += ((freq[pick]||0)/maxF) * 20 * hw * denialMult;
-      // Role diversity for own hand (scaled by greed)
       if(!aiPicks.some(p=>PIECE_ROLES.FLEXIBLE.has(p))&&PIECE_ROLES.FLEXIBLE.has(pick)) s += 7 * greedMult;
       if(!aiPicks.some(p=>PIECE_ROLES.LINEAR.has(p))&&PIECE_ROLES.LINEAR.has(pick))     s += 9 * greedMult;
       if(!aiPicks.some(p=>PIECE_ROLES.FILLER.has(p))&&PIECE_ROLES.FILLER.has(pick))     s += 5 * greedMult;
@@ -3515,60 +4548,64 @@ export function createAiEngine({game,aiPlayer,humanPlayer,aiDifficulty,PENTOMINO
       if(['I','L','Y','P','N'].includes(pick)) s+=5;
       if(VERSATILE_PIECES.has(pick)) s+=4;
       if(UNPAIRABLE.has(pick)) s-=6;
-      // ── I-piece fragmentation penalty ──────────────────────────────────────
-      // Each compact piece the human picks (F,W,V,U,X) = more board fragmentation
-      // = harder for I to find an open 5-in-a-row lane later. Reduce I's value.
+      
       const humanCompactCount=hpPicks.filter(p=>['F','W','V','U','X'].includes(p)).length;
       if(pick==='I') s-=humanCompactCount*7;
-      // ── Human-I counter ────────────────────────────────────────────────────
-      // If the human ALREADY HAS I in their hand, they're going to use it to
-      // sweep a row. Deny them the compact pieces (F,X,W,U) that help fragment
-      // the board around the I lane. Also reward AI picking row-blockers (T,X,F,W).
-      // (humanHasI declared at top of legScore)
+      
       if(humanHasI){
-        // Deny human's remaining compact toolkit aggressively
         if(['F','X','W','U'].includes(pick)) s+=22*denialMult;
-        // Row-blocker pieces for AI: T can cut across rows, X is a plus-blocker
         if(['T','X'].includes(pick)) s+=12*greedMult;
       }
-      // ── Compact piece denial ────────────────────────────────────────────────
-      // If the human is loading up on compact pieces, they're setting up the
-      // "fragment and trap" strategy. Deny the remaining compact pieces aggressively.
+      
       if(['F','W','V','U','X'].includes(pick)&&humanCompactCount>=2) s+=22*denialMult;
-      // Counter-picks based on human's existing hand shape
       if(hpPicks.some(k=>['I','L','Y','N'].includes(k))&&['T','F','X','W','U'].includes(pick)) s += 3 * denialMult;
       if(hpPicks.some(k=>['T','F','Y','X'].includes(k))&&['I','L','P'].includes(pick))         s += 4 * denialMult;
 
-      // ── P+U PAIR SYNERGY (human strategy mirror) ─────────────────────────
       const aiHasP_L=aiPicks.includes('P'), aiHasU_L=aiPicks.includes('U');
       const hpHasP_L=hpPicks.includes('P'), hpHasU_L=hpPicks.includes('U');
-      if(pick==='U'&&aiHasP_L&&pool.includes('U')) s+=32*greedMult;
-      if(pick==='P'&&aiHasU_L&&pool.includes('P')) s+=32*greedMult;
-      if(pick==='U'&&hpHasP_L&&pool.includes('U')) s+=28*denialMult;
-      if(pick==='P'&&hpHasU_L&&pool.includes('P')) s+=28*denialMult;
+      if(pick==='U'&&aiHasP_L&&pool.includes('U')) s+=50*greedMult;
+      if(pick==='P'&&aiHasU_L&&pool.includes('P')) s+=50*greedMult;
+      if(pick==='U'&&hpHasP_L&&pool.includes('U')) s+=45*denialMult;
+      if(pick==='P'&&hpHasU_L&&pool.includes('P')) s+=45*denialMult;
       if(!aiHasP_L&&!aiHasU_L&&!hpHasP_L&&!hpHasU_L&&(pick==='P'||pick==='U')) s+=10*greedMult;
       if((pick==='P'||pick==='U')&&!hpPicks.includes(pick==='P'?'U':'P')) s+=14*greedMult;
 
+      const hpHasX_Leg = hpPicks.includes('X');
+      if (hpHasX_Leg) {
+        if (['T', 'N', 'Z', 'P'].includes(pick)) s += 15 * denialMult;
+      }
+      if (pick === 'X' && !hpHasX_Leg) s += 25 * denialMult; 
+
+      if ((SHAPE_SCORE[pick] || 2) <= 2 && aiPicks.length >= 1) {
+        const highUtilNow = pool.filter(p => (SHAPE_SCORE[p] || 2) >= 4).length;
+        if (highUtilNow > 0) s *= 0.55;
+      }
+
       return s;
     }
-    // Pre-filter: remove hard-blocked pieces before running legScore reduce.
-    // legScore already returns -9999 for blocked pieces, but this ensures
-    // the reduce can't accidentally pick one if all scores are equally terrible.
-    const ELONGATED_PRE=['I','L','N','Y','Z'];
+    
+    const ELONGATED_PRE=['I','L','N','Y']; 
     const COMPACT_PRE=['F','W','V','U','X'];
     const elongatedInHandNow=aiPicks.filter(p=>ELONGATED_PRE.includes(p)).length;
     const compactInHandNow=aiPicks.filter(p=>COMPACT_PRE.includes(p)).length;
-    // Use the same elongCapLeg computed above (proactive + reactive combined)
-    const humanCompactNow=hpPicks.filter(p=>['F','W','V','U','X'].includes(p)).length;
+    
     const eligiblePool=pool.filter(k=>{
       if(ELONGATED_PRE.includes(k)&&elongatedInHandNow>=elongCapLeg){
-        return pool.filter(p=>!ELONGATED_PRE.includes(p)).length===0; // allow only if forced
+        return pool.filter(p=>!ELONGATED_PRE.includes(p)).length===0; 
       }
-      if(COMPACT_PRE.includes(k)&&compactInHandNow>=3&&!humanHasI){
+      if(COMPACT_PRE.includes(k)&&compactInHandNow>=2&&!humanHasI){
         return pool.filter(p=>!COMPACT_PRE.includes(p)).length===0;
       }
+      
+      // Anti-Trap Bulky Hard Cap
+      const bulkyInHand = aiPicks.filter(p => PIECE_ROLES.BULKY.has(p)).length;
+      if(PIECE_ROLES.BULKY.has(k) && bulkyInHand >= 3) {
+          return pool.filter(p => !PIECE_ROLES.BULKY.has(p)).length === 0;
+      }
+
       return true;
     });
+    
     const scoringPool=eligiblePool.length?eligiblePool:pool;
     return scoringPool.reduce((b,k)=>legScore(k)>legScore(b)?k:b,scoringPool[0]);
   }
@@ -3576,10 +4613,10 @@ export function createAiEngine({game,aiPlayer,humanPlayer,aiDifficulty,PENTOMINO
   function choosePlacement(moves){
     const diff=aiDifficulty.value;
     if(diff==='easy')      return movesEasy(moves);
-    if(diff==='normal')       return movesNormal(moves);
-    if(diff==='hard')   return movesTactician(moves);
-    if(diff==='master') return movesGrandmaster(moves);
-    if(diff==='ultimate')         return movesGod(moves);
+    if(diff==='normal')    return movesNormal(moves);
+    if(diff==='hard')      return movesTactician(moves);
+    if(diff==='master')    return movesGrandmaster(moves);
+    if(diff==='ultimate')  return movesGod(moves);
     return movesLegendary(moves);
   }
 
@@ -3589,7 +4626,6 @@ export function createAiEngine({game,aiPlayer,humanPlayer,aiDifficulty,PENTOMINO
     const rem=Math.min((game.remaining?.[aiPlayer.value]?.length||6),(game.remaining?.[humanPlayer.value]?.length||6));
     if(game.phase==='draft') return 900+Math.random()*400;
 
-    // Fix 16 — scale end-game delay by difficulty so each tier still feels distinct.
     if(rem<=3){
       const base={easy:200,normal:300,hard:450,master:600,expert:750,ultimate:900};
       return (base[diff]||450)+Math.random()*200;
@@ -3600,16 +4636,14 @@ export function createAiEngine({game,aiPlayer,humanPlayer,aiDifficulty,PENTOMINO
     }
 
     if(diff==='easy')      return 900+Math.random()*900;
-    if(diff==='normal')       return 550+Math.random()*600;
-    if(diff==='hard')   return 750+Math.random()*500;
-    if(diff==='master') return 950+Math.random()*600;
+    if(diff==='normal')    return 550+Math.random()*600;
+    if(diff==='hard')      return 750+Math.random()*500;
+    if(diff==='master')    return 950+Math.random()*600;
     if(diff==='ultimate'){
-      // God is slower due to MCTS — feel the weight of its thinking
       if(placed<=2) return 2200+Math.random()*800;
       if(placed<=5) return 1800+Math.random()*600;
       return 1500+Math.random()*500;
     }
-    // legendary (expert) mid-game
     if(placed<=2) return 1500+Math.random()*500;
     if(placed<=5) return 1200+Math.random()*400;
     return 1050+Math.random()*400;
