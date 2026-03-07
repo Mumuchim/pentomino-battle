@@ -486,6 +486,12 @@
 
         <!-- PENTWELVE + LOWER/UPPER SIX labels — anchored to shell, not scrollable -->
         <div class="vsaiLabel">
+          <!-- Champion badge — shown above title when all 12 cleared -->
+          <div v-if="storyProgress.completed >= 12" class="vsaiChamp">
+            <span class="vsaiChampCrown">🏆</span>
+            <div class="vsaiChampTitle">PENTWELVE CHAMPION</div>
+            <div class="vsaiChampSub">You came from nothing. Now you are the standard.</div>
+          </div>
           <img :src="vsaiPentwelveUrl" class="vsaiLabelTitle" draggable="false" />
           <div class="vsaiLabelSixRow">
             <img
@@ -516,12 +522,6 @@
           </div>
         </div>
 
-        <!-- Champion overlay -->
-        <div v-if="storyProgress.completed >= 12" class="vsaiChamp">
-          <div class="vsaiChampCrown">🏆</div>
-          <div class="vsaiChampTitle">PENTWELVE CHAMPION</div>
-          <div class="vsaiChampSub">You came from nothing. Now you are the standard.</div>
-        </div>
 
       </section>
 
@@ -1586,7 +1586,6 @@
 
           <!-- Identity -->
           <div class="fcFightName">{{ storyFight.chapter?.name }}</div>
-          <div class="fcFightPersonality">{{ storyFight.chapter?.personality }}</div>
           <div class="fcFightCharTitle">{{ storyFight.chapter?.title }}</div>
 
           <!-- Mode + diff badges -->
@@ -9561,25 +9560,31 @@ onBeforeUnmount(() => {
 /* Controls re-enabled pointer events when inside label */
 .vsaiLabel .vsaiControls { pointer-events: auto; }
 
-/* ── Champion overlay ────────────────────────────────────── */
-.vsaiChampBanner {
-  position: absolute; inset: 0;
-  display: flex; flex-direction: column;
-  align-items: center; justify-content: center;
-  background: rgba(0,0,0,0.8);
-  z-index: 20; text-align: center; padding: 40px;
+/* ── Champion badge (inside vsaiLabel, above title) ─────────── */
+.vsaiChamp {
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  gap: 0.4vw;
+  margin-bottom: 0.3vw;
 }
-.vsaiChampBanner > div:first-child { font-size: 48px; margin-bottom: 14px; }
-.vsaiChampBanner .vsaiChampTitle {
+.vsaiChampCrown {
+  font-size: clamp(10px, 0.9vw, 15px);
+  line-height: 1;
+  filter: drop-shadow(0 0 6px rgba(255, 200, 60, 0.6));
+}
+.vsaiChamp .vsaiChampTitle {
   font-family: 'Orbitron', sans-serif;
-  font-size: clamp(18px,2.5vw,28px); font-weight: 900; letter-spacing: 6px;
+  font-size: clamp(7px, 0.55vw, 11px);
+  font-weight: 700;
+  letter-spacing: 3px;
   background: linear-gradient(90deg, #ff821e, #b446ff);
-  -webkit-background-clip: text; background-clip: text; color: transparent;
-  margin-bottom: 10px;
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+  text-transform: uppercase;
 }
-.vsaiChampBanner .vsaiChampSub {
-  font-size: 13px; color: rgba(255,255,255,0.4); letter-spacing: 1px;
-}
+.vsaiChamp .vsaiChampSub { display: none; }
 
 /* ═══════════════════════════════════════════════════════════════════
    PENTwelve — PRE-FIGHT CHALLENGE OVERLAY (Accept / Decline)
