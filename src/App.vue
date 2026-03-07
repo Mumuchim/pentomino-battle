@@ -834,7 +834,6 @@
                       <div class="mhExpandVal">{{ mhFormatDuration(m.duration_sec) }}</div>
                     </div>
                   </div>
-                  </div>
                 </div>
 
               </div>
