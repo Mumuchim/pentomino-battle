@@ -1185,7 +1185,9 @@ function iLaneFencingBonus(movAbs,pk,board,simBoard,W,H,aiHand,hpHand,allowFlip,
       if(clear) clearCount++;
     }
     if(clearCount>0){
-      const score=clearCount*3 + (y===0||y===H-1?5:0); // edge lanes preferred
+      // Edge rows get a huge multiplier — interior rows are almost never worth fencing
+      const edgeBonus=(y===0||y===H-1)?80:(y===1||y===H-2)?20:0;
+      const score=clearCount*3+edgeBonus;
       if(score>bestLaneScore){bestLaneScore=score;bestLane={type:'row',y};}
     }
   }
@@ -1198,7 +1200,8 @@ function iLaneFencingBonus(movAbs,pk,board,simBoard,W,H,aiHand,hpHand,allowFlip,
       if(clear) clearCount++;
     }
     if(clearCount>0){
-      const score=clearCount*3 + (x===0||x===W-1?5:0);
+      const edgeBonus=(x===0||x===W-1)?80:(x===1||x===W-2)?20:0;
+      const score=clearCount*3+edgeBonus;
       if(score>bestLaneScore){bestLaneScore=score;bestLane={type:'col',x};}
     }
   }
@@ -1465,6 +1468,116 @@ function forkCounterBonus(movAbs,board,simBoard,W,H,ap,hp,forkThreat){
   return bonus;
 }
 
+// ── COOPERATIVE CAVITY PENALTY ───────────────────────────────────────────────
+// The most insidious AI mistake: placing a piece that FRAMES or CREATES a region
+// where only the opponent's remaining pieces fit. The AI is literally building
+// the walls of the human's exclusive cavity.
+//
+// This is the inverse of exclusivePieceCavityBonus — instead of rewarding AI for
+// creating its own exclusive zones, we PENALISE AI for creating the opponent's.
+//
+// Penalty is proportional to: region size × how exclusively the opponent fits it.
+function cooperativeCavityPenalty(movAbs,board,simBoard,W,H,ap,hp,remAp,remHp,allowFlip,PENTS,xformFn){
+  if(!remHp||remHp.length===0) return 0;
+  const flipOpts=allowFlip?[false,true]:[false];
+  let totalPenalty=0;
+
+  const regionsBefore=floodFillRegions(board,W,H);
+  const regionsAfter=floodFillRegions(simBoard,W,H);
+
+  // Build lookup of regions that changed
+  const beforeKeys=new Set(regionsBefore.map(r=>r.map(([x,y])=>y*W+x).sort((a,b)=>a-b).join(',')));
+
+  for(const reg of regionsAfter){
+    if(reg.length<5||reg.length>15) continue;
+    const key=reg.map(([x,y])=>y*W+x).sort((a,b)=>a-b).join(',');
+    if(beforeKeys.has(key)) continue; // region unchanged — skip
+
+    // Only care about regions adjacent to OPPONENT pieces (human's developing territory)
+    let adjToOpp=false;
+    for(const[x,y]of reg) for(const[ox,oy]of DIRS){
+      const nx=x+ox,ny=y+oy;
+      if(nx>=0&&ny>=0&&nx<W&&ny<H&&simBoard[ny][nx]?.player===hp){adjToOpp=true;break;}
+    }
+    if(!adjToOpp) continue;
+
+    // Check who fits in this region
+    const oppFitting=remHp.filter(pk=>pieceCanFitInRegion(pk,reg,flipOpts,PENTS,xformFn));
+    const aiFitting=(remAp||[]).filter(pk=>pieceCanFitInRegion(pk,reg,flipOpts,PENTS,xformFn));
+
+    if(oppFitting.length===0) continue; // opponent can't use it either — fine
+
+    // Did THIS move's cells touch this region? (i.e., did AI just frame it?)
+    let aiFramed=false;
+    const regSet=new Set(reg.map(([x,y])=>y*W+x));
+    for(const[mx,my]of movAbs) for(const[ox,oy]of DIRS){
+      if(regSet.has((my+oy)*W+(mx+ox))){aiFramed=true;break;}
+    }
+    if(!aiFramed) continue; // AI didn't create this framing
+
+    if(aiFitting.length===0){
+      // Worst case: AI just framed a cavity ONLY the opponent can use
+      totalPenalty+=reg.length*28; // severe
+    } else if(oppFitting.length>aiFitting.length){
+      // Opponent fits more pieces here than AI — AI is helping them more than itself
+      const ratio=(oppFitting.length-aiFitting.length)/Math.max(1,remHp.length);
+      totalPenalty+=reg.length*ratio*14;
+    }
+  }
+
+  return -totalPenalty; // negative = penalty in scoring context
+}
+
+// ── ABANDONED ZONE PENALTY ───────────────────────────────────────────────────
+// When the board has 2+ large open zones and the AI has placed ALL its recent
+// pieces in only ONE zone, penalise moves that continue this pattern.
+// Specifically: if opponent borders a zone ≥8 cells that AI has NO pieces
+// adjacent to, and this move ALSO doesn't enter that zone, it's zone abandonment.
+//
+// This catches Game 2 (AI played left while human took center+right) and
+// Game 3 (AI played center+right while human took left).
+function abandonedZonePenalty(movAbs,simBoard,W,H,ap,hp,remAp,remHp,allowFlip,PENTS,xformFn){
+  if(!remHp||remHp.length===0) return 0;
+  const flipOpts=allowFlip?[false,true]:[false];
+  const regions=floodFillRegions(simBoard,W,H);
+  let penalty=0;
+
+  for(const reg of regions){
+    if(reg.length<8) continue; // only significant zones
+
+    // Check if opponent borders this zone but AI does NOT
+    let oppBorders=false, aiBorders=false;
+    for(const[x,y]of reg) for(const[ox,oy]of DIRS){
+      const nx=x+ox,ny=y+oy;
+      if(nx<0||ny<0||nx>=W||ny>=H) continue;
+      const p=simBoard[ny][nx]?.player;
+      if(p===hp) oppBorders=true;
+      if(p===ap) aiBorders=true;
+    }
+
+    if(!oppBorders||aiBorders) continue; // not an abandoned zone
+
+    // This zone is opponent-adjacent but AI-absent after this move.
+    // Check if AI's remaining pieces can even fit here (if not, it's already lost)
+    const aiFit=(remAp||[]).some(pk=>pieceCanFitInRegion(pk,reg,flipOpts,PENTS,xformFn));
+    const oppFit=remHp.some(pk=>pieceCanFitInRegion(pk,reg,flipOpts,PENTS,xformFn));
+
+    if(!oppFit) continue; // opponent can't use it either — fine
+    if(!aiFit){
+      // AI can't fit anything here anyway — penalise less (unavoidable)
+      penalty+=reg.length*5;
+      continue;
+    }
+
+    // AI has pieces that COULD go here but this move didn't enter the zone
+    // Penalty scales with zone size and how many opponent pieces fit
+    const oppFitCount=remHp.filter(pk=>pieceCanFitInRegion(pk,reg,flipOpts,PENTS,xformFn)).length;
+    penalty+=reg.length*oppFitCount*4;
+  }
+
+  return -penalty; // negative = penalty
+}
+
 function sealingFinisherBonus(abs,preBoard,simBoard,W,H,ap,hp){
   const regsAfter=floodFillRegions(simBoard,W,H);
   let bonus=0;
@@ -1680,8 +1793,37 @@ function linearPieceSurvivalPenalty(simBoard,W,H,remAp,allowFlip,PENTS,xformFn){
 function iPieceUrgencyBonus(pk,placedCount,boardW,boardH){
   if(pk!=='I') return 0;
   const fillRatio=(placedCount*5)/(boardW*boardH);
-  if(fillRatio<0.15) return 0; // too early, no urgency yet
-  return fillRatio*90; // up to ~90 pts at 100% fill; incentivises early I play
+  if(fillRatio<0.15) return 0;
+  return fillRatio*90;
+}
+
+// ── I-PIECE EDGE PLACEMENT ENFORCER ──────────────────────────────────────────
+// Placing I in the interior of the board (not on an edge row/column) is almost
+// always a strategic blunder — it divides the board and forces the AI to abandon
+// one half. Returns large bonus for edge placements, heavy penalty for interior.
+//
+// EDGE definitions (10×6 board):
+//   Horizontal: row 0 or row H-1 (y=0 or y=5)
+//   Vertical:   column 0 or column W-1 (x=0 or x=9)
+function iEdgePlacementBonus(pk,movAbs,W,H){
+  if(pk!=='I') return 0;
+  if(!movAbs||movAbs.length!==5) return 0;
+  const xs=movAbs.map(([x])=>x);
+  const ys=movAbs.map(([,y])=>y);
+  const isHorizontal=new Set(ys).size===1;
+  const isVertical=new Set(xs).size===1;
+  if(!isHorizontal&&!isVertical) return 0;
+  if(isHorizontal){
+    const row=ys[0];
+    if(row===0||row===H-1) return 180;  // top/bottom edge row — ideal
+    if(row===1||row===H-2) return 60;   // one row in — acceptable
+    return -220;                         // interior row — punish hard
+  }
+  // Vertical
+  const col=xs[0];
+  if(col===0||col===W-1) return 180;   // left/right edge column — ideal
+  if(col===1||col===W-2) return 60;    // one column in — acceptable
+  return -220;                          // interior column — punish hard
 }
 
 // ── I-LANE CLOSING BONUS ──────────────────────────────────────────────────────
@@ -2840,6 +2982,16 @@ export function createAiEngine({game,aiPlayer,humanPlayer,aiDifficulty,PENTOMINO
         ?forkCounterBonus(m.abs,board,sim,boardW,boardH,ap,hp,forkThreat)
         :0;
 
+      // Strategy 6: Cooperative cavity penalty — penalise moves that frame a
+      // region where ONLY the opponent's pieces fit. This is the "AI building
+      // walls for human's exclusive hole" bug found in game logs.
+      const coopCavPenalty=cooperativeCavityPenalty(m.abs,m.pk,board,sim,boardW,boardH,ap,hp,rem[ap],rem[hp],allowFlip,PENTOMINOES,transformCells);
+
+      // Strategy 7: Abandoned zone penalty — penalise moves that leave a large
+      // opponent-adjacent zone completely uncontested by the AI. Prevents the
+      // "AI plays entirely left while human colonises right" failure mode.
+      const abandonedZone=abandonedZonePenalty(m.abs,sim,boardW,boardH,ap,hp,rem[ap],rem[hp],allowFlip,PENTOMINOES,transformCells);
+
       // ── FIX 3: 3-ply minimax — opponent beam sorted by viability, not just quickScore ──
       // Previously oppScored used only quickScore, missing game-ending moves like an I-sweep
       // that scores modestly on territory but strands all AI elongated pieces.
@@ -2935,6 +3087,7 @@ export function createAiEngine({game,aiPlayer,humanPlayer,aiDifficulty,PENTOMINO
          +endgameParityScore(sim,boardW,boardH,ap,hp,rem[ap],rem[hp],allowFlip,PENTOMINOES,transformCells)*3.0
          +linearPieceSurvivalPenalty(sim,boardW,boardH,rem[ap],allowFlip,PENTOMINOES,transformCells)*1.0
          +iPieceUrgencyBonus(m.pk,placedCount,boardW,boardH)
+         +iEdgePlacementBonus(m.pk,m.abs,boardW,boardH)*2.0
          +(hpHand.includes('I')?iLaneClosingBonus(m.abs,board,sim,boardW,boardH)*2.2:0)
          +iLanePenalty
          +allPiecesViabilityScore(sim,boardW,boardH,rem[ap],placedCount+1,allowFlip,PENTOMINOES,transformCells)*2.0
@@ -2943,7 +3096,9 @@ export function createAiEngine({game,aiPlayer,humanPlayer,aiDifficulty,PENTOMINO
          +comboSetup*1.5
          +iLaneFence*1.2
          +excCavity*2.0
-         +forkCounter*2.2;
+         +forkCounter*2.2
+         +coopCavPenalty*2.5
+         +abandonedZone*1.8;
 
       // Aggression amplifier when behind
       if(aggMult>1){
