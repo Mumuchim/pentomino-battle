@@ -444,7 +444,8 @@
         <div class="vsaiContent">
 
           <!-- Staircase: 6 rows, top = highest rank, bottom = lowest rank -->
-          <div class="vsaiStaircase">
+          <Transition :name="'stair-' + storyDir">
+          <div class="vsaiStaircase" :key="storyPage">
             <template v-for="(entry, rowIdx) in (storyPage === 'lower' ? storyChaptersReversed.slice(6) : storyChaptersReversed.slice(0, 6))" :key="entry.ch.id">
               <div
                 class="vsaiRow"
@@ -473,6 +474,7 @@
               </div>
             </template>
           </div>
+          </Transition>
 
         </div><!-- end vsaiContent -->
 
@@ -504,12 +506,12 @@
             <button
               v-if="storyPage === 'lower' && storyProgress.completed >= 6"
               class="vsaiSwitchBtn"
-              @mouseenter="uiHover" @click="uiClick(); storyPage = 'upper'"
+              @mouseenter="uiHover" @click="uiClick(); switchStoryPage('upper')"
             >UPPER SIX ▶</button>
             <button
               v-if="storyPage === 'upper'"
               class="vsaiSwitchBtn"
-              @mouseenter="uiHover" @click="uiClick(); storyPage = 'lower'"
+              @mouseenter="uiHover" @click="uiClick(); switchStoryPage('lower')"
             >◀ LOWER SIX</button>
           </div>
         </div>
@@ -7036,6 +7038,11 @@ const storyProgress = reactive(loadStoryProgress());
 
 // 'lower' = ranks 12–7 (idx 0–5), 'upper' = ranks 6–1 (idx 6–11)
 const storyPage = ref(storyProgress.completed >= 6 ? 'upper' : 'lower');
+const storyDir  = ref('up'); // 'up' = going to upper six, 'down' = going to lower six
+function switchStoryPage(target) {
+  storyDir.value = target === 'upper' ? 'up' : 'down';
+  storyPage.value = target;
+}
 
 // ── Story Mode State ────────────────────────────────────────────────
 // storyFight: the pre-fight cinematic overlay
@@ -9282,6 +9289,37 @@ onBeforeUnmount(() => {
   padding: 0;
   --rw: min(32.8vw, calc((100vh - 10.416vw) * 0.9633));
 }
+
+/* ── Diagonal stair page transitions ───────────────────────────────
+   Both the leaving and entering staircases move at the same time
+   along the stair's diagonal axis, creating the illusion that
+   Lilica/Sefia (and all rows) are one connected strip scrolling through.
+   leave-active is absolute so it doesn't push the entering element down.
+──────────────────────────────────────────────────────────────────── */
+.stair-up-leave-active,
+.stair-down-leave-active {
+  transition: transform 0.38s cubic-bezier(0.4, 0, 0.2, 1), opacity 0.28s ease;
+  position: absolute;
+  top: 0; left: 0;
+  will-change: transform, opacity;
+}
+.stair-up-enter-active,
+.stair-down-enter-active {
+  transition: transform 0.38s cubic-bezier(0.4, 0, 0.2, 1), opacity 0.28s ease;
+  will-change: transform, opacity;
+}
+
+/* Going UP → upper six */
+.stair-up-leave-to   { transform: translate(14vw, -110%); opacity: 0; }
+.stair-up-enter-from { transform: translate(-14vw,  110%); opacity: 0; }
+.stair-up-leave-from,
+.stair-up-enter-to   { transform: translate(0, 0); opacity: 1; }
+
+/* Going DOWN → lower six */
+.stair-down-leave-to   { transform: translate(-14vw,  110%); opacity: 0; }
+.stair-down-enter-from { transform: translate( 14vw, -110%); opacity: 0; }
+.stair-down-leave-from,
+.stair-down-enter-to   { transform: translate(0, 0); opacity: 1; }
 
 .vsaiRow {
   position: relative;
