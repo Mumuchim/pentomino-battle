@@ -304,10 +304,6 @@
       ═══════════════════════════════════════════════════════════ -->
       <section v-else-if="screen === 'mode'" class="mnMenu">
         <div class="sectionPentoBg" aria-hidden="true"><div v-for="(p,i) in bouncingPieces" :key="'m'+i" class="floatingPieceWrap" :style="{left:p.x+'px',top:p.y+'px'}"><svg :width="p.svgW" :height="p.svgH" :viewBox="`0 0 ${p.svgW} ${p.svgH}`" :style="{opacity:p.opacity}" xmlns="http://www.w3.org/2000/svg"><rect v-for="(cell,j) in p.cells" :key="j" :x="cell[1]*42+1" :y="cell[0]*42+1" width="40" height="40" :fill="p.color" rx="4"/></svg></div></div>
-        <!-- Back to auth if playing as guest -->
-        <button v-if="!loggedIn" class="subScreenBackBtn" @click="navTo('auth')">← BACK</button>
-        <!-- Log out if logged in -->
-        <button v-if="loggedIn" class="subScreenBackBtn subScreenLogoutBtn" @click="confirmLogOut">⏏ LOG OUT</button>
 
         <!-- Left column: empty space, brand anchored to bottom-left -->
         <div class="mnLeft">
@@ -343,7 +339,6 @@
       ═══════════════════════════════════════════════════════════ -->
       <section v-else-if="screen === 'multiplayer'" class="mnMenu">
         <div class="sectionPentoBg" aria-hidden="true"><div v-for="(p,i) in bouncingPieces" :key="'mp'+i" class="floatingPieceWrap" :style="{left:p.x+'px',top:p.y+'px'}"><svg :width="p.svgW" :height="p.svgH" :viewBox="`0 0 ${p.svgW} ${p.svgH}`" :style="{opacity:p.opacity}" xmlns="http://www.w3.org/2000/svg"><rect v-for="(cell,j) in p.cells" :key="j" :x="cell[1]*42+1" :y="cell[0]*42+1" width="40" height="40" :fill="p.color" rx="4"/></svg></div></div>
-        <button class="subScreenBackBtn" @click="goBack">← BACK</button>
 
         <div class="mnLeft">
           <div class="mnBrand">
@@ -353,42 +348,34 @@
         </div>
 
         <div class="mnRight">
-          <!-- MODE PICKER (shown after clicking QUICK PLAY) -->
-          <div v-if="qmPickerOpen" class="qmPickerPanel vsStylePanel">
-            <div class="qmPickerTitle">SELECT QUICK PLAY MODE</div>
-            <div class="qmPickerCards">
-              <div class="qmPickerCard vsStyleCard">
-                <div class="vsStyleCardTitle">NORMAL</div>
-                <div class="qmPickerDesc">Standard draft · 10×6 board · 6 pieces each</div>
-                <button class="pbMiniBtn primary qmPickerBtn" @mouseenter="uiHover" @click="uiClick(); qmPickerOpen = false; startQuickMatchAuto()">PLAY</button>
-              </div>
-              <div class="qmPickerCard vsStyleCard">
-                <div class="vsStyleCardTitle">MIRROR WAR</div>
-                <div class="qmPickerDesc">Full Arsenal · 15×8 board · 12 pieces each · No Draft</div>
-                <button class="pbMiniBtn primary qmPickerBtn" @mouseenter="uiHover" @click="uiClick(); qmPickerOpen = false; startMirrorWarMode()">PLAY</button>
-              </div>
-              <div class="qmPickerCard vsStyleCard">
-                <div class="vsStyleCardTitle">BLIND DRAFT</div>
-                <div class="qmPickerDesc">Random Loadout · 10×6 board · No Draft</div>
-                <button class="pbMiniBtn primary qmPickerBtn" @mouseenter="uiHover" @click="uiClick(); qmPickerOpen = false; startBlindDraftMode()">PLAY</button>
+          <div class="mnSlideWrap">
+          <Transition name="mn-slide" mode="out-in">
+            <div v-if="qmPickerOpen" key="qm-picker">
+              <div class="mnPickerLabel">SELECT QUICK PLAY MODE</div>
+              <div class="mnBtns">
+                <button class="mnBtn" @mouseenter="uiHover" @click="uiClick(); startQuickMatchAuto()">
+                  <img :src="standardBtnUrl" class="mnBtnImg" alt="STANDARD" />
+                </button>
+                <button class="mnBtn" @mouseenter="uiHover" @click="uiClick(); startMirrorWarMode()">
+                  <img :src="mirrorwarBtnUrl" class="mnBtnImg" alt="MIRROR WAR" />
+                </button>
+                <button class="mnBtn" @mouseenter="uiHover" @click="uiClick(); startBlindDraftMode()">
+                  <img :src="blindraftBtnUrl" class="mnBtnImg" alt="BLIND DRAFT" />
+                </button>
               </div>
             </div>
-          </div>
-
-          <!-- NORMAL MENU BUTTONS (hidden while picker is open) -->
-          <div v-else class="mnBtns">
-            <!-- QUICK PLAY -->
-            <button class="mnBtn" @mouseenter="uiHover" @click="uiClick(); qmPickerOpen = true">
-              <img :src="mpQuickBtnUrl" class="mnBtnImg" alt="QUICK PLAY" />
-            </button>
-            <!-- RANKED -->
-            <button class="mnBtn" @mouseenter="uiHover" @click="uiClick(); loggedIn ? goRanked() : showLoginRequired('Ranked')">
-              <img :src="mpRankedBtnUrl" class="mnBtnImg" :style="!loggedIn ? 'opacity:0.45;filter:grayscale(0.5)' : ''" alt="RANKED" />
-            </button>
-            <!-- LOBBY -->
-            <button class="mnBtn" @mouseenter="uiHover" @click="uiClick(); navTo('lobby')">
-              <img :src="mpLobbyBtnUrl" class="mnBtnImg" alt="LOBBY" />
-            </button>
+            <div v-else key="qm-main" class="mnBtns">
+              <button class="mnBtn" @mouseenter="uiHover" @click="uiClick(); qmPickerOpen = true">
+                <img :src="mpQuickBtnUrl" class="mnBtnImg" alt="QUICK PLAY" />
+              </button>
+              <button class="mnBtn" @mouseenter="uiHover" @click="uiClick(); loggedIn ? goRanked() : showLoginRequired('Ranked')">
+                <img :src="mpRankedBtnUrl" class="mnBtnImg" :style="!loggedIn ? 'opacity:0.45;filter:grayscale(0.5)' : ''" alt="RANKED" />
+              </button>
+              <button class="mnBtn" @mouseenter="uiHover" @click="uiClick(); navTo('lobby')">
+                <img :src="mpLobbyBtnUrl" class="mnBtnImg" alt="LOBBY" />
+              </button>
+            </div>
+          </Transition>
           </div>
         </div>
 
@@ -400,7 +387,6 @@
       ═══════════════════════════════════════════════════════════ -->
       <section v-else-if="screen === 'solo'" class="mnMenu">
         <div class="sectionPentoBg" aria-hidden="true"><div v-for="(p,i) in bouncingPieces" :key="'sl'+i" class="floatingPieceWrap" :style="{left:p.x+'px',top:p.y+'px'}"><svg :width="p.svgW" :height="p.svgH" :viewBox="`0 0 ${p.svgW} ${p.svgH}`" :style="{opacity:p.opacity}" xmlns="http://www.w3.org/2000/svg"><rect v-for="(cell,j) in p.cells" :key="j" :x="cell[1]*42+1" :y="cell[0]*42+1" width="40" height="40" :fill="p.color" rx="4"/></svg></div></div>
-        <button class="subScreenBackBtn" @click="goBack">← BACK</button>
 
         <div class="mnLeft">
           <div class="mnBrand">
@@ -410,42 +396,34 @@
         </div>
 
         <div class="mnRight">
-          <!-- COUCH MODE PICKER (shown after clicking COUCH PLAY) -->
-          <div v-if="couchPickerOpen" class="qmPickerPanel vsStylePanel">
-            <div class="qmPickerTitle">SELECT COUCH PLAY MODE</div>
-            <div class="qmPickerCards">
-              <div class="qmPickerCard vsStyleCard">
-                <div class="vsStyleCardTitle">NORMAL COUCH</div>
-                <div class="qmPickerDesc">Classic draft · 10×6 · 2 players share keyboard</div>
-                <button class="pbMiniBtn primary qmPickerBtn" @mouseenter="uiHover" @click="uiClick(); couchPickerOpen = false; startCouchPlay()">PLAY</button>
-              </div>
-              <div class="qmPickerCard vsStyleCard">
-                <div class="vsStyleCardTitle">MIRROR WAR</div>
-                <div class="qmPickerDesc">Full Arsenal · 15×8 · Both get all 12 pieces · No Draft</div>
-                <button class="pbMiniBtn primary qmPickerBtn" @mouseenter="uiHover" @click="uiClick(); startCouchMirrorWar()">PLAY</button>
-              </div>
-              <div class="qmPickerCard vsStyleCard">
-                <div class="vsStyleCardTitle">BLIND DRAFT</div>
-                <div class="qmPickerDesc">Random Loadout · 10×6 · Pieces split randomly · No Draft</div>
-                <button class="pbMiniBtn primary qmPickerBtn" @mouseenter="uiHover" @click="uiClick(); startCouchBlindDraft()">PLAY</button>
+          <div class="mnSlideWrap">
+          <Transition name="mn-slide" mode="out-in">
+            <div v-if="couchPickerOpen" key="couch-picker">
+              <div class="mnPickerLabel">SELECT COUCH PLAY MODE</div>
+              <div class="mnBtns">
+                <button class="mnBtn" @mouseenter="uiHover" @click="uiClick(); couchPickerOpen = false; startCouchPlay()">
+                  <img :src="standardBtnUrl" class="mnBtnImg" alt="STANDARD" />
+                </button>
+                <button class="mnBtn" @mouseenter="uiHover" @click="uiClick(); startCouchMirrorWar()">
+                  <img :src="mirrorwarBtnUrl" class="mnBtnImg" alt="MIRROR WAR" />
+                </button>
+                <button class="mnBtn" @mouseenter="uiHover" @click="uiClick(); startCouchBlindDraft()">
+                  <img :src="blindraftBtnUrl" class="mnBtnImg" alt="BLIND DRAFT" />
+                </button>
               </div>
             </div>
-          </div>
-
-          <!-- NORMAL SOLO BUTTONS -->
-          <div v-else class="mnBtns">
-            <!-- PENTwelve (Story Mode via VS AI button) -->
-            <button class="mnBtn" @mouseenter="uiHover" @click="uiClick(); screen = 'story'">
-              <img :src="soloVsAiBtnUrl" class="mnBtnImg" alt="VERSUS AI" />
-            </button>
-            <!-- COUCH PLAY -->
-            <button class="mnBtn" @mouseenter="uiHover" @click="uiClick(); couchPickerOpen = true">
-              <img :src="soloCouchBtnUrl" class="mnBtnImg" alt="COUCH" />
-            </button>
-            <!-- ZEN PUZZLE -->
-            <button class="mnBtn" @mouseenter="uiHover" @click="uiClick(); startPuzzleMode()">
-              <img :src="soloPuzzleBtnUrl" class="mnBtnImg" alt="ZEN PUZZLE" />
-            </button>
+            <div v-else key="solo-main" class="mnBtns">
+              <button class="mnBtn" @mouseenter="uiHover" @click="uiClick(); navTo('story')">
+                <img :src="soloVsAiBtnUrl" class="mnBtnImg" alt="VERSUS AI" />
+              </button>
+              <button class="mnBtn" @mouseenter="uiHover" @click="uiClick(); couchPickerOpen = true">
+                <img :src="soloCouchBtnUrl" class="mnBtnImg" alt="COUCH" />
+              </button>
+              <button class="mnBtn" @mouseenter="uiHover" @click="uiClick(); startPuzzleMode()">
+                <img :src="soloPuzzleBtnUrl" class="mnBtnImg" alt="ZEN PUZZLE" />
+              </button>
+            </div>
+          </Transition>
           </div>
         </div>
 
@@ -457,8 +435,10 @@
       ═══════════════════════════════════════════════════════════ -->
       <section v-else-if="screen === 'story'" class="vsaiShell">
 
-        <!-- Back button styled like menu screens -->
-        <button class="vsaiBackBtn" @mouseenter="uiHover" @click="uiClick(); goBack()">← BACK</button>
+        <!-- Back button — figma style, absolute for vsai layout -->
+        <button class="figmaNavBtn figmaBackBtn vsaiFigmaBackBtn" @mouseenter="uiHover" @click="uiClick(); goBack()" aria-label="Back">
+          <img :src="backBtnUrl" class="figmaNavBtnImg" alt="BACK" />
+        </button>
 
         <!-- Main content area -->
         <div class="vsaiContent">
@@ -871,7 +851,6 @@
            LOBBY
       ========================== -->
       <section v-else-if="screen === 'lobby'" class="menuShell pbShell pbShellCentered lobbyScreen">
-        <button class="subScreenBackBtn" @click="goBack">← BACK</button>
         <div class="vsStylePanel">
           <div class="vsStyleCards">
             <div class="pbCard">
@@ -1022,7 +1001,6 @@
            SETTINGS
       ========================== -->
       <section v-else-if="screen === 'settings'" class="menuShell pbShell pbShellCentered settingsScreen">
-        <button class="subScreenBackBtn" @click="goBack">← BACK</button>
         <div class="vsStylePanel">
           <div class="vsStyleCards">
             <div class="vsStyleCard">
@@ -1072,7 +1050,6 @@
            CREDITS
       ========================== -->
       <section v-else-if="screen === 'credits'" class="menuShell pbShell pbShellCentered creditsScreen">
-        <button class="subScreenBackBtn" @click="goBack">← BACK</button>
         <div class="vsStylePanel">
           <div class="vsStyleCards">
             <div class="vsStyleCard creditCard">
@@ -1855,6 +1832,19 @@
   <div class="pageCurtainTop" :class="{ active: pageBlackActive }" :style="{ background: curtainColorTop }" aria-hidden="true"></div>
   <div class="pageCurtainBot" :class="{ active: pageBlackActive }" :style="{ background: curtainColorBot }" aria-hidden="true"></div>
 
+  <!-- ── Global back/logout — at root level to escape .main overflow stacking context ── -->
+  <div class="gNavOverlay" aria-hidden="false">
+    <button v-if="screen === 'mode' && loggedIn" class="figmaNavBtn figmaLogoutBtn" @mouseenter="uiHover" @click="uiClick(); confirmLogOut()" aria-label="Log Out">
+      <img :src="logoutBtnUrl" class="figmaNavBtnImg" alt="LOG OUT" />
+    </button>
+    <button v-else-if="screen === 'mode' && !loggedIn" class="figmaNavBtn figmaBackBtn" @mouseenter="uiHover" @click="uiClick(); navTo('auth')" aria-label="Back">
+      <img :src="backBtnUrl" class="figmaNavBtnImg" alt="BACK" />
+    </button>
+    <button v-else-if="['multiplayer','solo','lobby','settings','credits'].includes(screen)" class="figmaNavBtn figmaBackBtn" @mouseenter="uiHover" @click="uiClick(); goBack()" aria-label="Back">
+      <img :src="backBtnUrl" class="figmaNavBtnImg" alt="BACK" />
+    </button>
+  </div>
+
   </div>
 </template>
 
@@ -2439,6 +2429,12 @@ const hpLoginBtnUrl     = new URL("./assets/hp_login_btn.png",     import.meta.u
 const hpAuthTopbarUrl   = new URL("./assets/hp_auth_topbar.png",   import.meta.url).href;
 const hpAuthBottombarUrl= new URL("./assets/hp_auth_bottombar.png",import.meta.url).href;
 const hpContinueBtnUrl  = new URL("./assets/hp_continue_btn.png",  import.meta.url).href;
+// ── Figma nav buttons ─────────────────────────────────────────────────────────
+const backBtnUrl        = new URL("./assets/back_btn.png",         import.meta.url).href;
+const logoutBtnUrl      = new URL("./assets/logout_btn.png",       import.meta.url).href;
+const standardBtnUrl    = new URL("./assets/standard_btn.png",     import.meta.url).href;
+const mirrorwarBtnUrl   = new URL("./assets/mirrorwar_btn.png",    import.meta.url).href;
+const blindraftBtnUrl   = new URL("./assets/blindraft_btn.png",    import.meta.url).href;
 // ── VERSUS AI — PENTWELVE screen assets ───────────────────────────────────────
 const vsaiTopbarUrl     = new URL("./assets/vsai/vsai_topbar.png",    import.meta.url).href;
 const vsaiBottombarUrl  = new URL("./assets/vsai/vsai_bottombar.png", import.meta.url).href;
@@ -12541,6 +12537,46 @@ onBeforeUnmount(() => {
   border-color: rgba(220, 38, 60, 0.6);
   color: #ff6070;
 }
+
+/* ── Global nav overlay — sits above .main stacking context ── */
+.gNavOverlay {
+  position: fixed;
+  top: 0; left: 0;
+  width: 0; height: 0;
+  z-index: 100;
+  pointer-events: none;
+}
+.gNavOverlay > * { pointer-events: auto; }
+
+/* ── Figma back / logout buttons ── */
+.figmaNavBtn {
+  position: fixed;
+  top: calc(5.208vw + 20px);
+  left: 0;
+  background: transparent;
+  border: none;
+  padding: 0;
+  cursor: pointer;
+  display: block;
+  width: auto;
+  transform: translateX(-6px);
+  transform-origin: left center;
+  transition: transform 0.18s cubic-bezier(0.25, 0.8, 0.25, 1), filter 0.18s ease;
+  z-index: 100;
+}
+.figmaNavBtn:hover  { transform: translateX(4px); filter: brightness(1.12) saturate(1.1); }
+.figmaNavBtn:active { transform: translateX(1px) scale(0.997); filter: brightness(1.05); }
+.figmaNavBtnImg {
+  display: block;
+  width: auto;
+  height: clamp(26px, 2.6vw, 38px);
+  object-fit: contain;
+}
+/* vsai uses absolute positioning inside its shell */
+.vsaiFigmaBackBtn {
+  position: absolute;
+  top: 20px;
+}
 .tetBarRight{
   display: flex;
   align-items: center;
@@ -13405,7 +13441,34 @@ onBeforeUnmount(() => {
   align-items: flex-start;
   justify-content: center;
   min-width: 0;
+  position: relative;
+  clip-path: inset(0 0 0 -200px);
 }
+
+/* Stable-width wrapper so Transition never collapses width during out-in */
+.mnSlideWrap {
+  width: 100%;
+  clip-path: inset(0 0 0 -200px);
+}
+
+/* Mode picker label */
+.mnPickerLabel {
+  font-family: 'Orbitron', 'Rajdhani', Inter, system-ui, sans-serif;
+  font-size: clamp(9px, 0.85vw, 13px);
+  font-weight: 900;
+  letter-spacing: 2.5px;
+  text-transform: uppercase;
+  color: rgba(255, 255, 255, 0.45);
+  padding-left: 4px;
+  margin-bottom: clamp(6px, 0.8vh, 10px);
+}
+
+/* Slide transition — exits/enters from right, pure translate */
+.mn-slide-leave-active { transition: transform 0.22s cubic-bezier(0.55, 0, 1, 0.45); }
+.mn-slide-enter-active { transition: transform 0.26s cubic-bezier(0.25, 0.8, 0.25, 1); }
+.mn-slide-leave-to   { transform: translateX(120%); }
+.mn-slide-enter-from { transform: translateX(120%); }
+.mn-slide-leave-from, .mn-slide-enter-to { transform: translateX(0); }
 
 /* Buttons container — extends past right edge for bleed effect */
 .mnBtns {
