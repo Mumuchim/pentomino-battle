@@ -2501,20 +2501,14 @@ function _tickPhysics() {
     }
   }
 
-  // Only schedule next frame when on menu screens — no need for physics during gameplay
-  if (!isInGame.value) {
+  // Only schedule next frame when on menu screens — physics not needed during gameplay
+  const gameScreens = ["couch", "ai", "online", "puzzle"];
+  if (!gameScreens.includes(screen.value)) {
     _physicsRaf = requestAnimationFrame(_tickPhysics);
   } else {
     _physicsRaf = null;
   }
 }
-
-// Resume/pause physics whenever the player enters/leaves the game
-watch(isInGame, (inGame) => {
-  if (!inGame && _physicsRaf === null) {
-    _physicsRaf = requestAnimationFrame(_tickPhysics);
-  }
-});
 
 onMounted(() => {
   _initPiecePhysics();
@@ -3983,6 +3977,13 @@ watch(loggedIn, async (isIn) => {
 }, { immediate: true });
 
 const isInGame = computed(() => screen.value === "couch" || screen.value === "ai" || screen.value === "online" || screen.value === "puzzle");
+
+// Resume bouncing-pieces physics when returning to menu screens
+watch(isInGame, (inGame) => {
+  if (!inGame && _physicsRaf === null) {
+    _physicsRaf = requestAnimationFrame(_tickPhysics);
+  }
+});
 
 /* ============================================================
    MATCH HISTORY
@@ -9451,34 +9452,6 @@ onMounted(() => {
 
   loadAudioPrefs();
   loadConfirmMovePref();
-
-  // ── Mobile scale-to-fit ─────────────────────────────────────────────────
-  // Viewport is now device-width so the responsive layout works naturally.
-  // On very narrow screens (< 360px) we scale the root element to avoid
-  // overflow — this is cheaper than forcing the user to manually zoom out.
-  function applyMobileScale() {
-    try {
-      const isTouch = window.matchMedia?.('(pointer: coarse)').matches;
-      if (!isTouch) return;
-      const vw = window.innerWidth;
-      const el = appRoot.value;
-      if (!el) return;
-      const minW = 360;
-      if (vw < minW) {
-        const scale = vw / minW;
-        el.style.transform = `scale(${scale})`;
-        el.style.transformOrigin = 'top left';
-        el.style.width = minW + 'px';
-        el.style.height = (window.innerHeight / scale) + 'px';
-      } else {
-        el.style.transform = '';
-        el.style.width = '';
-        el.style.height = '';
-      }
-    } catch {}
-  }
-  applyMobileScale();
-  window.addEventListener('resize', applyMobileScale, { passive: true });
 
   // ── PC default: disable Verify Move (requireSubmit) on desktop pointer devices.
   // Mobile/touch devices keep it enabled for the "stage → Submit" flow.
