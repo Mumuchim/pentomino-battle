@@ -7456,6 +7456,112 @@ watch(
   }
 );
 
+// ─── Match result recorder ────────────────────────────────────────────────────
+// Extracted from _handleGameover so it can be called BEFORE any early returns
+// (e.g. the rematch-prompt early return) without duplicating code.
+// Uses ON CONFLICT DO NOTHING server-side, so calling it twice is harmless.
+async function _fireMatchRecord() {
+  if (!isOnline.value || !online.lobbyId) return;
+  try {
+    const lobby = await sbSelectLobbyById(online.lobbyId);
+    console.log("[pbMatch] lobby fetched:", lobby?.id, "status:", lobby?.status);
+    if (!lobby) { console.warn("[pbMatch] lobby not found — aborting"); return; }
+    const meta    = lobby?.state?.meta || {};
+    const players = meta?.players || {};
+
+    const p1Id = String(players["1"] || players[1] || "");
+    const p2Id = String(players["2"] || players[2] || "");
+    console.log("[pbMatch] p1Id:", p1Id, "p2Id:", p2Id, "meta.players:", JSON.stringify(players));
+    if (!p1Id || !p2Id) { console.warn("[pbMatch] missing player IDs — aborting"); return; }
+
+    const w        = game.winner;
+    const winnerId = w ? (w === 1 ? p1Id : p2Id) : null;
+    const loserId  = w ? (w === 1 ? p2Id : p1Id) : null;
+
+    const startedAt   = meta?.started_at ? Date.parse(meta.started_at) : null;
+    const durationSec = startedAt ? Math.round((Date.now() - startedAt) / 1000) : null;
+
+    // BUG FIX 2: draft_timeout was mapping to "normal" — must map to "timeout"
+    const lm = game.lastMove?.type || "normal";
+    const endReason = lm === "draft_timeout" ? "timeout"
+                    : ["timeout","surrender","dodged","abandoned"].includes(lm) ? lm
+                    : "normal";
+
+    // BUG FIX 3: lobby.source doesn't exist in schema — use lobby.mode instead
+    console.log("[pbMatch] calling sbRecordMatchResult with lobbyId:", online.lobbyId, "round:", Number(meta?.round || 1), "mode:", meta?.kind, lobby?.mode);
+    const matchId = await sbRecordMatchResult({
+      lobbyId:     online.lobbyId,
+      roundNumber: Number(meta?.round || 1),
+      player1Id:   p1Id,
+      player2Id:   p2Id,
+      winnerId,
+      loserId,
+      endReason,
+      durationSec,
+      player1Picks: [...(game.picks?.[1] || [])],
+      player2Picks: [...(game.picks?.[2] || [])],
+      matchMode:   meta?.kind === "mirror_war"  && (meta?.mode === "ranked" || lobby?.mode === "ranked") ? "ranked_mirror_war"
+                 : meta?.kind === "blind_draft" && (meta?.mode === "ranked" || lobby?.mode === "ranked") ? "ranked_blind_draft"
+                 : meta?.mode === "ranked" || lobby?.mode === "ranked" ? "ranked_standard"
+                 : meta?.kind === "mirror_war"  ? "mirror_war"
+                 : meta?.kind === "blind_draft" ? "blind_draft"
+                 : lobby?.mode === "custom"     ? "custom"
+                 : "standard",
+    });
+
+    const replayId = await replayLogger.saveReplay({
+      matchId,
+      winnerId,
+      endReason,
+      finalBoard: game.board,
+      finalPicks: game.picks,
+    });
+    if (matchId && replayId) {
+      await replayLogger.linkReplayToMatch(matchId, replayId);
+    }
+    replayLogger.clearReplay();
+
+    // Fetch LP delta for ranked matches and update modal message
+    if (meta?.mode === "ranked" || lobby?.mode === "ranked") {
+      try {
+        const sb = requireSupabase();
+        const myId = myPlayer.value === 1 ? p1Id : p2Id;
+        const { data: lpResult } = await sb.rpc("pb_get_match_lp_result", {
+          p_lobby_id:  online.lobbyId,
+          p_round:     Number(meta?.round || 1),
+          p_player_id: myId,
+        });
+        if (lpResult?.found) {
+          const delta    = lpResult.lp_delta ?? 0;
+          const newLp    = lpResult.ranked_lp ?? 0;
+          const newTier  = lpResult.ranked_tier ?? "";
+          const streak   = lpResult.win_streak ?? 0;
+          const shield   = lpResult.demotion_shield ?? 0;
+          const sign     = delta >= 0 ? "+" : "";
+          const streakLine = streak >= 3 ? `\n🔥 ${streak}-win streak!` : "";
+          const shieldLine = shield > 0 && delta < 0 ? "\n🛡 Demotion shield absorbed this loss." : "";
+
+          if (modal.open) {
+            modal.message =
+              (modal.message || "") +
+              `\n\n${sign}${delta} LP  →  ${newLp} LP  [${newTier.charAt(0).toUpperCase() + newTier.slice(1)}]` +
+              streakLine + shieldLine;
+          }
+
+          memberStats.ranked_lp       = newLp;
+          memberStats.ranked_tier     = newTier;
+          memberStats.ranked_peak_lp  = lpResult.ranked_peak_lp ?? memberStats.ranked_peak_lp;
+          memberStats.win_streak      = streak;
+          memberStats.demotion_shield = shield;
+          memberStats.placement_games = lpResult.placement_games ?? memberStats.placement_games;
+        }
+      } catch { /* non-fatal — LP display is cosmetic */ }
+    }
+  } catch (e) {
+    console.warn("[pbMatch] gameover record failed:", e?.message ?? e);
+  }
+}
+
 async function _handleGameover() {
     // _puzzleEndFired prevents double-call if remaining watcher fires first.
     if (screen.value === "puzzle") {
@@ -7502,6 +7608,13 @@ async function _handleGameover() {
         })();
 
         return;
+      }
+
+      // BUG FIX 1: record the match BEFORE returning early for the rematch prompt.
+      // Previously, if the opponent pressed "Play Again" before this handler ran,
+      // the early return here meant the match was never written to pb_matches.
+      if (isOnline.value && online.lobbyId) {
+        _fireMatchRecord(); // fire-and-forget; idempotent server-side
       }
 
       if (game.rematch?.[other] && !game.rematch?.[me] && !game.rematchDeclinedBy) {
@@ -7602,114 +7715,11 @@ async function _handleGameover() {
           ],
     });
 
-    // ✅ Record match result to pb_matches (both clients call; function handles duplicates)
+    // ✅ Record match result — delegates to _fireMatchRecord() which was already
+    // called before any rematch early-return above. Calling again is safe because
+    // record_match_result uses ON CONFLICT DO NOTHING server-side.
     console.log("[pbMatch] gameover fired — isOnline:", isOnline.value, "lobbyId:", online.lobbyId, "role:", online.role, "screen:", screen.value);
-    if (isOnline.value && online.lobbyId) {
-      (async () => {
-        try {
-          const lobby  = await sbSelectLobbyById(online.lobbyId);
-          console.log("[pbMatch] lobby fetched:", lobby?.id, "status:", lobby?.status);
-          if (!lobby) { console.warn("[pbMatch] lobby not found — aborting"); return; }
-          const meta   = lobby?.state?.meta || {};
-          const players = meta?.players || {};
-
-          // Resolve player IDs from the meta.players map: { "1": userId, "2": userId }
-          const p1Id = String(players["1"] || players[1] || "");
-          const p2Id = String(players["2"] || players[2] || "");
-          console.log("[pbMatch] p1Id:", p1Id, "p2Id:", p2Id, "meta.players:", JSON.stringify(players));
-          if (!p1Id || !p2Id) { console.warn("[pbMatch] missing player IDs — aborting"); return; }
-
-          const w       = game.winner;
-          const winnerId = w ? (w === 1 ? p1Id : p2Id) : null;
-          const loserId  = w ? (w === 1 ? p2Id : p1Id) : null;
-
-          // Calculate wall-clock duration from match start
-          const startedAt   = meta?.started_at ? Date.parse(meta.started_at) : null;
-          const durationSec = startedAt ? Math.round((Date.now() - startedAt) / 1000) : null;
-
-          // Map game end type to DB end_reason
-          const lm = game.lastMove?.type || "normal";
-          const endReason = ["timeout","surrender","dodged","abandoned"].includes(lm) ? lm : "normal";
-
-          console.log("[pbMatch] calling sbRecordMatchResult with lobbyId:", online.lobbyId, "round:", Number(meta?.round || 1), "mode:", meta?.kind, lobby?.mode);
-          const matchId = await sbRecordMatchResult({
-            lobbyId:     online.lobbyId,
-            roundNumber: Number(meta?.round || 1),
-            player1Id:   p1Id,
-            player2Id:   p2Id,
-            winnerId,
-            loserId,
-            endReason,
-            durationSec,
-            player1Picks: [...(game.picks?.[1] || [])],
-            player2Picks: [...(game.picks?.[2] || [])],
-            matchMode:   meta?.kind === "mirror_war"  && (meta?.mode === "ranked" || lobby?.mode === "ranked") ? "ranked_mirror_war"
-                       : meta?.kind === "blind_draft" && (meta?.mode === "ranked" || lobby?.mode === "ranked") ? "ranked_blind_draft"
-                       : meta?.mode === "ranked" || lobby?.mode === "ranked" ? "ranked_standard"
-                       : meta?.kind === "mirror_war"  ? "mirror_war"
-                       : meta?.kind === "blind_draft" ? "blind_draft"
-                       : lobby?.source === "custom"   ? "custom"
-                       : "standard",
-          });
-
-          // ── Save replay row and back-link to match ─────────────────────
-          const replayId = await replayLogger.saveReplay({
-            matchId,
-            winnerId,
-            endReason,
-            finalBoard: game.board,
-            finalPicks: game.picks,
-          });
-          if (matchId && replayId) {
-            await replayLogger.linkReplayToMatch(matchId, replayId);
-          }
-          replayLogger.clearReplay();
-
-          // ── Fetch LP delta for ranked matches and update modal message ────
-          if (meta?.mode === "ranked" || lobby?.mode === "ranked") {
-            try {
-              // requireSupabase already statically imported
-              const sb = requireSupabase();
-              const myId = myPlayer.value === 1 ? p1Id : p2Id;
-              const { data: lpResult } = await sb.rpc("pb_get_match_lp_result", {
-                p_lobby_id:  online.lobbyId,
-                p_round:     Number(meta?.round || 1),
-                p_player_id: myId,
-              });
-              if (lpResult?.found) {
-                const delta    = lpResult.lp_delta ?? 0;
-                const newLp    = lpResult.ranked_lp ?? 0;
-                const newTier  = lpResult.ranked_tier ?? "";
-                const streak   = lpResult.win_streak ?? 0;
-                const shield   = lpResult.demotion_shield ?? 0;
-                const sign     = delta >= 0 ? "+" : "";
-                const streakLine = streak >= 3 ? `\n🔥 ${streak}-win streak!` : "";
-                const shieldLine = shield > 0 && delta < 0 ? "\n🛡 Demotion shield absorbed this loss." : "";
-
-                // Patch the already-shown modal message to append LP info
-                if (modal.open) {
-                  modal.message =
-                    (modal.message || "") +
-                    `\n\n${sign}${delta} LP  →  ${newLp} LP  [${newTier.charAt(0).toUpperCase() + newTier.slice(1)}]` +
-                    streakLine + shieldLine;
-                }
-
-                // Refresh profile stats reactively
-                memberStats.ranked_lp       = newLp;
-                memberStats.ranked_tier     = newTier;
-                memberStats.ranked_peak_lp  = lpResult.ranked_peak_lp ?? memberStats.ranked_peak_lp;
-                memberStats.win_streak      = streak;
-                memberStats.demotion_shield = shield;
-                memberStats.placement_games = lpResult.placement_games ?? memberStats.placement_games;
-              }
-            } catch { /* non-fatal — LP display is cosmetic */ }
-          }
-
-        } catch (e) {
-          console.warn("[pbMatch] gameover record failed:", e?.message ?? e);
-        }
-      })();
-    }
+    _fireMatchRecord();
 
     // ✅ FIX (Bug 3): Schedule background lobby cleanup after game over.
     // Without this, if neither player clicks "Main Menu" or "Play Again", the lobby
