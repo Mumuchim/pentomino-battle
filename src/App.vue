@@ -4173,9 +4173,9 @@ const modeLabel = computed(() => {
        : "Couch Play"
        : screen.value === "puzzle" ? "Puzzle Mode"
        : screen.value === "online"
-           ? online.matchKind === "mirror_war"  ? "MIRROR WAR — Full Arsenal"
-           : online.matchKind === "blind_draft" ? "BLIND DRAFT — Random Loadout"
-           : "Online Match"
+           ? online.matchKind === "mirror_war"  ? "Mirror War"
+           : online.matchKind === "blind_draft" ? "Blind Draft"
+           : "Standard"
        : "—";
 });
 

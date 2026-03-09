@@ -2,29 +2,60 @@
   <section class="panel">
     <h2 class="panelTitle">Picks</h2>
 
-    <!-- Online: standard = active drafter's picks; MW/BD = your picks only -->
+    <!-- Online: show your picks on top, opponent picks below -->
     <template v-if="props.isOnline && props.myPlayer">
-      <div class="draftCol">
-        <div class="draftHead" :class="draftShowPlayer === 1 ? 'p1' : 'p2'">
-          {{ draftShowPlayer === props.myPlayer ? 'Your Picks' : `P${draftShowPlayer} Picks` }}
-          <span
-            class="trayAnchor"
-            :data-tray="draftShowPlayer"
-            data-tray-context="draft"
-            aria-hidden="true"
-          ></span>
-        </div>
-        <div class="chips big">
-          <PiecePreview
-            v-for="k in game.picks[draftShowPlayer]"
-            :key="k"
-            :pieceKey="k"
-            :cell="cell"
-          />
-          <div v-if="game.picks[draftShowPlayer].length === 0" class="emptyNote">
-            None yet
+      <div class="draftStack">
+
+        <!-- YOUR picks (always on top) -->
+        <div class="draftCol">
+          <div class="draftHead" :class="props.myPlayer === 1 ? 'p1' : 'p2'">
+            Your Picks
+            <span
+              class="trayAnchor"
+              :data-tray="props.myPlayer"
+              data-tray-context="draft"
+              aria-hidden="true"
+            ></span>
+          </div>
+          <div class="chips big">
+            <PiecePreview
+              v-for="k in game.picks[props.myPlayer]"
+              :key="k"
+              :pieceKey="k"
+              :cell="cell"
+            />
+            <div v-if="game.picks[props.myPlayer].length === 0" class="emptyNote">
+              None yet
+            </div>
           </div>
         </div>
+
+        <div class="stackDivider"></div>
+
+        <!-- OPPONENT picks (always below) -->
+        <div class="draftCol">
+          <div class="draftHead" :class="opponentPlayer === 1 ? 'p1' : 'p2'">
+            Opponent's Picks
+            <span
+              class="trayAnchor"
+              :data-tray="opponentPlayer"
+              data-tray-context="draft"
+              aria-hidden="true"
+            ></span>
+          </div>
+          <div class="chips big">
+            <PiecePreview
+              v-for="k in game.picks[opponentPlayer]"
+              :key="k"
+              :pieceKey="k"
+              :cell="cell"
+            />
+            <div v-if="game.picks[opponentPlayer].length === 0" class="emptyNote">
+              None yet
+            </div>
+          </div>
+        </div>
+
       </div>
     </template>
 
@@ -118,12 +149,8 @@ const props = defineProps({
 
 const game = useGameStore();
 
-// Standard: follow active drafter. MW/BD: show only your own picks.
-const draftShowPlayer = computed(() => {
-  if (!props.isOnline || !props.myPlayer) return null;
-  const isStandard = !props.matchKind || props.matchKind === 'quickmatch';
-  return isStandard ? game.draftTurn : props.myPlayer;
-});
+// Opponent is whichever player you are not
+const opponentPlayer = computed(() => props.myPlayer === 1 ? 2 : 1);
 
 // Fit-to-viewport: shrink preview tiles on shorter screens (no scroll in-game)
 const cell = ref(20);
@@ -170,6 +197,18 @@ onBeforeUnmount(() => {
   display: grid;
   grid-template-columns: 1fr 1fr;
   gap: 14px;
+}
+
+.draftStack {
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+}
+
+.stackDivider {
+  height: 1px;
+  background: rgba(255,255,255,0.08);
+  margin: 12px 0;
 }
 
 .draftHead {
