@@ -5579,10 +5579,17 @@ async function sbRecordMatchResult({
   player1Picks = [],
   player2Picks = [],
 }) {
-  if (!lobbyId || !player1Id || !player2Id) return;
+  if (!lobbyId || !player1Id || !player2Id) {
+    console.warn("[pbMatch] sbRecordMatchResult skipped — missing lobbyId/playerIds", { lobbyId, player1Id, player2Id });
+    return null;
+  }
+
+  const sb = requireSupabase();
+  const picks1 = Array.isArray(player1Picks) ? player1Picks.map(String) : [];
+  const picks2 = Array.isArray(player2Picks) ? player2Picks.map(String) : [];
+
+  // ── Path 1: SECURITY DEFINER RPC (preferred — handles deduplication + stat updates) ──
   try {
-    // requireSupabase already statically imported
-    const sb = requireSupabase();
     const { data: rpcData, error: rpcError } = await sb.rpc("record_match_result", {
       p_lobby_id:      lobbyId,
       p_round:         roundNumber,
@@ -5593,15 +5600,48 @@ async function sbRecordMatchResult({
       p_end_reason:    endReason,
       p_duration_sec:  durationSec,
       p_mode:          matchMode,
-      p_player1_picks: Array.isArray(player1Picks) ? player1Picks.map(String) : [],
-      p_player2_picks: Array.isArray(player2Picks) ? player2Picks.map(String) : [],
+      p_player1_picks: picks1,
+      p_player2_picks: picks2,
     });
     if (rpcError) throw rpcError;
-    console.log("[pbMatch] record_match_result success, matchId:", rpcData?.id);
-    return rpcData?.id ?? null;
-  } catch (e) {
+    const matchId = rpcData?.id ?? null;
+    console.log("[pbMatch] record_match_result RPC success, matchId:", matchId, "inserted:", rpcData?.inserted);
+    return matchId;
+  } catch (rpcErr) {
+    // RPC may not exist yet (migration not run). Fall through to direct insert.
+    console.warn("[pbMatch] RPC record_match_result failed — trying direct insert fallback:", rpcErr?.message ?? rpcErr);
+  }
+
+  // ── Path 2: Direct INSERT fallback (no stat update, but at least records the match) ──
+  try {
+    const VALID_REASONS = ["normal","timeout","surrender","dodged","abandoned"];
+    const safeReason = VALID_REASONS.includes(endReason) ? endReason : "normal";
+
+    const { data: rows, error: insErr } = await sb
+      .from("pb_matches")
+      .insert({
+        lobby_id:      lobbyId,
+        round_number:  roundNumber,
+        player1_id:    player1Id,
+        player2_id:    player2Id,
+        winner_id:     winnerId || null,
+        loser_id:      loserId  || null,
+        end_reason:    safeReason,
+        duration_sec:  durationSec,
+        mode:          matchMode,
+        player1_picks: picks1,
+        player2_picks: picks2,
+      })
+      .select("id")
+      .single();
+
+    if (insErr) throw insErr;
+    const matchId = rows?.id ?? null;
+    console.log("[pbMatch] direct insert fallback success, matchId:", matchId);
+    return matchId;
+  } catch (insErr) {
     // Non-fatal — stats can be backfilled later. Never break the UX.
-    console.error("[pbMatch] record_match_result FAILED:", e?.message ?? e, e);
+    console.error("[pbMatch] record_match_result FAILED (both paths):", insErr?.message ?? insErr, insErr);
     return null;
   }
 }
