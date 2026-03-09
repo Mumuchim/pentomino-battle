@@ -935,44 +935,33 @@
                   <!-- Divider -->
                   <div class="mhCardDivider"></div>
 
-                  <!-- Center: piece picks (hidden for mirror match) -->
-                  <div class="mhCardCenter">
-                    <template v-if="!mhIsMirror(m.mode) && m.myPicks && m.myPicks.length > 0">
-                      <div class="mhPicksRow">
-                        <div class="mhPicksList">
-                          <div
-                            v-for="piece in m.myPicks" :key="piece"
-                            class="mhPieceChip"
-                            :title="piece"
-                          >
-                            <svg class="mhPieceSvg" viewBox="0 0 15 15">
-                              <rect
-                                v-for="(cell, ci) in mhPieceCells(piece)" :key="ci"
-                                :x="cell[1] * 3 + 0.2" :y="cell[0] * 3 + 0.2"
-                                width="2.6" height="2.6" rx="0.3"
-                                :fill="mhPieceColor(piece)"
-                              />
-                            </svg>
-                          </div>
-                        </div>
-                      </div>
-                    </template>
-                    <template v-else-if="mhIsMirror(m.mode)">
-                      <div class="mhMirrorNote">Both players used the same pieces</div>
-                    </template>
-                    <template v-else>
-                      <div class="mhMirrorNote">No pick data (older match)</div>
-                    </template>
-                  </div>
-
-                  <!-- Divider -->
-                  <div class="mhCardDivider"></div>
-
-                  <!-- Right: opponent + date + end reason -->
+                  <!-- Right: opponent + pieces (LoL style) + date -->
                   <div class="mhCardRight">
                     <div class="mhVsRow">vs <span class="mhOppName">{{ m.opponentName }}</span></div>
-                    <div class="mhDateLabel">{{ mhFormatDate(m.created_at) }}</div>
-                    <span class="mhMetaTag" :class="'er-' + m.end_reason">{{ mhEndReasonLabel(m.end_reason) }}</span>
+
+                    <!-- Pieces inline — LoL item row style -->
+                    <div class="mhPicksList" v-if="!mhIsMirror(m.mode) && m.myPicks && m.myPicks.length > 0">
+                      <div
+                        v-for="piece in m.myPicks" :key="piece"
+                        class="mhPieceChip"
+                        :title="piece"
+                      >
+                        <svg class="mhPieceSvg" viewBox="0 0 15 15">
+                          <rect
+                            v-for="(cell, ci) in mhPieceCells(piece)" :key="ci"
+                            :x="cell[1] * 3 + 0.2" :y="cell[0] * 3 + 0.2"
+                            width="2.6" height="2.6" rx="0.3"
+                            :fill="mhPieceColor(piece)"
+                          />
+                        </svg>
+                      </div>
+                    </div>
+                    <div class="mhMirrorNote" v-else-if="mhIsMirror(m.mode)">Mirror match</div>
+
+                    <div class="mhBottomRow">
+                      <span class="mhMetaTag" :class="'er-' + m.end_reason">{{ mhEndReasonLabel(m.end_reason) }}</span>
+                      <span class="mhDateLabel">{{ mhFormatDate(m.created_at) }}</span>
+                    </div>
                   </div>
 
                 </div>
@@ -18074,7 +18063,7 @@ onBeforeUnmount(() => {
 .mhCardMain {
   display: flex;
   align-items: stretch;
-  min-height: 80px;
+  min-height: 72px;
 }
 
 /* Left column: result + mode + duration */
@@ -18084,8 +18073,8 @@ onBeforeUnmount(() => {
   justify-content: center;
   align-items: flex-start;
   gap: 3px;
-  padding: 10px 14px;
-  min-width: 130px;
+  padding: 10px 16px;
+  min-width: 120px;
   flex-shrink: 0;
 }
 .mhResultLabel {
@@ -18119,34 +18108,12 @@ onBeforeUnmount(() => {
   margin: 8px 0;
 }
 
-/* Center column: piece chips */
-.mhCardCenter {
-  flex: 1;
-  display: flex;
-  flex-direction: column;
-  justify-content: center;
-  gap: 5px;
-  padding: 8px 14px;
-  min-width: 0;
-}
-.mhPicksRow {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-}
-.mhPicksLabel {
-  font-size: 9px;
-  font-weight: 700;
-  letter-spacing: 1px;
-  color: rgba(255,255,255,0.3);
-  text-transform: uppercase;
-  min-width: 34px;
-  flex-shrink: 0;
-}
+/* Piece chips — inline LoL item row */
 .mhPicksList {
   display: flex;
-  flex-wrap: wrap;
+  flex-wrap: nowrap;
   gap: 3px;
+  align-items: center;
 }
 .mhPieceChip {
   width: 26px;
@@ -18173,16 +18140,16 @@ onBeforeUnmount(() => {
   font-family: 'Rajdhani', system-ui, sans-serif;
 }
 
-/* Right column: opponent + date + end reason */
+/* Right column: opponent + pieces + date (LoL style) */
 .mhCardRight {
+  flex: 1;
   display: flex;
   flex-direction: column;
   justify-content: center;
-  align-items: flex-end;
-  gap: 3px;
-  padding: 10px 14px;
-  min-width: 120px;
-  flex-shrink: 0;
+  align-items: flex-start;
+  gap: 5px;
+  padding: 10px 16px;
+  min-width: 0;
 }
 .mhVsRow {
   font-size: 11px;
@@ -18192,6 +18159,12 @@ onBeforeUnmount(() => {
 .mhOppName {
   color: #fff;
   font-weight: 700;
+  font-size: 13px;
+}
+.mhBottomRow {
+  display: flex;
+  align-items: center;
+  gap: 8px;
 }
 .mhDateLabel {
   font-size: 10px;
