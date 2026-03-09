@@ -1862,7 +1862,7 @@
                     v-for="msg in chat.messages"
                     :key="msg.id"
                     class="pbChatMsg"
-                    :class="msg.from_id === myUserId.value ? 'pbChatMsgMe' : 'pbChatMsgThem'"
+                    :class="msg.from_id === myUserId ? 'pbChatMsgMe' : 'pbChatMsgThem'"
                   >
                     <div class="pbChatBubble">{{ msg.content }}</div>
                     <div class="pbChatMsgTime">{{ chatFormatTime(msg.created_at) }}</div>
