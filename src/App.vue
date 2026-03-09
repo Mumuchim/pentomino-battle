@@ -642,7 +642,7 @@
           <div class="pbNPHero">
             <div class="pbNPAvatarWrap">
               <img :src="guestAvatarUrl" class="pbNPAvatar" alt="Avatar" />
-              <span class="pbNPOnlineDot" v-if="!viewingFriendId || onlineUserIds.value?.has(viewingFriendId)" title="Online now"></span>
+              <span class="pbNPOnlineDot" v-if="!viewingFriendId || onlineUserIds?.has(viewingFriendId)" title="Online now"></span>
             </div>
 
             <div class="pbNPHeroInfo">
@@ -650,7 +650,7 @@
                 {{ viewingFriendData ? viewingFriendData.name : displayName }}
                 <span class="pbNPHeroFlag">🇵🇭</span>
               </div>
-              <div class="pbNPHeroStatus">{{ viewingFriendId ? (onlineUserIds.value?.has(viewingFriendId) ? '● Online now' : '● Offline') : 'Enter a status here…' }}</div>
+              <div class="pbNPHeroStatus">{{ viewingFriendId ? (onlineUserIds?.has(viewingFriendId) ? '● Online now' : '● Offline') : 'Enter a status here…' }}</div>
               <div class="pbNPHeroMeta">
                 <span class="pbNPMetaItem">
                   <b>{{ (viewingFriendData ? viewingFriendData.uid : memberStats.uid) ? '#' + (viewingFriendData ? viewingFriendData.uid : memberStats.uid) : '—' }}</b> UID
@@ -1826,12 +1826,12 @@
               <div class="pbChatTitleLeft">
                 <div class="pbChatTitleAvatarWrap">
                   <img :src="guestAvatarUrl" class="pbChatTitleAvatar" alt="" />
-                  <span class="pbChatTitleDot" :class="onlineUserIds.value?.has(chat.friendId) ? 'online' : 'offline'"></span>
+                  <span class="pbChatTitleDot" :class="onlineUserIds?.has(chat.friendId) ? 'online' : 'offline'"></span>
                 </div>
                 <div class="pbChatTitleMeta">
                   <span class="pbChatTitleName">{{ chat.friendName }}</span>
-                  <span class="pbChatTitleStatus" :class="onlineUserIds.value?.has(chat.friendId) ? 'online' : 'offline'">
-                    {{ onlineUserIds.value?.has(chat.friendId) ? '● Online' : '● Offline' }}
+                  <span class="pbChatTitleStatus" :class="onlineUserIds?.has(chat.friendId) ? 'online' : 'offline'">
+                    {{ onlineUserIds?.has(chat.friendId) ? '● Online' : '● Offline' }}
                   </span>
                 </div>
               </div>
@@ -2553,6 +2553,7 @@ import("./lib/auth.js").then(async ({ isLoggedIn, getCurrentPlayerName, onAuthCh
   if (loggedIn.value) {
     guestName.value = await getCurrentPlayerName();
     await checkDevStatus(); // check dev role on startup
+    ensureMyUserId();       // eagerly cache user ID so chat bubbles align correctly
     loadFriendData();       // load friends/requests for existing session
   }
 
@@ -2561,6 +2562,7 @@ import("./lib/auth.js").then(async ({ isLoggedIn, getCurrentPlayerName, onAuthCh
     loggedIn.value = !!session;
     guestName.value = await getCurrentPlayerName();
     await checkDevStatus(); // re-check dev role on every auth change
+    if (session) ensureMyUserId(); // refresh user ID on new login
   });
 }).catch(() => { /* Supabase not configured — stay logged out */ });
 // ─── Auth modal state ───────────────────────────────────────────────────────
@@ -3038,6 +3040,7 @@ function subscribeChatRealtime(chat) {
           event: 'INSERT',
           schema: 'public',
           table: 'pb_messages',
+          filter: `to_id=eq.${uid}`,
         }, (payload) => {
           const msg = payload.new;
           const isOurs = (msg.from_id === uid && msg.to_id === chat.friendId) ||
