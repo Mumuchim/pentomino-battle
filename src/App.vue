@@ -131,20 +131,6 @@
             <span class="tetBarIconCount zero" v-else>0</span>
           </button>
 
-          <!-- Messages sidebar button -->
-          <button
-            class="tetBarIconBtn"
-            :class="{ active: msgSidebarOpen }"
-            @click="toggleMsgSidebar"
-            title="Messages"
-            aria-label="Messages"
-          >
-            <svg class="tetBarIconSvg" viewBox="0 0 22 20" fill="none" xmlns="http://www.w3.org/2000/svg">
-              <path d="M11 2C6.03 2 2 5.58 2 10c0 1.85.67 3.55 1.8 4.93L3 18l3.5-1.4A9.3 9.3 0 0 0 11 18c4.97 0 9-3.58 9-8s-4.03-8-9-8z" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/>
-            </svg>
-            <span class="tetBarIconCount" v-if="totalUnreadMsgCount > 0">{{ totalUnreadMsgCount }}</span>
-          </button>
-
           <button
             class="tetBarIconBtn"
             :class="{ active: notifSidebarOpen }"
@@ -909,49 +895,64 @@
                 v-for="m in mh.items"
                 :key="m.id"
                 class="mhCard"
-                :class="{ win: m.result === 'W', loss: m.result === 'L', draw: m.result === 'D', expanded: mh.expandedId === m.id }"
-                @click="mhToggleExpand(m.id)"
+                :class="{ win: m.result === 'W', loss: m.result === 'L', draw: m.result === 'D' }"
               >
-                <!-- Main row -->
+                <!-- LoL-style main row -->
                 <div class="mhCardMain">
-                  <div class="mhResultBadge" :class="m.result.toLowerCase()">{{ m.result }}</div>
-                  <div class="mhCardBody">
-                    <div class="mhCardOpponent">vs <span class="mhOppName">{{ m.opponentName }}</span></div>
-                    <div class="mhCardMeta">
-                      <span class="mhMetaTag" :class="'er-' + m.end_reason">{{ mhEndReasonLabel(m.end_reason) }}</span>
-                      <span class="mhMetaDot">·</span>
-                      <span>{{ mhFormatDuration(m.duration_sec) }}</span>
-                      <span class="mhMetaDot">·</span>
-                      <span>{{ mhFormatDate(m.created_at) }}</span>
-                    </div>
-                  </div>
-                  <div class="mhCardChevron" :class="{ open: mh.expandedId === m.id }">›</div>
-                </div>
 
-                <!-- Expanded detail -->
-                <div v-if="mh.expandedId === m.id" class="mhExpandedBody" @click.stop>
-                  <div class="mhExpandGrid">
-                    <div class="mhExpandCell">
-                      <div class="mhExpandLabel">MODE</div>
-                      <div class="mhExpandVal">{{ (m.mode || 'online').toUpperCase() }}</div>
+                  <!-- Left: result + outcome label -->
+                  <div class="mhCardLeft">
+                    <div class="mhResultLabel" :class="m.result.toLowerCase()">
+                      {{ m.result === 'W' ? 'VICTORY' : m.result === 'L' ? 'DEFEAT' : 'DRAW' }}
                     </div>
-                    <div class="mhExpandCell">
-                      <div class="mhExpandLabel">ROUND</div>
-                      <div class="mhExpandVal">{{ m.round_number || 1 }}</div>
-                    </div>
-                    <div class="mhExpandCell">
-                      <div class="mhExpandLabel">OUTCOME</div>
-                      <div class="mhExpandVal" :class="m.result === 'W' ? 'mhWinTxt' : m.result === 'L' ? 'mhLossTxt' : ''">
-                        {{ m.result === 'W' ? 'VICTORY' : m.result === 'L' ? 'DEFEAT' : 'DRAW' }}
+                    <div class="mhModeLabel">{{ mhModeLabel(m.mode) }}</div>
+                    <div class="mhDurationLabel">{{ mhFormatDuration(m.duration_sec) }}</div>
+                  </div>
+
+                  <!-- Divider -->
+                  <div class="mhCardDivider"></div>
+
+                  <!-- Center: piece picks (hidden for mirror match) -->
+                  <div class="mhCardCenter">
+                    <template v-if="!mhIsMirror(m.mode) && m.myPicks && m.myPicks.length > 0">
+                      <div class="mhPicksRow">
+                        <div class="mhPicksList">
+                          <div
+                            v-for="piece in m.myPicks" :key="piece"
+                            class="mhPieceChip"
+                            :title="piece"
+                          >
+                            <svg class="mhPieceSvg" viewBox="0 0 15 15">
+                              <rect
+                                v-for="(cell, ci) in mhPieceCells(piece)" :key="ci"
+                                :x="cell[1] * 3 + 0.2" :y="cell[0] * 3 + 0.2"
+                                width="2.6" height="2.6" rx="0.3"
+                                :fill="mhPieceColor(piece)"
+                              />
+                            </svg>
+                          </div>
+                        </div>
                       </div>
-                    </div>
-                    <div class="mhExpandCell">
-                      <div class="mhExpandLabel">DURATION</div>
-                      <div class="mhExpandVal">{{ mhFormatDuration(m.duration_sec) }}</div>
-                    </div>
+                    </template>
+                    <template v-else-if="mhIsMirror(m.mode)">
+                      <div class="mhMirrorNote">Both players used the same pieces</div>
+                    </template>
+                    <template v-else>
+                      <div class="mhMirrorNote">No pick data (older match)</div>
+                    </template>
                   </div>
-                </div>
 
+                  <!-- Divider -->
+                  <div class="mhCardDivider"></div>
+
+                  <!-- Right: opponent + date + end reason -->
+                  <div class="mhCardRight">
+                    <div class="mhVsRow">vs <span class="mhOppName">{{ m.opponentName }}</span></div>
+                    <div class="mhDateLabel">{{ mhFormatDate(m.created_at) }}</div>
+                    <span class="mhMetaTag" :class="'er-' + m.end_reason">{{ mhEndReasonLabel(m.end_reason) }}</span>
+                  </div>
+
+                </div>
               </div>
             </div>
 
@@ -1804,121 +1805,61 @@
     </Teleport>
 
     <!-- ════════════════════════════════════════════════════════════
-         MESSAGES SIDEBAR  (recent conversations)
-    ═══════════════════════════════════════════════════════════════ -->
-    <Teleport to="body">
-      <Transition name="pbSidebar">
-        <div v-if="msgSidebarOpen" class="pbSidebarOverlay" @click.self="msgSidebarOpen = false" aria-label="Messages panel">
-          <div class="pbSidebar pbMsgSidebar">
-            <div class="pbSidebarHead">
-              <div class="pbSidebarHeadLeft">
-                <span class="pbSidebarTitle">MESSAGES</span>
-              </div>
-              <button class="pbSidebarClose" @click="msgSidebarOpen = false" aria-label="Close">✕</button>
-            </div>
-
-            <!-- Loading state -->
-            <div v-if="recentConvLoading" class="pbSidebarEmpty" style="padding-top:30px">
-              <span class="pbChatSpinner"></span>
-            </div>
-
-            <!-- Empty state -->
-            <div v-else-if="recentConversations.length === 0" class="pbSidebarEmpty">
-              <div class="pbSidebarEmptyArt">
-                <svg viewBox="0 0 80 80" fill="none" class="pbSidebarEmptyArtSvg">
-                  <path d="M40 10C25.64 10 14 20.75 14 34c0 5.5 2 10.6 5.4 14.7L18 64l10.5-4.2A28.2 28.2 0 0 0 40 62c14.36 0 26-10.75 26-28s-11.64-24-26-24z" stroke="rgba(255,255,255,0.12)" stroke-width="3" stroke-linejoin="round"/>
-                </svg>
-              </div>
-              <p class="pbSidebarEmptyText">No recent conversations.<br/>Message a friend to get started.</p>
-            </div>
-
-            <!-- Conversation list -->
-            <div v-else class="pbMsgConvList">
-              <div
-                v-for="conv in recentConversations"
-                :key="conv.friendId"
-                class="pbMsgConvRow"
-                :class="{ active: openChats[0]?.friendId === conv.friendId && !openChats[0]?.minimized }"
-                @click="openChatFromSidebar(conv)"
-              >
-                <div class="pbMsgConvAvatarWrap">
-                  <img :src="guestAvatarUrl" class="pbMsgConvAvatar" alt="" />
-                  <span class="pbMsgConvDot" :class="onlineUserIds?.has(conv.friendId) ? 'online' : 'offline'"></span>
-                </div>
-                <div class="pbMsgConvMeta">
-                  <div class="pbMsgConvTop">
-                    <span class="pbMsgConvName">{{ conv.friendName }}</span>
-                    <span class="pbMsgConvTime">{{ chatFormatTime(conv.lastAt) }}</span>
-                  </div>
-                  <div class="pbMsgConvBottom">
-                    <span class="pbMsgConvPreview">{{ conv.lastPreview }}</span>
-                    <span v-if="conv.unread > 0" class="pbMsgConvUnread">{{ conv.unread }}</span>
-                  </div>
-                </div>
-              </div>
-            </div>
-          </div>
-        </div>
-      </Transition>
-    </Teleport>
-
-    <!-- ════════════════════════════════════════════════════════════
-         CHAT WINDOWS  (floating, bottom-left, LoL-style)
+         CHAT WINDOWS  (floating, bottom-right, LoL-style)
     ═══════════════════════════════════════════════════════════════ -->
     <Teleport to="body">
       <div
         class="pbChatDock"
         v-if="loggedIn"
-        :style="(friendsSidebarOpen || msgSidebarOpen) ? 'left: calc(340px + 12px)' : 'left: 12px'"
+        :style="friendsSidebarOpen ? 'left: 340px' : 'left: 0'"
       >
-        <TransitionGroup name="pbChatWin">
-          <div
-            v-for="chat in openChats"
-            :key="chat.friendId"
-            class="pbChatWindow"
-            :class="{ minimized: chat.minimized }"
-          >
-            <!-- LoL-style title bar -->
-            <div class="pbChatTitleBar" @click="expandChat(chat)">
-              <div class="pbChatTitleLeft">
-                <div class="pbChatTitleAvatarWrap">
-                  <img :src="guestAvatarUrl" class="pbChatTitleAvatar" alt="" />
-                  <span class="pbChatTitleDot" :class="onlineUserIds?.has(chat.friendId) ? 'online' : 'offline'"></span>
-                </div>
-                <div class="pbChatTitleMeta">
-                  <span class="pbChatTitleName">{{ chat.friendName }}</span>
-                  <span class="pbChatTitleStatus" :class="onlineUserIds?.has(chat.friendId) ? 'online' : 'offline'">
-                    {{ onlineUserIds?.has(chat.friendId) ? '● Online' : '● Offline' }}
+        <div
+          v-if="openChats.length > 0"
+          key="chat-window"
+          class="pbChatWindow"
+          :class="{ minimized: openChats[0].minimized }"
+        >
+          <!-- LoL-style title bar -->
+          <div class="pbChatTitleBar" @click="expandChat(openChats[0])">
+            <div class="pbChatTitleLeft">
+              <div class="pbChatTitleAvatarWrap">
+                <img :src="guestAvatarUrl" class="pbChatTitleAvatar" alt="" />
+                <span class="pbChatTitleDot" :class="onlineUserIds?.has(openChats[0].friendId) ? 'online' : 'offline'"></span>
+              </div>
+              <div class="pbChatTitleMeta">
+                  <span class="pbChatTitleName">{{ openChats[0].friendName }}</span>
+                  <span class="pbChatTitleStatus" :class="onlineUserIds?.has(openChats[0].friendId) ? 'online' : 'offline'">
+                    {{ onlineUserIds?.has(openChats[0].friendId) ? '● Online' : '● Offline' }}
                   </span>
                 </div>
               </div>
               <!-- Unread bubble shown when minimized -->
-              <span v-if="chat.minimized && chat.unreadCount > 0" class="pbChatUnreadBubble">{{ chat.unreadCount }}</span>
+              <span v-if="openChats[0].minimized && openChats[0].unreadCount > 0" class="pbChatUnreadBubble">{{ openChats[0].unreadCount }}</span>
               <div class="pbChatTitleActions" @click.stop>
-                <button class="pbChatTitleBtn" @click="expandChat(chat)" :title="chat.minimized ? 'Expand' : 'Minimize'">
+                <button class="pbChatTitleBtn" @click="expandChat(openChats[0])" :title="openChats[0].minimized ? 'Expand' : 'Minimize'">
                   <svg viewBox="0 0 10 10" fill="none" style="width:10px;height:10px">
-                    <path v-if="!chat.minimized" d="M2 7l3-3 3 3" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
+                    <path v-if="!openChats[0].minimized" d="M2 7l3-3 3 3" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
                     <path v-else d="M2 3l3 3 3-3" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
                   </svg>
                 </button>
-                <button class="pbChatTitleBtn pbChatCloseBtn" @click="closeChat(chat.friendId)" title="Close">✕</button>
+                <button class="pbChatTitleBtn pbChatCloseBtn" @click="closeChat(openChats[0].friendId)" title="Close">✕</button>
               </div>
             </div>
 
             <!-- Message area (hidden when minimized) -->
-            <template v-if="!chat.minimized">
-              <div class="pbChatMessages" :ref="el => { if (el) chatScrollRefs[chat.friendId] = el }">
-                <div v-if="chat.loading" class="pbChatLoading">
+            <template v-if="!openChats[0].minimized">
+              <div class="pbChatMessages" :ref="el => { if (el) chatScrollRefs['active'] = el; else delete chatScrollRefs['active'] }">
+                <div v-if="openChats[0].loading" class="pbChatLoading">
                   <span class="pbChatSpinner"></span>
                 </div>
-                <div v-else-if="chat.messages.length === 0" class="pbChatEmpty">
-                  Say hi to <b>{{ chat.friendName }}</b>!
+                <div v-else-if="openChats[0].messages.length === 0" class="pbChatEmpty">
+                  Say hi to <b>{{ openChats[0].friendName }}</b>!
                 </div>
                 <template v-else>
                   <!-- Date separator -->
                   <div class="pbChatDateSep">Today</div>
                   <div
-                    v-for="(msg, msgIdx) in chat.messages"
+                    v-for="(msg, msgIdx) in openChats[0].messages"
                     :key="msg.id"
                     class="pbChatMsg"
                     :class="msg.isSystem ? 'pbChatMsgSystem' : (msg.from_id === myUserId ? 'pbChatMsgMe' : 'pbChatMsgThem')"
@@ -1933,8 +1874,8 @@
                         <span
                           v-if="msg.from_id === myUserId"
                           class="pbChatMsgStatus"
-                          :class="chatMsgStatusClass(msg, msgIdx, chat)"
-                        >{{ chatMsgStatusText(msg, msgIdx, chat) }}</span>
+                          :class="chatMsgStatusClass(msg, msgIdx, openChats[0])"
+                        >{{ chatMsgStatusText(msg, msgIdx, openChats[0]) }}</span>
                       </div>
                     </template>
                   </div>
@@ -1947,17 +1888,49 @@
                   class="pbChatInput"
                   type="text"
                   placeholder="Type here..."
-                  v-model="chat.draft"
-                  @keydown.enter="sendMessage(chat)"
+                  v-model="openChats[0].draft"
+                  @keydown.enter="sendMessage(openChats[0])"
                   maxlength="500"
                 />
-                <button class="pbChatSendBtn" @click="sendMessage(chat)" :disabled="!chat.draft.trim()">
+                <button class="pbChatSendBtn" @click="sendMessage(openChats[0])" :disabled="!openChats[0].draft.trim()">
                   <svg viewBox="0 0 18 18" fill="none"><path d="M2 9l14-7-6 7 6 7z" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/></svg>
                 </button>
               </div>
             </template>
           </div>
-        </TransitionGroup>
+
+        <!-- Recent conversations panel — sits to the right of the chat window -->
+        <Transition name="pbRecentPanel">
+          <div v-if="openChats.length > 0" class="pbRecentPanel" :class="{ minimized: openChats[0]?.minimized }">
+            <div v-if="recentConvLoading" class="pbRecentLoading">
+              <span class="pbChatSpinner"></span>
+            </div>
+            <div v-else-if="recentConversations.length === 0" class="pbRecentEmpty">
+              No recent chats
+            </div>
+            <div v-else class="pbRecentList">
+              <div
+                v-for="conv in recentConversations"
+                :key="conv.friendId"
+                class="pbRecentRow"
+                :class="{ active: openChats[0]?.friendId === conv.friendId }"
+                @click="openChatFromSidebar(conv)"
+                :title="conv.friendName"
+              >
+                <div class="pbRecentAvatarWrap">
+                  <img :src="guestAvatarUrl" class="pbRecentAvatar" alt="" />
+                  <span class="pbRecentDot" :class="onlineUserIds?.has(conv.friendId) ? 'online' : 'offline'"></span>
+                  <span v-if="conv.unread > 0" class="pbRecentUnread">{{ conv.unread }}</span>
+                </div>
+                <div class="pbRecentMeta">
+                  <span class="pbRecentName">{{ conv.friendName }}</span>
+                  <span class="pbRecentPreview">{{ conv.lastPreview }}</span>
+                </div>
+              </div>
+            </div>
+          </div>
+        </Transition>
+
       </div>
     </Teleport>
 
@@ -3062,16 +3035,45 @@ async function ensureMyUserId() {
 }
 
 async function openChat(friend) {
-  // Do NOT close the friends sidebar — chat is independent
   const existing = openChats.value.find(c => c.friendId === friend.friend_id);
   if (existing) {
-    existing.minimized = false;
+    // Already open — just expand and mark read
+    existing.minimized   = false;
     existing.unreadCount = 0;
     markChatRead(existing);
     return;
   }
-  // Use reactive() so Vue tracks mutations on the object
+
   const { reactive: vReactive } = await import('vue');
+
+  if (openChats.value.length > 0) {
+    // ── Reuse the existing chat object in-place so Vue never unmounts/remounts
+    //    the DOM node — eliminates the transition glitch on switch.
+    const chat = openChats.value[0];
+
+    // Tear down old subscriptions
+    chat.sub?.unsubscribe?.();
+    if (chat._pollTimer)       clearInterval(chat._pollTimer);
+    if (chat._globalPollTimer) clearInterval(chat._globalPollTimer);
+    chat.sub          = null;
+    chat._pollTimer   = null;
+
+    // Swap identity & reset state — same reactive object, no remount
+    chat.friendId    = friend.friend_id;
+    chat.friendName  = friend.name;
+    chat.messages    = [];
+    chat.draft       = '';
+    chat.loading     = true;
+    chat.minimized   = false;
+    chat.unreadCount = 0;
+
+    await loadChatHistory(chat);
+    subscribeChatRealtime(chat);
+    if (recentConversations.value.length === 0) loadRecentConversations();
+    return;
+  }
+
+  // No window open yet — create fresh
   const chat = vReactive({
     friendId:    friend.friend_id,
     friendName:  friend.name,
@@ -3082,16 +3084,10 @@ async function openChat(friend) {
     unreadCount: 0,
     sub:         null,
   });
-  // Only 1 chat window at a time — close the existing one
-  if (openChats.value.length > 0) {
-    const old = openChats.value[0];
-    old.sub?.unsubscribe?.();
-    if (old._pollTimer) clearInterval(old._pollTimer);
-    if (old._globalPollTimer) clearInterval(old._globalPollTimer);
-  }
   openChats.value = [chat];
   await loadChatHistory(chat);
   subscribeChatRealtime(chat);
+  if (recentConversations.value.length === 0) loadRecentConversations();
 }
 
 // Expand chat and clear unread count
@@ -3105,11 +3101,10 @@ function expandChat(chat) {
   }
 }
 
-// Open chat from the messages sidebar (friend obj with friendId/friendName)
+// Open chat from the recent panel (conv obj with friendId/friendName)
 async function openChatFromSidebar(conv) {
-  msgSidebarOpen.value = false;
   await openChat({ friend_id: conv.friendId, name: conv.friendName });
-  // Update recent conv unread to 0
+  // Clear unread for this conv
   const rc = recentConversations.value.find(c => c.friendId === conv.friendId);
   if (rc) rc.unread = 0;
 }
@@ -3251,34 +3246,50 @@ function subscribeGlobalIncoming() {
           const fromId = msg.from_id;
           // If we already have an open chat window for this sender, ignore (handled by per-chat sub)
           const existingChat = openChats.value.find(c => c.friendId === fromId);
-          if (existingChat) return;
+          if (existingChat) {
+            // Already open — just increment unread if minimized
+            if (existingChat.minimized) existingChat.unreadCount = (existingChat.unreadCount || 0) + 1;
+            return;
+          }
 
           // Find friend name from friends list
           const friend = friendsList.value.find(f => f.friend_id === fromId);
           const friendName = friend?.name || 'Unknown';
 
-          // Auto-open minimized chat
           const { reactive: vReactive } = await import('vue');
-          const chat = vReactive({
-            friendId:    fromId,
-            friendName,
-            messages:    [],
-            draft:       '',
-            loading:     false,
-            minimized:   true,  // <-- open minimized
-            unreadCount: 1,
-            sub:         null,
-          });
-          // Close any existing chat window (1 at a time)
+
           if (openChats.value.length > 0) {
-            const old = openChats.value[0];
-            old.sub?.unsubscribe?.();
-            if (old._pollTimer) clearInterval(old._pollTimer);
-            if (old._globalPollTimer) clearInterval(old._globalPollTimer);
+            // Mutate in-place — no DOM remount, no glitch
+            const chat = openChats.value[0];
+            chat.sub?.unsubscribe?.();
+            if (chat._pollTimer)       clearInterval(chat._pollTimer);
+            if (chat._globalPollTimer) clearInterval(chat._globalPollTimer);
+            chat.sub          = null;
+            chat._pollTimer   = null;
+            chat.friendId    = fromId;
+            chat.friendName  = friendName;
+            chat.messages    = [];
+            chat.draft       = '';
+            chat.loading     = false;
+            chat.minimized   = true;
+            chat.unreadCount = 1;
+            await loadChatHistory(chat);
+            subscribeChatRealtime(chat);
+          } else {
+            const chat = vReactive({
+              friendId:    fromId,
+              friendName,
+              messages:    [],
+              draft:       '',
+              loading:     false,
+              minimized:   true,
+              unreadCount: 1,
+              sub:         null,
+            });
+            openChats.value = [chat];
+            await loadChatHistory(chat);
+            subscribeChatRealtime(chat);
           }
-          openChats.value = [chat];
-          await loadChatHistory(chat);
-          subscribeChatRealtime(chat);
 
           // Update recent conversations
           updateRecentConv(msg, friendName);
@@ -3422,7 +3433,7 @@ async function sendMessage(chat) {
 
 function nextTickScrollChat(friendId) {
   setTimeout(() => {
-    const el = chatScrollRefs[friendId];
+    const el = chatScrollRefs['active'] || chatScrollRefs[friendId];
     if (el) el.scrollTop = el.scrollHeight;
   }, 30);
 }
@@ -3479,20 +3490,15 @@ watch(loggedIn, (isIn) => {
 });
 
 function toggleFriendsSidebar() {
-  notifSidebarOpen.value = false;
-  msgSidebarOpen.value   = false;
+  notifSidebarOpen.value   = false;
   friendsSidebarOpen.value = !friendsSidebarOpen.value;
 }
 function toggleNotifSidebar() {
   friendsSidebarOpen.value = false;
-  msgSidebarOpen.value     = false;
   notifSidebarOpen.value   = !notifSidebarOpen.value;
 }
 function toggleMsgSidebar() {
-  friendsSidebarOpen.value = false;
-  notifSidebarOpen.value   = false;
-  msgSidebarOpen.value     = !msgSidebarOpen.value;
-  if (msgSidebarOpen.value) loadRecentConversations();
+  // kept for compat but no longer used directly
 }
 function openProfileModal() {
   friendsSidebarOpen.value = false;
@@ -4307,9 +4313,10 @@ const mh = reactive({
 });
 
 const mhFilters = [
-  { key: "all",    label: "ALL" },
-  { key: "casual", label: "CASUAL" },
-  { key: "ranked", label: "RANKED" },
+  { key: "all",      label: "ALL" },
+  { key: "casual",   label: "CASUAL" },
+  { key: "ranked",   label: "RANKED" },
+  { key: "versus_ai", label: "VS AI" },
 ];
 
 const mhPageCount = computed(() => Math.ceil(mh.total / mhPageSize));
@@ -4331,15 +4338,16 @@ async function loadMatchHistory() {
     let query = supabase
       .from("pb_matches")
       .select(
-        "id, lobby_id, round_number, player1_id, player2_id, winner_id, loser_id, end_reason, duration_sec, mode, created_at",
+        "id, lobby_id, round_number, player1_id, player2_id, winner_id, loser_id, end_reason, duration_sec, mode, created_at, player1_picks, player2_picks",
         { count: "exact" }
       )
       .or(`player1_id.eq.${userId},player2_id.eq.${userId}`)
       .order("created_at", { ascending: false })
       .range(from, to);
 
-    if (mh.filter === "casual") query = query.in("mode", ["online","quick","custom"]);
-    if (mh.filter === "ranked") query = query.eq("mode", "ranked");
+    if (mh.filter === "casual")    query = query.in("mode", ["online","quick","custom","standard","blind_draft","mirror_war"]);
+    if (mh.filter === "ranked")    query = query.in("mode", ["ranked","ranked_standard","ranked_mirror_war","ranked_blind_draft"]);
+    if (mh.filter === "versus_ai") query = query.eq("mode", "versus_ai");
 
     const { data: matches, count, error } = await query;
     if (error) throw error;
@@ -4367,11 +4375,15 @@ async function loadMatchHistory() {
     mh.items = (matches || []).map(m => {
       const oppId = m.player1_id === userId ? m.player2_id : m.player1_id;
       const opp   = profileMap[oppId];
+      const myPicks  = m.player1_id === userId ? (m.player1_picks || []) : (m.player2_picks || []);
+      const oppPicks = m.player1_id === userId ? (m.player2_picks || []) : (m.player1_picks || []);
       return {
         ...m,
         result:       m.winner_id === userId ? "W" : m.loser_id === userId ? "L" : "D",
         opponentName: opp?.display_name || opp?.username || "Unknown",
         opponentId:   oppId,
+        myPicks,
+        oppPicks,
       };
     });
   } catch (e) {
@@ -4433,6 +4445,55 @@ function mhEndReasonLabel(reason) {
     case "abandoned": return "Abandoned";
     default:          return reason || "Normal";
   }
+}
+
+function mhModeLabel(mode) {
+  switch (mode) {
+    case "mirror_war":         return "MIRROR MATCH";
+    case "blind_draft":        return "BLIND DRAFT";
+    case "standard":           return "STANDARD";
+    case "online":             return "STANDARD";   // legacy
+    case "versus_ai":          return "VERSUS AI";
+    case "custom":             return "CUSTOM";
+    case "ranked_standard":    return "RANKED STANDARD";
+    case "ranked":             return "RANKED STANDARD"; // legacy
+    case "ranked_mirror_war":  return "RANKED MIRROR MATCH";
+    case "ranked_blind_draft": return "RANKED BLIND DRAFT";
+    default:                   return (mode || "STANDARD").toUpperCase();
+  }
+}
+
+function mhIsMirror(mode) {
+  return mode === "mirror_war" || mode === "ranked_mirror_war";
+}
+
+// Piece color from pieceStyles
+function mhPieceColor(key) {
+  const MAP = {
+    F:"#7C5CFF",I:"#4CC9F0",L:"#FF3B3B",P:"#FFD166",
+    N:"#E6E6E6",T:"#9B5DE5",U:"#F15BB5",V:"#00A6FB",
+    W:"#00F5A0",X:"#FFCBA4",Y:"#FB8500",Z:"#EF476F",
+  };
+  return MAP[key] || "#ffffff";
+}
+
+// Normalised cells for a piece: shifted to start at 0,0
+function mhPieceCells(key) {
+  const SHAPES = {
+    F:[[0,1],[1,0],[1,1],[1,2],[2,2]],
+    I:[[0,0],[1,0],[2,0],[3,0],[4,0]],
+    L:[[0,0],[1,0],[2,0],[3,0],[3,1]],
+    P:[[0,0],[0,1],[1,0],[1,1],[2,0]],
+    N:[[0,0],[1,0],[2,0],[2,1],[3,1]],
+    T:[[0,0],[0,1],[0,2],[1,1],[2,1]],
+    U:[[0,0],[0,2],[1,0],[1,1],[1,2]],
+    V:[[0,0],[1,0],[2,0],[2,1],[2,2]],
+    W:[[0,0],[1,0],[1,1],[2,1],[2,2]],
+    X:[[0,1],[1,0],[1,1],[1,2],[2,1]],
+    Y:[[0,0],[1,0],[2,0],[3,0],[2,1]],
+    Z:[[0,0],[0,1],[1,1],[2,1],[2,2]],
+  };
+  return SHAPES[key] || [];
 }
 
 // Load when navigating to match-history OR profile
@@ -5490,22 +5551,26 @@ async function sbRecordMatchResult({
   loserId    = null,
   endReason  = "normal",
   durationSec = null,
-  matchMode  = "online",
+  matchMode  = "standard",
+  player1Picks = [],
+  player2Picks = [],
 }) {
   if (!lobbyId || !player1Id || !player2Id) return;
   try {
     // requireSupabase already statically imported
     const sb = requireSupabase();
     await sb.rpc("record_match_result", {
-      p_lobby_id:     lobbyId,
-      p_round:        roundNumber,
-      p_player1_id:   player1Id,
-      p_player2_id:   player2Id,
-      p_winner_id:    winnerId,
-      p_loser_id:     loserId,
-      p_end_reason:   endReason,
-      p_duration_sec: durationSec,
-      p_mode:         matchMode,
+      p_lobby_id:      lobbyId,
+      p_round:         roundNumber,
+      p_player1_id:    player1Id,
+      p_player2_id:    player2Id,
+      p_winner_id:     winnerId,
+      p_loser_id:      loserId,
+      p_end_reason:    endReason,
+      p_duration_sec:  durationSec,
+      p_mode:          matchMode,
+      p_player1_picks: player1Picks,
+      p_player2_picks: player2Picks,
     });
   } catch (e) {
     // Non-fatal — stats can be backfilled later. Never break the UX.
@@ -7508,10 +7573,15 @@ async function _handleGameover() {
             loserId,
             endReason,
             durationSec,
-            matchMode:   meta?.kind === "mirror_war" ? "mirror_war"
+            player1Picks: [...(game.picks?.[1] || [])],
+            player2Picks: [...(game.picks?.[2] || [])],
+            matchMode:   meta?.kind === "mirror_war"  && (meta?.mode === "ranked" || lobby?.mode === "ranked") ? "ranked_mirror_war"
+                       : meta?.kind === "blind_draft" && (meta?.mode === "ranked" || lobby?.mode === "ranked") ? "ranked_blind_draft"
+                       : meta?.mode === "ranked" || lobby?.mode === "ranked" ? "ranked_standard"
+                       : meta?.kind === "mirror_war"  ? "mirror_war"
                        : meta?.kind === "blind_draft" ? "blind_draft"
-                       : meta?.mode === "ranked" || lobby?.mode === "ranked" ? "ranked"
-                       : "online",
+                       : lobby?.source === "custom"   ? "custom"
+                       : "standard",
           });
 
           // ── Fetch LP delta for ranked matches and update modal message ────
@@ -15565,10 +15635,11 @@ onBeforeUnmount(() => {
 .pbChatDock {
   position: fixed;
   bottom: 0;
+  left: 0;
   display: flex;
   flex-direction: row;
   align-items: flex-end;
-  gap: 6px;
+  gap: 0;
   z-index: 9000;
   pointer-events: none;
   transition: left .25s cubic-bezier(.4,0,.2,1);
@@ -15578,7 +15649,8 @@ onBeforeUnmount(() => {
   background: #12121e;
   border: 1px solid rgba(255,255,255,0.10);
   border-bottom: none;
-  border-radius: 8px 8px 0 0;
+  border-right: none;
+  border-radius: 8px 0 0 0;
   display: flex;
   flex-direction: column;
   overflow: hidden;
@@ -15731,57 +15803,79 @@ onBeforeUnmount(() => {
 }
 
 /* ── Recent Messages Sidebar ── */
-.pbMsgSidebar { /* inherits .pbSidebar */ }
-
-.pbMsgConvList {
-  display: flex; flex-direction: column; overflow-y: auto; flex: 1;
+/* ── Recent conversations panel (right of chat window) ── */
+.pbRecentPanel {
+  width: 180px;
+  height: 380px;
+  background: #12121e;
+  border: 1px solid rgba(255,255,255,0.10);
+  border-bottom: none;
+  border-left: none;
+  border-radius: 0 8px 0 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  pointer-events: all;
+  box-shadow: 0 -2px 20px rgba(0,0,0,0.6);
+  align-self: flex-start;
+}
+.pbRecentList {
+  overflow-y: auto; flex: 1;
   scrollbar-width: thin; scrollbar-color: rgba(255,255,255,0.08) transparent;
 }
-.pbMsgConvRow {
-  display: flex; align-items: center; gap: 10px;
-  padding: 10px 14px; cursor: pointer;
+.pbRecentRow {
+  display: flex; align-items: center; gap: 8px;
+  padding: 8px 10px; cursor: pointer;
   border-bottom: 1px solid rgba(255,255,255,0.04);
   transition: background .1s;
 }
-.pbMsgConvRow:hover { background: rgba(255,255,255,0.05); }
-.pbMsgConvRow.active { background: rgba(80,201,238,0.07); }
+.pbRecentRow:hover   { background: rgba(255,255,255,0.05); }
+.pbRecentRow.active  { background: rgba(80,201,238,0.08); border-left: 2px solid #50C9EE; }
 
-.pbMsgConvAvatarWrap { position: relative; flex-shrink: 0; }
-.pbMsgConvAvatar {
-  width: 36px; height: 36px; border-radius: 50%;
+.pbRecentAvatarWrap  { position: relative; flex-shrink: 0; }
+.pbRecentAvatar {
+  width: 30px; height: 30px; border-radius: 50%;
   border: 1.5px solid rgba(255,255,255,0.12); object-fit: cover; background: #2a2a40;
 }
-.pbMsgConvDot {
-  position: absolute; bottom: 1px; right: 1px;
-  width: 9px; height: 9px; border-radius: 50%; border: 2px solid #141420;
+.pbRecentDot {
+  position: absolute; bottom: 0; right: 0;
+  width: 8px; height: 8px; border-radius: 50%; border: 2px solid #12121e;
 }
-.pbMsgConvDot.online  { background: #4dff90; }
-.pbMsgConvDot.offline { background: rgba(255,255,255,0.18); }
-
-.pbMsgConvMeta { display: flex; flex-direction: column; gap: 2px; min-width: 0; flex: 1; }
-.pbMsgConvTop  { display: flex; align-items: baseline; justify-content: space-between; gap: 4px; }
-.pbMsgConvName {
+.pbRecentDot.online  { background: #4dff90; }
+.pbRecentDot.offline { background: rgba(255,255,255,0.18); }
+.pbRecentUnread {
+  position: absolute; top: -4px; right: -4px;
+  min-width: 15px; height: 15px; padding: 0 3px; border-radius: 7.5px;
+  background: #ff4060; color: #fff; font-size: 9px; font-weight: 700;
   font-family: 'Orbitron', system-ui, sans-serif;
-  font-size: 11px; font-weight: 700; color: #fff;
+  display: flex; align-items: center; justify-content: center;
+  box-shadow: 0 0 4px rgba(255,64,96,0.5);
+}
+.pbRecentMeta {
+  display: flex; flex-direction: column; gap: 1px; min-width: 0; flex: 1;
+}
+.pbRecentName {
+  font-family: 'Orbitron', system-ui, sans-serif;
+  font-size: 10px; font-weight: 700; color: #fff;
   white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
 }
-.pbMsgConvTime {
-  font-size: 9px; color: rgba(255,255,255,0.25);
-  font-family: 'Rajdhani', system-ui, sans-serif; flex-shrink: 0;
-}
-.pbMsgConvBottom { display: flex; align-items: center; justify-content: space-between; gap: 4px; }
-.pbMsgConvPreview {
-  font-size: 11px; color: rgba(255,255,255,0.35);
+.pbRecentPreview {
+  font-size: 10px; color: rgba(255,255,255,0.3);
   font-family: 'Rajdhani', system-ui, sans-serif;
-  white-space: nowrap; overflow: hidden; text-overflow: ellipsis; flex: 1;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
 }
-.pbMsgConvUnread {
-  min-width: 17px; height: 17px; padding: 0 4px; border-radius: 8.5px;
-  background: #ff4060; color: #fff; font-size: 10px; font-weight: 700;
-  font-family: 'Orbitron', system-ui, sans-serif;
-  display: flex; align-items: center; justify-content: center; flex-shrink: 0;
-  box-shadow: 0 0 5px rgba(255,64,96,0.4);
+.pbRecentLoading {
+  display: flex; align-items: center; justify-content: center; padding: 20px;
 }
+.pbRecentEmpty {
+  font-size: 10px; color: rgba(255,255,255,0.2);
+  font-family: 'Rajdhani', system-ui, sans-serif;
+  text-align: center; padding: 16px 8px;
+}
+.pbRecentPanel          { height: 380px; transition: height .18s ease; }
+.pbRecentPanel.minimized { height: 40px; overflow: hidden; }
+.pbRecentPanel-enter-active, .pbRecentPanel-leave-active { transition: opacity .18s, transform .18s; }
+.pbRecentPanel-enter-from, .pbRecentPanel-leave-to { opacity: 0; transform: translateY(12px); }
 
 /* Input row */
 .pbChatInputRow {
@@ -17701,89 +17795,145 @@ onBeforeUnmount(() => {
 }
 
 .mhCard {
-  border-radius: 12px;
+  border-radius: 6px;
   border: 1px solid rgba(255,255,255,0.08);
   background: rgba(255,255,255,0.03);
   overflow: hidden;
-  cursor: pointer;
-  transition: border-color .18s, background .18s, transform .12s;
+  transition: border-color .15s, background .15s;
 }
-.mhCard:hover {
-  border-color: rgba(255,255,255,0.15);
-  background: rgba(255,255,255,0.05);
-  transform: translateX(2px);
-}
-.mhCard.win  { border-left: 3px solid rgba(61,255,160,0.50); }
-.mhCard.loss { border-left: 3px solid rgba(255,95,95,0.50); }
-.mhCard.draw { border-left: 3px solid rgba(255,255,255,0.20); }
-.mhCard.expanded {
-  border-color: rgba(255,255,255,0.18);
-  background: rgba(255,255,255,0.05);
-}
+.mhCard:hover { background: rgba(255,255,255,0.055); }
+.mhCard.win  { border-left: 4px solid #3dffa0; }
+.mhCard.loss { border-left: 4px solid #ff6b6b; }
+.mhCard.draw { border-left: 4px solid rgba(255,255,255,0.22); }
 
+/* LoL-style three-column layout */
 .mhCardMain {
   display: flex;
-  align-items: center;
-  gap: 12px;
-  padding: 12px 14px;
+  align-items: stretch;
+  min-height: 80px;
 }
 
-/* W/L/D badge */
-.mhResultBadge {
-  width: 34px;
-  height: 34px;
-  border-radius: 8px;
+/* Left column: result + mode + duration */
+.mhCardLeft {
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  align-items: flex-start;
+  gap: 3px;
+  padding: 10px 14px;
+  min-width: 130px;
+  flex-shrink: 0;
+}
+.mhResultLabel {
+  font-family: 'Orbitron', system-ui, sans-serif;
+  font-size: 13px;
+  font-weight: 900;
+  letter-spacing: 1px;
+}
+.mhResultLabel.w { color: #3dffa0; }
+.mhResultLabel.l { color: #ff6b6b; }
+.mhResultLabel.d { color: rgba(255,255,255,0.5); }
+
+.mhModeLabel {
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: 1.5px;
+  color: rgba(255,255,255,0.35);
+  text-transform: uppercase;
+}
+.mhDurationLabel {
+  font-size: 10px;
+  color: rgba(255,255,255,0.4);
+  font-family: 'Rajdhani', system-ui, sans-serif;
+}
+
+/* Dividers */
+.mhCardDivider {
+  width: 1px;
+  background: rgba(255,255,255,0.07);
+  flex-shrink: 0;
+  margin: 8px 0;
+}
+
+/* Center column: piece chips */
+.mhCardCenter {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: 5px;
+  padding: 8px 14px;
+  min-width: 0;
+}
+.mhPicksRow {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.mhPicksLabel {
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: 1px;
+  color: rgba(255,255,255,0.3);
+  text-transform: uppercase;
+  min-width: 34px;
+  flex-shrink: 0;
+}
+.mhPicksList {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 3px;
+}
+.mhPieceChip {
+  width: 26px;
+  height: 26px;
+  border-radius: 4px;
   display: flex;
   align-items: center;
   justify-content: center;
-  font-size: 13px;
-  font-weight: 1000;
-  letter-spacing: 1px;
+  background: rgba(255,255,255,0.06);
+  border: 1px solid rgba(255,255,255,0.12);
   flex-shrink: 0;
 }
-.mhResultBadge.w {
-  background: rgba(61,255,160,0.14);
-  color: #3dffa0;
-  border: 1px solid rgba(61,255,160,0.25);
+.mhPieceChipOpp {
+  background: rgba(255,255,255,0.03);
 }
-.mhResultBadge.l {
-  background: rgba(255,95,95,0.12);
-  color: #ff6b6b;
-  border: 1px solid rgba(255,95,95,0.22);
+.mhPieceSvg {
+  width: 18px;
+  height: 18px;
 }
-.mhResultBadge.d {
-  background: rgba(255,255,255,0.07);
-  color: rgba(255,255,255,0.55);
-  border: 1px solid rgba(255,255,255,0.12);
+.mhMirrorNote {
+  font-size: 10px;
+  color: rgba(255,255,255,0.2);
+  font-style: italic;
+  font-family: 'Rajdhani', system-ui, sans-serif;
 }
 
-.mhCardBody {
-  flex: 1;
-  min-width: 0;
+/* Right column: opponent + date + end reason */
+.mhCardRight {
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  align-items: flex-end;
+  gap: 3px;
+  padding: 10px 14px;
+  min-width: 120px;
+  flex-shrink: 0;
 }
-.mhCardOpponent {
-  font-size: 13px;
-  font-weight: 700;
-  letter-spacing: .5px;
+.mhVsRow {
+  font-size: 11px;
+  color: rgba(255,255,255,0.4);
   white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  color: rgba(255,255,255,0.85);
 }
 .mhOppName {
   color: #fff;
+  font-weight: 700;
 }
-.mhCardMeta {
+.mhDateLabel {
   font-size: 10px;
-  letter-spacing: .8px;
-  color: rgba(255,255,255,0.35);
-  margin-top: 3px;
-  display: flex;
-  align-items: center;
-  gap: 4px;
-  flex-wrap: wrap;
+  color: rgba(255,255,255,0.3);
+  font-family: 'Rajdhani', system-ui, sans-serif;
 }
-.mhMetaDot { opacity: .25; }
 .mhMetaTag {
   padding: 1px 6px;
   border-radius: 4px;
@@ -17797,52 +17947,6 @@ onBeforeUnmount(() => {
 .mhMetaTag.er-surrender { color: #aaa; }
 .mhMetaTag.er-abandoned { color: #888; }
 .mhMetaTag.er-normal    { color: rgba(255,255,255,0.45); }
-
-.mhCardChevron {
-  font-size: 20px;
-  opacity: .25;
-  transition: transform .2s, opacity .2s;
-  flex-shrink: 0;
-}
-.mhCardChevron.open {
-  transform: rotate(90deg);
-  opacity: .6;
-}
-
-/* Expanded detail */
-.mhExpandedBody {
-  padding: 0 14px 14px;
-  border-top: 1px solid rgba(255,255,255,0.06);
-  animation: mhExpandIn .18s cubic-bezier(.22,1,.36,1);
-}
-@keyframes mhExpandIn {
-  from { opacity: 0; transform: translateY(-4px); }
-  to   { opacity: 1; transform: translateY(0); }
-}
-.mhExpandGrid {
-  display: grid;
-  grid-template-columns: repeat(4, 1fr);
-  gap: 8px;
-  padding-top: 12px;
-}
-.mhExpandCell {
-  display: flex;
-  flex-direction: column;
-  gap: 3px;
-}
-.mhExpandLabel {
-  font-size: 9px;
-  letter-spacing: 2px;
-  font-weight: 900;
-  opacity: .35;
-  text-transform: uppercase;
-}
-.mhExpandVal {
-  font-size: 13px;
-  font-weight: 700;
-  letter-spacing: .5px;
-  color: rgba(255,255,255,0.80);
-}
 .mhWinTxt  { color: #3dffa0 !important; }
 .mhLossTxt { color: #ff6b6b !important; }
 
