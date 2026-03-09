@@ -119,6 +119,10 @@ function onGlobalPointerDown(e) {
   if (board?.contains(e.target)) return;
   if (picker?.contains(e.target)) return;
 
+  // Ignore taps on the teleported mobile action bar (Rotate / Submit / Flip)
+  const mobileBar = document.querySelector('.mobileActionBar');
+  if (mobileBar?.contains(e.target)) return;
+
   game.clearSelection();
 }
 
