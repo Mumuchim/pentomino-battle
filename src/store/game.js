@@ -261,6 +261,7 @@ export const useGameStore = defineStore("game", {
           at: Date.now(),
           phase: this.phase,
           currentPlayer: this.currentPlayer,
+          _draftOpener: this._draftOpener,
           pool: clone(this.pool),
           picks: clone(this.picks),
           draftTurn: this.draftTurn,
@@ -300,6 +301,7 @@ export const useGameStore = defineStore("game", {
 
         this.phase = snap.phase;
         this.currentPlayer = snap.currentPlayer;
+        this._draftOpener = snap._draftOpener ?? this._draftOpener;
         this.pool = snap.pool;
         this.picks = snap.picks;
         this.draftTurn = snap.draftTurn;
@@ -633,14 +635,12 @@ export const useGameStore = defineStore("game", {
       const pieces = this.remaining[player];
       if (!pieces.length) return false;
 
-      // Check directly without mutating store state - avoids triggering reactivity
       const board = this.board;
       const boardW = this.boardW;
       const boardH = this.boardH;
       const placedCount = this.placedCount;
       const allowFlip = this.allowFlip;
       const flipOptions = allowFlip ? [false, true] : [false];
-      const dirs = [[1,0],[-1,0],[0,1],[0,-1]];
 
       for (const pk of pieces) {
         const baseCells = PENTOMINOES[pk];
@@ -651,34 +651,10 @@ export const useGameStore = defineStore("game", {
 
             for (let ay = 0; ay < boardH; ay++) {
               for (let ax = 0; ax < boardW; ax++) {
-                // Check bounds + overlap
-                let valid = true;
-                const abs = [];
-                for (const [dx, dy] of shape) {
-                  const x = ax + dx, y = ay + dy;
-                  if (x < 0 || y < 0 || x >= boardW || y >= boardH || board[y][x] !== null) {
-                    valid = false;
-                    break;
-                  }
-                  abs.push([x, y]);
+                // Delegate entirely to the canonical validator — single source of truth
+                if (validatePlacement(board, shape, ax, ay, boardW, boardH, placedCount) !== null) {
+                  return true;
                 }
-                if (!valid) continue;
-
-                // First move anywhere
-                if (placedCount === 0) return true;
-
-                // Must touch existing
-                let touches = false;
-                outer: for (const [x, y] of abs) {
-                  for (const [ox, oy] of dirs) {
-                    const nx = x + ox, ny = y + oy;
-                    if (nx >= 0 && ny >= 0 && nx < boardW && ny < boardH && board[ny][nx] !== null) {
-                      touches = true;
-                      break outer;
-                    }
-                  }
-                }
-                if (touches) return true;
               }
             }
           }
@@ -727,7 +703,13 @@ export const useGameStore = defineStore("game", {
       this.battleClockLastTickAt = null;
       this.turnStartedAt = Date.now();
 
-      this.currentPlayer = 1;
+      // Mirror the fairness rule from draftPick: the player who opened the draft
+      // gets second placement turn so both phases share the advantage fairly.
+      // Fall back to player 1 going first when _draftOpener is not set (e.g. direct
+      // puzzle/couch modes that never ran a draft).
+      this.currentPlayer = this._draftOpener != null
+        ? (this._draftOpener === 1 ? 2 : 1)
+        : 1;
 
       // Reset selection / placement state
       this.selectedPieceKey = null;

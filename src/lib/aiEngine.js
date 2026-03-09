@@ -2452,7 +2452,7 @@ function bbBlobRegions(board, W, H, spreadLookup) {
       let tmp = frontier;
       while (tmp !== 0n) {
         const lsb = tmp & -tmp;
-        const bit = Number(lsb.toString(2).length) - 1;
+        const bit = bigIntBitIndex(lsb);
         spread |= sl[bit];
         tmp ^= lsb;
       }
@@ -2466,7 +2466,7 @@ function bbBlobRegions(board, W, H, spreadLookup) {
     let tmp2 = reg;
     while (tmp2 !== 0n) {
       const lsb = tmp2 & -tmp2;
-      const bit = Number(lsb.toString(2).length) - 1;
+      const bit = bigIntBitIndex(lsb);
       const x = bit % W, y = (bit / W) | 0;
       size++;
       if ((x + y) % 2 === 0) black++;
@@ -2479,9 +2479,23 @@ function bbBlobRegions(board, W, H, spreadLookup) {
 }
 
 /**
- * Quick parity-infeasibility score computed with bitwise blobs (no array alloc).
- * Returns total penalty — higher means more dead zones.
+ * Fast BigInt trailing-zero count — equivalent to finding the bit index of
+ * the least-significant set bit without converting to a string.
+ * Uses the identity: lsb = n & -n, so bit index = popcount(lsb - 1).
+ * We avoid string conversion entirely by operating in 32-bit halves.
  */
+function bigIntBitIndex(lsb) {
+  // Split into low and high 32-bit halves
+  const lo = Number(lsb & 0xFFFFFFFFn);
+  if (lo !== 0) {
+    // bit is in the low half — use Math.clz32 on the isolated LSB
+    return 31 - Math.clz32(lo & -lo);
+  }
+  const hi = Number((lsb >> 32n) & 0xFFFFFFFFn);
+  return 32 + 31 - Math.clz32(hi & -hi);
+}
+
+
 function bbParityScore(board, W, H, spreadLookup) {
   const blobs = bbBlobRegions(board, W, H, spreadLookup);
   let pen = 0;
@@ -2536,7 +2550,6 @@ function detectCavityArchetype(region) {
   const sz = region.length;
   if (sz < 5)  return 'tiny';
   if (sz > 10) return 'large';
-  if (sz === 5) return 'exact5';
 
   const xs = region.map(([x]) => x);
   const ys = region.map(([, y]) => y);
@@ -2544,11 +2557,7 @@ function detectCavityArchetype(region) {
   const minY = Math.min(...ys), maxY = Math.max(...ys);
   const bw = maxX - minX + 1, bh = maxY - minY + 1;
 
-  // 3×2 or 2×3 bounding box fully filled
-  if ((bw === 3 && bh === 2) || (bw === 2 && bh === 3)) return sz === 6 ? '3x2' : 'other';
-  if (sz === 5) return 'exact5';
-
-  // Cross: centre cell has 4 filled neighbours inside region
+  // Cross: centre cell has 4 filled neighbours inside region (only possible at sz=5)
   if (sz === 5) {
     const regSet = new Set(region.map(([x, y]) => y * 100 + x));
     for (const [cx, cy] of region) {
@@ -2556,7 +2565,12 @@ function detectCavityArchetype(region) {
       for (const [ox, oy] of DIRS) { if (regSet.has((cy + oy) * 100 + (cx + ox))) cnt++; }
       if (cnt === 4) return 'cross';
     }
+    return 'exact5';
   }
+
+  // 3×2 or 2×3 bounding box fully filled
+  if ((bw === 3 && bh === 2) || (bw === 2 && bh === 3)) return sz === 6 ? '3x2' : 'other';
+
   return 'other';
 }
 
@@ -2598,7 +2612,7 @@ function iBisectionAnalysis(board, W, H) {
     let above = 0, below = 0;
     for (let dy = 0; dy < H; dy++)
       for (let dx = 0; dx < W; dx++)
-        if (board[dy][dx] === null) (dy < y ? above : dy > y ? below : null);
+        if (board[dy][dx] === null) (dy < y ? above++ : dy > y ? below++ : 0);
 
     const balance = Math.abs(above - below);
     const edgeBonus = (y === 0 || y === H - 1) ? 80 : (y === 1 || y === H - 2) ? 30 : 0;
@@ -2846,7 +2860,7 @@ export function createAiEngine({game,aiPlayer,humanPlayer,aiDifficulty,PENTOMINO
       
       if (piecesLeft.length === 0) {
         bestTiling = [...currentTiling];
-        maxPiecesPlaced = 6;
+        maxPiecesPlaced = currentTiling.length;
         return true; 
       }
 
@@ -4616,6 +4630,7 @@ export function createAiEngine({game,aiPlayer,humanPlayer,aiDifficulty,PENTOMINO
     if(diff==='normal')    return movesNormal(moves);
     if(diff==='hard')      return movesTactician(moves);
     if(diff==='master')    return movesGrandmaster(moves);
+    if(diff==='expert')    return movesGod(moves);
     if(diff==='ultimate')  return movesGod(moves);
     return movesLegendary(moves);
   }

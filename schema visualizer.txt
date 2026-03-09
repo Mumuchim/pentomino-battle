@@ -1,0 +1,100 @@
+-- WARNING: This schema is for context only and is not meant to be run.
+-- Table order and constraints may not be valid for execution.
+
+CREATE TABLE public.pb_friend_requests (
+  id uuid NOT NULL DEFAULT gen_random_uuid(),
+  from_id uuid NOT NULL,
+  to_id uuid NOT NULL,
+  status text NOT NULL DEFAULT 'pending'::text CHECK (status = ANY (ARRAY['pending'::text, 'accepted'::text, 'declined'::text])),
+  created_at timestamp with time zone NOT NULL DEFAULT now(),
+  CONSTRAINT pb_friend_requests_pkey PRIMARY KEY (id),
+  CONSTRAINT pb_friend_requests_from_id_fkey FOREIGN KEY (from_id) REFERENCES auth.users(id),
+  CONSTRAINT pb_friend_requests_to_id_fkey FOREIGN KEY (to_id) REFERENCES auth.users(id)
+);
+CREATE TABLE public.pb_lobbies (
+  id uuid NOT NULL DEFAULT gen_random_uuid(),
+  code text NOT NULL,
+  status text NOT NULL DEFAULT 'open'::text,
+  is_private boolean NOT NULL DEFAULT false,
+  lobby_name text,
+  region text NOT NULL DEFAULT 'auto'::text,
+  host_id text NOT NULL,
+  guest_id text,
+  host_ready boolean NOT NULL DEFAULT false,
+  guest_ready boolean NOT NULL DEFAULT false,
+  state jsonb,
+  version integer NOT NULL DEFAULT 0,
+  created_at timestamp with time zone NOT NULL DEFAULT now(),
+  updated_at timestamp with time zone NOT NULL DEFAULT now(),
+  mode text NOT NULL DEFAULT 'custom'::text,
+  CONSTRAINT pb_lobbies_pkey PRIMARY KEY (id)
+);
+CREATE TABLE public.pb_matches (
+  id uuid NOT NULL DEFAULT gen_random_uuid(),
+  lobby_id uuid,
+  round_number smallint NOT NULL DEFAULT 1,
+  player1_id text NOT NULL,
+  player2_id text NOT NULL,
+  winner_id text,
+  loser_id text,
+  end_reason text NOT NULL DEFAULT 'normal'::text,
+  duration_sec integer,
+  mode text NOT NULL DEFAULT 'online'::text,
+  created_at timestamp with time zone NOT NULL DEFAULT now(),
+  replay_id uuid,
+  lp_change integer,
+  CONSTRAINT pb_matches_pkey PRIMARY KEY (id),
+  CONSTRAINT pb_matches_replay_id_fkey FOREIGN KEY (replay_id) REFERENCES public.pb_replay_logs(id)
+);
+CREATE TABLE public.pb_messages (
+  id uuid NOT NULL DEFAULT gen_random_uuid(),
+  from_id uuid NOT NULL,
+  to_id uuid NOT NULL,
+  content text NOT NULL CHECK (char_length(content) >= 1 AND char_length(content) <= 500),
+  read boolean NOT NULL DEFAULT false,
+  created_at timestamp with time zone NOT NULL DEFAULT now(),
+  CONSTRAINT pb_messages_pkey PRIMARY KEY (id),
+  CONSTRAINT pb_messages_to_id_fkey FOREIGN KEY (to_id) REFERENCES auth.users(id),
+  CONSTRAINT pb_messages_from_id_fkey FOREIGN KEY (from_id) REFERENCES auth.users(id)
+);
+CREATE TABLE public.pb_profiles (
+  id uuid NOT NULL,
+  username text UNIQUE,
+  display_name text,
+  avatar_url text,
+  wins integer NOT NULL DEFAULT 0,
+  losses integer NOT NULL DEFAULT 0,
+  draws integer NOT NULL DEFAULT 0,
+  created_at timestamp with time zone NOT NULL DEFAULT now(),
+  updated_at timestamp with time zone NOT NULL DEFAULT now(),
+  total_games integer NOT NULL DEFAULT 0,
+  last_match_at timestamp with time zone,
+  ranked_lp integer NOT NULL DEFAULT 0 CHECK (ranked_lp >= 0),
+  ranked_tier text NOT NULL DEFAULT 'unranked'::text CHECK (ranked_tier = ANY (ARRAY['unranked'::text, 'plastic'::text, 'wood'::text, 'bronze'::text, 'silver'::text, 'gold'::text, 'platinum'::text, 'diamond'::text, 'master'::text, 'champion'::text])),
+  ranked_wins integer NOT NULL DEFAULT 0,
+  ranked_losses integer NOT NULL DEFAULT 0,
+  ranked_peak_lp integer NOT NULL DEFAULT 0 CHECK (ranked_peak_lp >= 0),
+  placement_games integer NOT NULL DEFAULT 0,
+  win_streak integer NOT NULL DEFAULT 0,
+  demotion_shield integer NOT NULL DEFAULT 0,
+  is_dev boolean NOT NULL DEFAULT false,
+  uid text UNIQUE,
+  CONSTRAINT pb_profiles_pkey PRIMARY KEY (id),
+  CONSTRAINT pb_profiles_id_fkey FOREIGN KEY (id) REFERENCES auth.users(id)
+);
+CREATE TABLE public.pb_replay_logs (
+  id uuid NOT NULL DEFAULT gen_random_uuid(),
+  match_id uuid,
+  lobby_id uuid,
+  player1_id text NOT NULL,
+  player2_id text NOT NULL,
+  winner_id text,
+  end_reason text NOT NULL DEFAULT 'normal'::text CHECK (end_reason = ANY (ARRAY['normal'::text, 'timeout'::text, 'surrender'::text, 'dodged'::text, 'abandoned'::text])),
+  events jsonb NOT NULL DEFAULT '[]'::jsonb,
+  final_board jsonb,
+  final_picks jsonb,
+  metadata jsonb,
+  created_at timestamp with time zone NOT NULL DEFAULT now(),
+  CONSTRAINT pb_replay_logs_pkey PRIMARY KEY (id),
+  CONSTRAINT pb_replay_logs_match_id_fkey FOREIGN KEY (match_id) REFERENCES public.pb_matches(id)
+);

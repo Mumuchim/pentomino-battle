@@ -7623,6 +7623,14 @@ async function startQuickMatchAuto() {
               // Another host is waiting — join their lobby as guest and close ours
               const target = others[0];
               const joined = await sbJoinLobby(target.id);
+              // ✅ FIX (cancel race): re-check cancelled after the async join.
+              // The user may have clicked CANCEL while sbJoinLobby was in-flight.
+              // Without this guard we'd open the accept overlay on an already-cancelled flow,
+              // and leave the other player's lobby polluted with our guest_id.
+              if (cancelled) {
+                try { if (joined?.id) await sbDeleteLobby(joined.id); } catch {}
+                return;
+              }
               if (joined?.id) {
                 try { await sbDeleteLobby(hostLobbyId); } catch {}
                 hostLobbyId = null;
@@ -7681,11 +7689,27 @@ async function sbEnsureQuickMatchAcceptState(lobbyId) {
     st.qmAccept = { startedAt, expiresAt, host: null, guest: null, declinedBy: null };
 
     const nextVersion = Number(fresh.version || 0) + 1;
-    await sbPatchStateWithVersionGuard(fresh.id, fresh.version, {
+    const written = await sbPatchStateWithVersionGuard(fresh.id, fresh.version, {
       state: st,
       version: nextVersion,
       updated_at: new Date().toISOString(),
     });
+
+    // ✅ FIX: if the version-guarded write lost a race with the other client,
+    // `written` is null/empty and our locally-computed expiresAt was never saved.
+    // Re-read the row so both sides converge on the same authoritative window,
+    // preventing the accept countdowns from drifting by up to ~850ms.
+    if (!written) {
+      const reread = await sbSelectLobbyById(lobbyId);
+      if (!reread) throw new Error("Lobby not found after accept-window race");
+      const reState = normalizeLobbyState(reread.state);
+      // Use whatever is in DB; fall back to our local window if DB still has none.
+      const dbQa = reState.qmAccept;
+      const resolved = (dbQa && dbQa.expiresAt && Number(dbQa.expiresAt) > Date.now())
+        ? dbQa
+        : st.qmAccept;
+      return { ...resolved, version: Number(reread.version || nextVersion) };
+    }
 
     return { ...st.qmAccept, version: nextVersion };
   }
@@ -7893,14 +7917,10 @@ async function sbQuickMatch() {
   const list = Array.isArray(rows) ? rows : [];
 
   for (const lobby of list) {
-    // Clean up dead rows so they don't get reused by accident
+    // Clean up dead rows so they don't get reused by accident.
+    // isLobbyExpired() subsumes the empty-player check, so one guard is enough.
     if (lobbyPlayerCount(lobby) === 0 || isLobbyExpired(lobby)) {
-      cleanupLobbyIfNeeded(lobby, { reason: "qm_empty" });
-      continue;
-    }
-
-    if (isLobbyExpired(lobby)) {
-      cleanupLobbyIfNeeded(lobby, { reason: "qm_expired" });
+      cleanupLobbyIfNeeded(lobby, { reason: "qm_stale" });
       continue;
     }
 
