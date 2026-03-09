@@ -1,476 +1,103 @@
 <template>
-  <div class="picker">
-    <div class="draftRow">
-      <!-- PLAYER 1 -->
-      <div class="draftCol" :class="{ active: canSelect(1) }">
-        <div class="draftHead p1">
-          <span class="headLeft">Player 1 Pieces</span>
-          <span class="count">{{ game.remaining[1].length }}</span>
-
-          <span
-            class="trayAnchor"
-            data-tray="1"
-            data-tray-context="battle"
-            aria-hidden="true"
-          ></span>
-        </div>
-
-        <div class="chips big">
-          <button
-            v-for="k in game.remaining[1]"
-            :key="'p1-' + k"
-            class="chipBtn"
-            :class="[btnClass(1, k), { dragging: activeDragKey === k }]"
-            :disabled="!canSelect(1)"
-            draggable="false"
-            @dragstart.prevent
-            @click="onPick(1, k)"
-            @pointerdown="onPiecePointerDown(1, k, $event)"
-            :title="canSelect(1) ? 'Drag to board or click to select' : 'Enemy piece (visible only)'"
-          >
-            <PiecePreview :pieceKey="k" :cell="cell" />
-          </button>
-
-          <div v-if="game.remaining[1].length === 0" class="emptyNote">
-            No pieces left
-          </div>
-        </div>
-      </div>
-
-      <!-- PLAYER 2 -->
-      <div class="draftCol" :class="{ active: canSelect(2) }">
-        <div class="draftHead p2">
-          <span class="headLeft">Player 2 Pieces</span>
-          <span class="count">{{ game.remaining[2].length }}</span>
-
-          <span
-            class="trayAnchor"
-            data-tray="2"
-            data-tray-context="battle"
-            aria-hidden="true"
-          ></span>
-        </div>
-
-        <div class="chips big">
-          <button
-            v-for="k in game.remaining[2]"
-            :key="'p2-' + k"
-            class="chipBtn"
-            :class="[btnClass(2, k), { dragging: activeDragKey === k }]"
-            :disabled="!canSelect(2)"
-            draggable="false"
-            @dragstart.prevent
-            @click="onPick(2, k)"
-            @pointerdown="onPiecePointerDown(2, k, $event)"
-            :title="canSelect(2) ? 'Drag to board or click to select' : 'Enemy piece (visible only)'"
-          >
-            <PiecePreview :pieceKey="k" :cell="cell" />
-          </button>
-
-          <div v-if="game.remaining[2].length === 0" class="emptyNote">
-            No pieces left
-          </div>
-        </div>
-      </div>
-    </div>
+  <div
+    class="wrap"
+    :style="{
+      gridTemplateColumns: `repeat(${w}, ${cell}px)`,
+      gridTemplateRows: `repeat(${h}, ${cell}px)`,
+    }"
+    aria-hidden="true"
+  >
+    <div
+      v-for="(b, i) in blocks"
+      :key="i"
+      class="block"
+      :style="blockStyle(b)"
+    />
   </div>
 </template>
 
 <script setup>
-import { onBeforeUnmount, onMounted, ref } from "vue";
-import { useGameStore } from "../store/game";
-import { playBuzz } from "../lib/sfx";
-import PiecePreview from "./PiecePreview.vue";
+import { computed } from "vue";
+import { PENTOMINOES } from "../lib/pentominoes";
+import { boundsOf, transformCells } from "../lib/geom";
+import { getPieceStyle } from "../lib/pieceStyles";
 
 const props = defineProps({
-  isOnline: { type: Boolean, default: false },
-  myPlayer: { type: [Number, null], default: null },
-  canAct: { type: Boolean, default: true },
+  pieceKey: { type: String, required: true },
+  rotation: { type: Number, default: 0 },
+  flipped: { type: Boolean, default: false },
+  cell: { type: Number, default: 12 },
 });
 
-const game = useGameStore();
+const style = computed(() => getPieceStyle(props.pieceKey));
 
-// Fit-to-viewport: shrink preview tiles on shorter screens (no scroll in-game)
-const cell = ref(18);
-function computeCell() {
-  const h = window.innerHeight || 800;
-  if (h <= 700) return 12;
-  if (h <= 780) return 14;
-  if (h <= 860) return 16;
-  return 18;
-}
-function onResize() {
-  cell.value = computeCell();
-}
-onMounted(() => {
-  onResize();
-  window.addEventListener("resize", onResize, { passive: true });
-  window.addEventListener("pointerdown", onGlobalPointerDown, { passive: true });
+const cells = computed(() => {
+  const base = PENTOMINOES[props.pieceKey];
+  return transformCells(base, props.rotation, props.flipped);
 });
 
-// Deselect piece when clicking outside the board and outside the picker panel
-function onGlobalPointerDown(e) {
-  if (!game.selectedPieceKey) return;
-  if (game.phase !== 'place') return;
+const box = computed(() => boundsOf(cells.value));
+const w = computed(() => box.value.w);
+const h = computed(() => box.value.h);
 
-  // Allow clicks on the board (handled there) and on picker chips (handled above)
-  const board = document.querySelector('.boardSizer');
-  const picker = document.querySelector('.picker');
-  if (board?.contains(e.target)) return;
-  if (picker?.contains(e.target)) return;
+const blocks = computed(() => cells.value.map(([x, y]) => ({ x, y })));
 
-  // Ignore taps on the teleported mobile action bar (Rotate / Submit / Flip)
-  const mobileBar = document.querySelector('.mobileActionBar');
-  if (mobileBar?.contains(e.target)) return;
+// ✅ Make tray tiles look like board tiles (not circles)
+// If cell is small (like 10), radius must be small too.
+const blockRadius = computed(() => {
+  // 10px cell -> 3px radius, 12 -> 3, 14 -> 4, 18 -> 5
+  const r = Math.round(props.cell * 0.28);
+  return Math.max(2, Math.min(6, r));
+});
 
-  game.clearSelection();
-}
+// Bevel thickness: ~8% of cell height, matching the logo proportions
+const bevelPx = computed(() => Math.max(1, Math.round(props.cell * 0.02)));
 
-function canSelect(player) {
-  if (game.phase !== "place") return false;
-  if (game.currentPlayer !== player) return false;
-  if (!props.isOnline) return props.canAct;
-  return props.canAct && props.myPlayer === player;
-}
-
-function onPick(player, key) {
-  if (!canSelect(player)) return;
-  // Clicking the already-selected piece deselects it
-  if (game.selectedPieceKey === key) {
-    game.clearSelection();
-    return;
-  }
-  game.selectPiece(key);
-}
-
-function btnClass(player, key) {
-  const mine = canSelect(player);
-  const selected = mine && game.selectedPieceKey === key;
-  return {
-    mine,
-    enemy: !mine,
-    selected,
+function blockStyle(b) {
+  const s = style.value;
+  const bevel = bevelPx.value;
+  const base = {
+    gridColumn: b.x + 1,
+    gridRow: b.y + 1,
+    borderRadius: '8%',
+    boxShadow: `inset 0 -${bevel}px 0 rgba(0,0,0,0.25), inset 0 1px 0 rgba(255,255,255,0.18), 0 4px 10px rgba(0,0,0,0.60), 0 1px 3px rgba(0,0,0,0.40)`,
   };
-}
 
-// Track which chip is being dragged (for visual hide while dragging)
-const activeDragKey = ref(null);
-const dragPending = ref(null);
-
-function cleanupPointerListeners() {
-  try { window.removeEventListener("pointermove", onPiecePointerMove); } catch {}
-  try { window.removeEventListener("pointerup", onPiecePointerUp); } catch {}
-  try { window.removeEventListener("pointercancel", onPiecePointerUp); } catch {}
-}
-
-function onPiecePointerDown(player, key, e) {
-  if (!canSelect(player)) return;
-
-  const isTouch = e.pointerType === "touch";
-
-  if (isTouch) {
-    // Mobile: start drag immediately, piece follows finger
-    e.preventDefault();
-    game.selectPiece(key);
-    const ok = game.beginDrag(key, e.clientX, e.clientY);
-    if (!ok) return;
-
-    activeDragKey.value = key;
-    dragPending.value = {
-      player, key,
-      pointerId: e.pointerId,
-      startX: e.clientX, startY: e.clientY,
-      started: true,
-      isTouch: true,
-    };
-  } else {
-    // Desktop mouse: wait for movement to distinguish click vs drag
-    dragPending.value = {
-      player, key,
-      pointerId: e.pointerId,
-      startX: e.clientX, startY: e.clientY,
-      started: false,
-      isTouch: false,
+  if (s.skin) {
+    return {
+      ...base,
+      backgroundImage: `url(${s.skin})`,
+      backgroundSize: "cover",
+      backgroundPosition: "center",
     };
   }
 
-  // Capture pointer so we keep receiving events even if finger leaves the button
-  try { e.currentTarget.setPointerCapture(e.pointerId); } catch {}
-
-  cleanupPointerListeners();
-  window.addEventListener("pointermove", onPiecePointerMove, { passive: false });
-  window.addEventListener("pointerup",   onPiecePointerUp,   { passive: false });
-  window.addEventListener("pointercancel", onPiecePointerUp, { passive: false });
+  return { ...base, backgroundColor: s.color };
 }
-
-function onPiecePointerMove(e) {
-  const p = dragPending.value;
-  if (!p) return;
-  if (p.pointerId != null && e.pointerId !== p.pointerId) return;
-
-  if (!p.started) {
-    // Desktop: begin drag after a small dead-zone to avoid accidental drags on clicks
-    const dx = e.clientX - p.startX;
-    const dy = e.clientY - p.startY;
-    if (Math.hypot(dx, dy) < 6) return;
-
-    // Select piece immediately when drag begins — board overlay kicks in
-    game.selectPiece(p.key);
-    const ok = game.beginDrag(p.key, p.startX, p.startY);
-    if (!ok) {
-      dragPending.value = null;
-      cleanupPointerListeners();
-      return;
-    }
-    activeDragKey.value = p.key;
-    p.started = true;
-  }
-
-  e.preventDefault();
-  // Keep drag tracking in sync (needed for board ghost overlay target calculation)
-  game.updateDrag(e.clientX, e.clientY);
-}
-
-function onPiecePointerUp(e) {
-  const p = dragPending.value;
-  dragPending.value = null;
-  cleanupPointerListeners();
-
-  if (!p) {
-    activeDragKey.value = null;
-    return;
-  }
-
-  // Click without movement: let onPick (click handler) fire normally
-  if (!p.started) {
-    activeDragKey.value = null;
-    game.endDrag();
-    return;
-  }
-
-  // ── pointercancel: a second touch (e.g. rotate/flip button) interrupted the drag ──
-  // The drag finger is still on screen — we just lost pointer capture.
-  // Strategy:
-  //   • If over the board AND requireSubmit ON → stage at current position, end drag.
-  //   • Otherwise → keep drag alive, re-track the finger via raw touch events so
-  //     the piece keeps following the finger after rotate/flip outside the map.
-  if (e.type === 'pointercancel') {
-    const t = game.drag?.target;
-    const requireSubmit = game.ui?.requireSubmit ?? true;
-
-    if (t && t.inside && requireSubmit) {
-      // Stage unconditionally (may be invalid/red); user can rotate/flip then submit.
-      game.$patch({ pendingPlace: { x: t.x, y: t.y } });
-      game.endDrag();
-      activeDragKey.value = null;
-      return;
-    }
-
-    // Outside board (or requireSubmit OFF): keep the drag alive.
-    // Switch from pointer-captured events to raw touch tracking.
-    const dragKey = p.key;
-    activeDragKey.value = dragKey; // chip stays faded while drag continues
-
-    let moveFn, endFn;
-    function cleanupContinueTouch() {
-      window.removeEventListener('touchmove', moveFn);
-      window.removeEventListener('touchend', endFn);
-      window.removeEventListener('touchcancel', endFn);
-    }
-
-    moveFn = (te) => {
-      if (!game.drag?.active) { cleanupContinueTouch(); return; }
-      te.preventDefault();
-      const touch = te.touches[0];
-      if (!touch) return;
-      game.updateDrag(touch.clientX, touch.clientY);
-    };
-
-    endFn = () => {
-      cleanupContinueTouch();
-      activeDragKey.value = null;
-
-      const t2 = game.drag?.target;
-      const req = game.ui?.requireSubmit ?? true;
-
-      if (t2 && t2.inside) {
-        if (req) {
-          const staged = game.stagePlacement(t2.x, t2.y);
-          if (!staged) {
-            game.$patch({ pendingPlace: { x: t2.x, y: t2.y } });
-            playBuzz();
-          }
-        } else {
-          const ok = game.placeAt(t2.x, t2.y);
-          if (!ok) playBuzz();
-        }
-      }
-      game.endDrag();
-    };
-
-    window.addEventListener('touchmove', moveFn, { passive: false });
-    window.addEventListener('touchend', endFn, { passive: true });
-    window.addEventListener('touchcancel', endFn, { passive: true });
-    return;
-  }
-
-  // ── Normal pointerup ──────────────────────────────────────────────────────
-  activeDragKey.value = null;
-  game.updateDrag(e.clientX, e.clientY);
-
-  if (!props.canAct) {
-    game.endDrag();
-    return;
-  }
-
-  const t = game.drag?.target;
-  if (t && t.inside) {
-    const requireSubmit = game.ui?.requireSubmit ?? true;
-    if (requireSubmit) {
-      // requireSubmit ON — stage for both touch AND mouse (PC waits for Submit button)
-      const staged = game.stagePlacement(t.x, t.y);
-      if (!staged) {
-        // Invalid spot: stage unconditionally so ghost stays, user can rotate/flip
-        game.$patch({ pendingPlace: { x: t.x, y: t.y } });
-        playBuzz();
-      }
-      game.endDrag();
-    } else {
-      // requireSubmit OFF — commit immediately (touch and mouse both place directly)
-      const ok = game.placeAt(t.x, t.y);
-      if (!ok) {
-        playBuzz();
-        game.endDrag();
-      }
-    }
-  } else {
-    // Released outside board: end drag, piece stays selected for retry
-    game.endDrag();
-  }
-}
-
-onBeforeUnmount(() => {
-  cleanupPointerListeners();
-  try { window.removeEventListener("resize", onResize); } catch {}
-  try { window.removeEventListener("pointerdown", onGlobalPointerDown); } catch {}
-});
-
 </script>
 
 <style scoped>
-.picker {
-  display: flex;
-  flex-direction: column;
-  gap: 10px;
-}
-
-.draftRow {
+.wrap {
   display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 14px;
+  gap: 2px;
+  padding: 1px;
+  border-radius: 10px;
 }
 
-.draftCol { min-width: 0; }
+/* ✅ Logo-style tile: flat face + proportional bevel (set via inline style) */
+.block {
+  width: 100%;
+  height: 100%;
 
-.draftCol.active .draftHead { filter: brightness(1.08); }
-.draftCol.active .draftHead::after {
-  content: "";
-  position: absolute;
-  left: 0;
-  right: 0;
-  bottom: -8px;
-  height: 2px;
-  border-radius: 999px;
-  background: rgba(255, 255, 255, 0.12);
-  box-shadow: 0 0 18px rgba(0, 255, 255, 0.08);
-}
-
-.draftHead {
   position: relative;
-  font-weight: 1000;
-  margin-bottom: 10px;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
-  font-size: 13px;
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 10px;
+  border-radius: 8%;
+  border: 1px solid rgba(0,0,0,0.30);
+
+  overflow: hidden;
 }
 
-.headLeft { min-width: 0; }
-
-.draftHead.p1 { color: rgba(78, 201, 255, 0.98); }
-.draftHead.p2 { color: rgba(255, 107, 107, 0.98); }
-
-.count {
-  padding: 2px 8px;
-  border-radius: 999px;
-  border: 1px solid rgba(255, 255, 255, 0.12);
-  background: rgba(255, 255, 255, 0.06);
-  letter-spacing: 0.06em;
-  flex: 0 0 auto;
-}
-
-.chips.big {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 10px;
-  min-height: 64px;
-}
-
-.chipBtn {
-  padding: 0;
-  border: 0;
-  background: transparent;
-  border-radius: 14px;
-  cursor: pointer;
-  transition: transform 120ms ease, filter 120ms ease, box-shadow 120ms ease,
-    opacity 120ms ease;
-}
-
-.chipBtn:hover {
-  transform: translateY(-1px);
-  filter: brightness(1.06);
-}
-
-.chipBtn.mine { cursor: grab; touch-action: none; }
-.chipBtn.mine:active { cursor: grabbing; }
-
-.chipBtn.selected {
-  outline: 2px solid rgba(0, 255, 170, 0.55);
-  box-shadow: 0 0 18px rgba(0, 255, 170, 0.1);
-}
-
-.chipBtn.enemy {
-  opacity: 0.55;
-  filter: grayscale(0.25) saturate(0.8);
-  cursor: default;
-}
-.chipBtn:disabled { pointer-events: none; }
-
-/* While actively dragging: fade the chip so there's no duplicate visual */
-.chipBtn.dragging {
-  opacity: 0.25;
-  filter: grayscale(0.5);
-  transform: scale(0.95);
-  pointer-events: none;
-}
-
-.emptyNote {
-  opacity: 0.6;
-  font-size: 13px;
-  padding: 8px 10px;
-  border: 1px dashed rgba(255, 255, 255, 0.14);
-  border-radius: 12px;
-}
-
-.trayAnchor {
-  position: absolute;
-  right: 0;
-  top: 50%;
-  width: 1px;
-  height: 1px;
-  transform: translateY(-50%);
+/* No gradient overlay — logo blocks are flat */
+.block::before {
+  display: none;
 }
 </style>
