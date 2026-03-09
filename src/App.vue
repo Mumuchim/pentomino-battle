@@ -5600,7 +5600,7 @@ async function sbRecordMatchResult({
   try {
     const { data: rpcData, error: rpcError } = await sb.rpc("record_match_result", {
       p_lobby_id:      lobbyId,
-      p_round:         roundNumber,
+      p_round:         Number(roundNumber),  // integer — matches function signature
       p_player1_id:    player1Id,
       p_player2_id:    player2Id,
       p_winner_id:     winnerId,
@@ -7621,7 +7621,7 @@ async function _fireMatchRecord() {
         const myId = myPlayer.value === 1 ? p1Id : p2Id;
         const { data: lpResult } = await sb.rpc("pb_get_match_lp_result", {
           p_lobby_id:  online.lobbyId,
-          p_round:     online.matchRound,
+          p_round:     Number(online.matchRound),  // integer — matches function signature
           p_player_id: myId,
         });
         if (lpResult?.found) {
