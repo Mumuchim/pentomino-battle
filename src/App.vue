@@ -5593,8 +5593,8 @@ async function sbRecordMatchResult({
       p_end_reason:    endReason,
       p_duration_sec:  durationSec,
       p_mode:          matchMode,
-      p_player1_picks: player1Picks ? JSON.parse(JSON.stringify(player1Picks)) : [],
-      p_player2_picks: player2Picks ? JSON.parse(JSON.stringify(player2Picks)) : [],
+      p_player1_picks: Array.isArray(player1Picks) ? player1Picks.map(String) : [],
+      p_player2_picks: Array.isArray(player2Picks) ? player2Picks.map(String) : [],
     });
     if (rpcError) throw rpcError;
     return rpcData?.id ?? null;
