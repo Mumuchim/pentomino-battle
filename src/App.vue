@@ -1231,7 +1231,6 @@
                     </template>
                     <template v-else>
                       <span class="tbPlayerNum">P{{ game.draftTurn }}</span> PICKING
-                      <span v-if="isOnline && myPlayer === game.draftTurn" class="tbYouTag">YOU</span>
                     </template>
                   </span>
                   <span v-else-if="game.phase === 'place'">
@@ -1250,7 +1249,6 @@
                     </template>
                     <template v-else>
                       <span class="tbPlayerNum">{{ 'P' + game.currentPlayer }}</span> TURN
-                      <span v-if="isOnline && myPlayer === game.currentPlayer" class="tbYouTag">YOU</span>
                     </template>
                   </span>
                   <span v-else>GAME OVER</span>
@@ -1317,10 +1315,7 @@
 
             <!-- ── BOTTOM ROW: mode label + controls hint ── -->
             <div class="hudFooter">
-              <span class="hudModeChip">
-                {{ modeLabel }}
-                <span v-if="isOnline && myPlayer" class="hudYouInline">· YOU P{{ myPlayer }}</span>
-              </span>
+              <span class="hudModeChip">{{ modeLabel }}</span>
 
               <!-- OK / BAD legend dots -->
               <span v-if="isInGame" class="hudLegend">
@@ -1359,11 +1354,11 @@
             <button class="puzzleFinishBtn" @click="handlePuzzleEnd">FINISH PUZZLE</button>
           </div>
 
-          <DraftPanel v-if="game.phase === 'draft'" :isOnline="isOnline" :myPlayer="myPlayer" />
+          <DraftPanel v-if="game.phase === 'draft'" :isOnline="isOnline" :myPlayer="myPlayer" :matchKind="online.matchKind" />
 
           <section v-else class="panel">
-            <h2 class="panelTitle" v-if="screen !== 'puzzle'">{{ screen === 'ai' && game.phase === 'place' && game.currentPlayer === aiPlayer ? 'AI Pieces' : `Player ${game.currentPlayer} Pieces` }}</h2>
-            <PiecePicker :isOnline="isOnline" :myPlayer="myPlayer" :canAct="canAct" />
+            <h2 class="panelTitle" v-if="screen !== 'puzzle' && !isOnline">{{ screen === 'ai' && game.phase === 'place' && game.currentPlayer === aiPlayer ? 'AI Pieces' : `Player ${game.currentPlayer} Pieces` }}</h2>
+            <PiecePicker :isOnline="isOnline" :myPlayer="myPlayer" :canAct="canAct" :matchKind="online.matchKind" />
 
             <div class="divider"></div>
             <Controls :isOnline="isOnline" :canAct="canAct" />
