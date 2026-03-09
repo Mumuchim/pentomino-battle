@@ -35,120 +35,76 @@
       </div>
     </template>
 
-    <!-- ── BATTLE MODE: online = single column (active player's pieces); couch/AI = two columns ── -->
+    <!-- ── BATTLE MODE: stacked layout — top player / bottom player ── -->
     <template v-else>
+    <div class="draftStack">
 
-    <!-- Online: standard = active player's pieces (opponent visible but dimmed); MW/BD = your pieces only -->
-    <template v-if="props.isOnline && props.myPlayer">
-      <div class="draftCol" :class="{ active: canSelect(onlineShowPlayer) }">
-        <div class="draftHead" :class="onlineShowPlayer === 1 ? 'p1' : 'p2'">
-          <span class="headLeft">{{ onlineShowPlayer === props.myPlayer ? 'Your Pieces' : `P${onlineShowPlayer} Pieces` }}</span>
-          <span class="count">{{ game.remaining[onlineShowPlayer].length }}</span>
+      <!-- TOP player: "you" in online/AI, P1 in couch -->
+      <div class="draftCol" :class="{ active: canSelect(topPlayer), inactive: !canSelect(topPlayer) }">
+        <div class="draftHead" :class="topPlayer === 1 ? 'p1' : 'p2'">
+          <span class="headLeft">{{ topName }}</span>
+          <span v-if="showYouTag" class="youTag">YOU</span>
+          <span class="count">{{ game.remaining[topPlayer].length }}</span>
           <span
             class="trayAnchor"
-            :data-tray="onlineShowPlayer"
+            :data-tray="topPlayer"
             data-tray-context="battle"
             aria-hidden="true"
           ></span>
         </div>
-        <div class="chips big puzzleChips">
-          <button
-            v-for="k in game.remaining[onlineShowPlayer]"
-            :key="'cur-' + k"
-            class="chipBtn"
-            :class="[btnClass(onlineShowPlayer, k), { dragging: activeDragKey === k }]"
-            :disabled="!canSelect(onlineShowPlayer)"
-            draggable="false"
-            @dragstart.prevent
-            @click="onPick(onlineShowPlayer, k)"
-            @pointerdown="onPiecePointerDown(onlineShowPlayer, k, $event)"
-            :title="canSelect(onlineShowPlayer) ? 'Drag to board or click to select' : 'Enemy piece (visible only)'"
-          >
-            <PiecePreview :pieceKey="k" :cell="cell" />
-          </button>
-          <div v-if="game.remaining[onlineShowPlayer].length === 0" class="emptyNote">
-            No pieces left
-          </div>
-        </div>
-      </div>
-    </template>
-
-    <!-- Couch / AI: two-column layout (unchanged) -->
-    <template v-else>
-    <div class="draftRow">
-      <!-- PLAYER 1 -->
-      <div class="draftCol" :class="{ active: canSelect(1) }">
-        <div class="draftHead p1">
-          <span class="headLeft">Player 1 Pieces</span>
-          <span class="count">{{ game.remaining[1].length }}</span>
-
-          <span
-            class="trayAnchor"
-            data-tray="1"
-            data-tray-context="battle"
-            aria-hidden="true"
-          ></span>
-        </div>
-
         <div class="chips big">
           <button
-            v-for="k in game.remaining[1]"
-            :key="'p1-' + k"
+            v-for="k in game.remaining[topPlayer]"
+            :key="'top-' + k"
             class="chipBtn"
-            :class="[btnClass(1, k), { dragging: activeDragKey === k }]"
-            :disabled="!canSelect(1)"
+            :class="[btnClass(topPlayer, k), { dragging: activeDragKey === k }]"
+            :disabled="!canSelect(topPlayer)"
             draggable="false"
             @dragstart.prevent
-            @click="onPick(1, k)"
-            @pointerdown="onPiecePointerDown(1, k, $event)"
-            :title="canSelect(1) ? 'Drag to board or click to select' : 'Enemy piece (visible only)'"
+            @click="onPick(topPlayer, k)"
+            @pointerdown="onPiecePointerDown(topPlayer, k, $event)"
+            :title="canSelect(topPlayer) ? 'Drag to board or click to select' : 'Not your turn'"
           >
             <PiecePreview :pieceKey="k" :cell="cell" />
           </button>
-
-          <div v-if="game.remaining[1].length === 0" class="emptyNote">
-            No pieces left
-          </div>
+          <div v-if="game.remaining[topPlayer].length === 0" class="emptyNote">No pieces left</div>
         </div>
       </div>
 
-      <!-- PLAYER 2 -->
-      <div class="draftCol" :class="{ active: canSelect(2) }">
-        <div class="draftHead p2">
-          <span class="headLeft">Player 2 Pieces</span>
-          <span class="count">{{ game.remaining[2].length }}</span>
+      <div class="stackDivider"></div>
 
+      <!-- BOTTOM player: opponent in online/AI, P2 in couch -->
+      <div class="draftCol" :class="{ active: canSelect(bottomPlayer), inactive: !canSelect(bottomPlayer) }">
+        <div class="draftHead" :class="bottomPlayer === 1 ? 'p1' : 'p2'">
+          <span class="headLeft">{{ bottomName }}</span>
+          <span class="count">{{ game.remaining[bottomPlayer].length }}</span>
           <span
             class="trayAnchor"
-            data-tray="2"
+            :data-tray="bottomPlayer"
             data-tray-context="battle"
             aria-hidden="true"
           ></span>
         </div>
-
         <div class="chips big">
           <button
-            v-for="k in game.remaining[2]"
-            :key="'p2-' + k"
+            v-for="k in game.remaining[bottomPlayer]"
+            :key="'bot-' + k"
             class="chipBtn"
-            :class="[btnClass(2, k), { dragging: activeDragKey === k }]"
-            :disabled="!canSelect(2)"
+            :class="[btnClass(bottomPlayer, k), { dragging: activeDragKey === k }]"
+            :disabled="!canSelect(bottomPlayer)"
             draggable="false"
             @dragstart.prevent
-            @click="onPick(2, k)"
-            @pointerdown="onPiecePointerDown(2, k, $event)"
-            :title="canSelect(2) ? 'Drag to board or click to select' : 'Enemy piece (visible only)'"
+            @click="onPick(bottomPlayer, k)"
+            @pointerdown="onPiecePointerDown(bottomPlayer, k, $event)"
+            :title="canSelect(bottomPlayer) ? 'Drag to board or click to select' : 'Not your turn'"
           >
             <PiecePreview :pieceKey="k" :cell="cell" />
           </button>
-
-          <div v-if="game.remaining[2].length === 0" class="emptyNote">
-            No pieces left
-          </div>
+          <div v-if="game.remaining[bottomPlayer].length === 0" class="emptyNote">No pieces left</div>
         </div>
       </div>
+
     </div>
-    </template> <!-- end couch/AI two-column -->
     </template> <!-- end battle mode -->
 
   </div>
@@ -165,14 +121,25 @@ const props = defineProps({
   myPlayer: { type: [Number, null], default: null },
   canAct: { type: Boolean, default: true },
   matchKind: { type: [String, null], default: null },
+  p1Name: { type: [String, null], default: null },
+  p2Name: { type: [String, null], default: null },
 });
 
-// In standard online, column follows the active player (opponent visible but dimmed).
-// In mirror_war / blind_draft, only show your own pieces.
-const onlineShowPlayer = computed(() => {
-  if (!props.isOnline || !props.myPlayer) return null;
-  const isStandard = !props.matchKind || props.matchKind === 'quickmatch';
-  return isStandard ? game.currentPlayer : props.myPlayer;
+// topPlayer: "you" (online/AI) or P1 (couch). bottomPlayer: the other.
+const topPlayer    = computed(() => props.myPlayer ?? 1);
+const bottomPlayer = computed(() => topPlayer.value === 1 ? 2 : 1);
+
+// Show "YOU" badge only when we know who the human is (online or AI mode)
+const showYouTag = computed(() => props.myPlayer !== null);
+
+// Display names for each slot
+const topName = computed(() => {
+  const n = topPlayer.value === 1 ? props.p1Name : props.p2Name;
+  return n || (props.myPlayer !== null ? (topPlayer.value === props.myPlayer ? 'Your Pieces' : `P${topPlayer.value} Pieces`) : `Player ${topPlayer.value}`);
+});
+const bottomName = computed(() => {
+  const n = bottomPlayer.value === 1 ? props.p1Name : props.p2Name;
+  return n || (props.myPlayer !== null ? `P${bottomPlayer.value} Pieces` : `Player ${bottomPlayer.value}`);
 });
 
 const game = useGameStore();
@@ -451,10 +418,16 @@ onBeforeUnmount(() => {
   gap: 10px;
 }
 
-.draftRow {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 14px;
+.draftStack {
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+}
+
+.stackDivider {
+  height: 1px;
+  background: rgba(255,255,255,0.08);
+  margin: 10px 0;
 }
 
 .draftCol { min-width: 0; }
@@ -473,6 +446,23 @@ onBeforeUnmount(() => {
   border-radius: 999px;
   background: rgba(255, 255, 255, 0.12);
   box-shadow: 0 0 18px rgba(0, 255, 255, 0.08);
+}
+
+.draftCol.inactive {
+  opacity: 0.45;
+  transition: opacity 200ms ease;
+}
+.draftCol.inactive .chips.big { pointer-events: none; }
+
+.youTag {
+  font-size: 10px;
+  font-weight: 900;
+  letter-spacing: 0.12em;
+  padding: 2px 7px;
+  border-radius: 20px;
+  background: rgba(255,255,255,0.12);
+  color: rgba(255,255,255,0.75);
+  flex-shrink: 0;
 }
 
 .draftHead {

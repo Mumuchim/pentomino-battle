@@ -1354,11 +1354,10 @@
             <button class="puzzleFinishBtn" @click="handlePuzzleEnd">FINISH PUZZLE</button>
           </div>
 
-          <DraftPanel v-if="game.phase === 'draft'" :isOnline="isOnline" :myPlayer="myPlayer" :matchKind="online.matchKind" :p1Name="online.p1Name" :p2Name="online.p2Name" />
+          <DraftPanel v-if="game.phase === 'draft'" :isOnline="isOnline" :myPlayer="panelMyPlayer" :matchKind="online.matchKind" :p1Name="panelP1Name" :p2Name="panelP2Name" />
 
           <section v-else class="panel">
-            <h2 class="panelTitle" v-if="screen !== 'puzzle' && !isOnline">{{ screen === 'ai' && game.phase === 'place' && game.currentPlayer === aiPlayer ? 'AI Pieces' : `Player ${game.currentPlayer} Pieces` }}</h2>
-            <PiecePicker :isOnline="isOnline" :myPlayer="myPlayer" :canAct="canAct" :matchKind="online.matchKind" />
+            <PiecePicker :isOnline="isOnline" :myPlayer="panelMyPlayer" :canAct="canAct" :matchKind="online.matchKind" :p1Name="panelP1Name" :p2Name="panelP2Name" />
 
             <div class="divider"></div>
             <Controls :isOnline="isOnline" :canAct="canAct" />
@@ -4177,6 +4176,29 @@ const modeLabel = computed(() => {
            : online.matchKind === "blind_draft" ? "Blind Draft"
            : "Standard"
        : "—";
+});
+
+// ── Panel player identity (used by DraftPanel + PiecePicker) ─────────────
+// Determines which player is "on top" in the stacked piece panel.
+// Online  → myPlayer (your slot)
+// VS AI   → humanPlayer (the human's slot)
+// Couch   → null  (P1 always on top by convention)
+const panelMyPlayer = computed(() => {
+  if (screen.value === 'online') return myPlayer.value;
+  if (screen.value === 'ai')     return humanPlayer.value;
+  return null;
+});
+
+// Resolved display name for slot 1 and slot 2
+const panelP1Name = computed(() => {
+  if (screen.value === 'online') return online.p1Name || 'P1';
+  if (screen.value === 'ai')     return humanPlayer.value === 1 ? (displayName.value || 'YOU') : storyAiName.value;
+  return 'Player 1';
+});
+const panelP2Name = computed(() => {
+  if (screen.value === 'online') return online.p2Name || 'P2';
+  if (screen.value === 'ai')     return humanPlayer.value === 2 ? (displayName.value || 'YOU') : storyAiName.value;
+  return 'Player 2';
 });
 
 const phaseTitle = computed(() => {
