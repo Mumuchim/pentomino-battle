@@ -43,6 +43,8 @@ CREATE TABLE public.pb_matches (
   created_at timestamp with time zone NOT NULL DEFAULT now(),
   replay_id uuid,
   lp_change integer,
+  player1_picks ARRAY DEFAULT '{}'::text[],
+  player2_picks ARRAY DEFAULT '{}'::text[],
   CONSTRAINT pb_matches_pkey PRIMARY KEY (id),
   CONSTRAINT pb_matches_replay_id_fkey FOREIGN KEY (replay_id) REFERENCES public.pb_replay_logs(id)
 );

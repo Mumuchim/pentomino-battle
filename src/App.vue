@@ -5583,7 +5583,7 @@ async function sbRecordMatchResult({
   try {
     // requireSupabase already statically imported
     const sb = requireSupabase();
-    const { data: rpcData } = await sb.rpc("record_match_result", {
+    const { data: rpcData, error: rpcError } = await sb.rpc("record_match_result", {
       p_lobby_id:      lobbyId,
       p_round:         roundNumber,
       p_player1_id:    player1Id,
@@ -5593,13 +5593,14 @@ async function sbRecordMatchResult({
       p_end_reason:    endReason,
       p_duration_sec:  durationSec,
       p_mode:          matchMode,
-      p_player1_picks: player1Picks,
-      p_player2_picks: player2Picks,
+      p_player1_picks: player1Picks ? JSON.parse(JSON.stringify(player1Picks)) : [],
+      p_player2_picks: player2Picks ? JSON.parse(JSON.stringify(player2Picks)) : [],
     });
+    if (rpcError) throw rpcError;
     return rpcData?.id ?? null;
   } catch (e) {
     // Non-fatal — stats can be backfilled later. Never break the UX.
-    console.warn("[pbMatch] record_match_result failed:", e?.message ?? e);
+    console.error("[pbMatch] record_match_result failed:", e?.message ?? e, e);
     return null;
   }
 }
