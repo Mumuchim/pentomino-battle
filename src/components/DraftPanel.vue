@@ -9,7 +9,8 @@
         <!-- YOUR picks (always on top) -->
         <div class="draftCol">
           <div class="draftHead" :class="props.myPlayer === 1 ? 'p1' : 'p2'">
-            Your Picks
+            <span class="draftName">{{ myName }}</span>
+            <span class="youTag">YOU</span>
             <span
               class="trayAnchor"
               :data-tray="props.myPlayer"
@@ -35,7 +36,7 @@
         <!-- OPPONENT picks (always below) -->
         <div class="draftCol">
           <div class="draftHead" :class="opponentPlayer === 1 ? 'p1' : 'p2'">
-            Opponent's Picks
+            <span class="draftName">{{ opponentName }}</span>
             <span
               class="trayAnchor"
               :data-tray="opponentPlayer"
@@ -145,12 +146,24 @@ const props = defineProps({
   isOnline: { type: Boolean, default: false },
   myPlayer: { type: [Number, null], default: null },
   matchKind: { type: [String, null], default: null },
+  p1Name: { type: [String, null], default: null },
+  p2Name: { type: [String, null], default: null },
 });
 
 const game = useGameStore();
 
 // Opponent is whichever player you are not
 const opponentPlayer = computed(() => props.myPlayer === 1 ? 2 : 1);
+
+// Resolved IGN for each slot, falling back to "P1"/"P2"
+const myName = computed(() => {
+  const n = props.myPlayer === 1 ? props.p1Name : props.p2Name;
+  return n || `P${props.myPlayer}`;
+});
+const opponentName = computed(() => {
+  const n = opponentPlayer.value === 1 ? props.p1Name : props.p2Name;
+  return n || `P${opponentPlayer.value}`;
+});
 
 // Fit-to-viewport: shrink preview tiles on shorter screens (no scroll in-game)
 const cell = ref(20);
@@ -225,6 +238,27 @@ onBeforeUnmount(() => {
 
 .draftHead.p1 { color: rgba(78, 201, 255, 0.98); }
 .draftHead.p2 { color: rgba(255, 107, 107, 0.98); }
+
+.draftName {
+  font-weight: 1000;
+  letter-spacing: 0.05em;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 120px;
+}
+
+.youTag {
+  font-size: 10px;
+  font-weight: 900;
+  letter-spacing: 0.12em;
+  padding: 2px 7px;
+  border-radius: 20px;
+  background: rgba(255,255,255,0.12);
+  color: rgba(255,255,255,0.75);
+  margin-left: 6px;
+  flex-shrink: 0;
+}
 
 /* 🔥 BIG tray layout */
 .chips.big {

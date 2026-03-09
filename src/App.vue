@@ -1354,7 +1354,7 @@
             <button class="puzzleFinishBtn" @click="handlePuzzleEnd">FINISH PUZZLE</button>
           </div>
 
-          <DraftPanel v-if="game.phase === 'draft'" :isOnline="isOnline" :myPlayer="myPlayer" :matchKind="online.matchKind" />
+          <DraftPanel v-if="game.phase === 'draft'" :isOnline="isOnline" :myPlayer="myPlayer" :matchKind="online.matchKind" :p1Name="online.p1Name" :p2Name="online.p2Name" />
 
           <section v-else class="panel">
             <h2 class="panelTitle" v-if="screen !== 'puzzle' && !isOnline">{{ screen === 'ai' && game.phase === 'place' && game.currentPlayer === aiPlayer ? 'AI Pieces' : `Player ${game.currentPlayer} Pieces` }}</h2>
@@ -4667,6 +4667,8 @@ const online = reactive({
   hostWaitStartedAt: null,
   lastHbSentAt: 0,
   matchKind: null, // "quickmatch" | "mirror_war" | "blind_draft" | null
+  p1Name: null,   // resolved IGN for player slot 1
+  p2Name: null,   // resolved IGN for player slot 2
 
   // Clock sync: offset between local Date.now() and server epoch (ms).
   // server_time = Date.now() + serverTimeOffset
@@ -5535,6 +5537,31 @@ async function maybeSetMyPlayerFromLobby(lobby) {
 
   if (players) {
     myPlayer.value = getMyPlayerFromPlayers(players, myId);
+
+    // Resolve IGNs for both player slots (once — skip if already loaded)
+    if (!online.p1Name || !online.p2Name) {
+      const p1Id = String(players["1"] || players[1] || "");
+      const p2Id = String(players["2"] || players[2] || "");
+      if (p1Id || p2Id) {
+        try {
+          const sb = requireSupabase();
+          const ids = [p1Id, p2Id].filter(Boolean);
+          const { data: profiles } = await sb
+            .from("pb_profiles")
+            .select("id, username, display_name")
+            .in("id", ids);
+          const nameMap = {};
+          for (const p of profiles || []) {
+            nameMap[p.id] = p.display_name || p.username || "Player";
+          }
+          if (p1Id) online.p1Name = nameMap[p1Id] || "P1";
+          if (p2Id) online.p2Name = nameMap[p2Id] || "P2";
+        } catch {
+          if (p1Id) online.p1Name = online.p1Name || "P1";
+          if (p2Id) online.p2Name = online.p2Name || "P2";
+        }
+      }
+    }
     return;
   }
 
@@ -5774,6 +5801,8 @@ async function startPollingLobby(lobbyId, role, modeHint = null) {
   online.initializingGame = false; // ✅ FIX (Bug 4): reset init lock for new session
   online.matchKind = null;
   if (modeHint) online.matchKind = modeHint;
+  online.p1Name = null;
+  online.p2Name = null;
   myPlayer.value = null;
 
   // Near-instant sync via Supabase Realtime (polling remains as fallback + presence/TTL logic)
