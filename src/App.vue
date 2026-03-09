@@ -5110,6 +5110,14 @@ const online = reactive({
   p1Name: null,   // resolved IGN for player slot 1
   p2Name: null,   // resolved IGN for player slot 2
 
+  // Captured once when both players are confirmed — used by _fireMatchRecord at
+  // gameover so we never depend on the lobby still existing / still having meta.players.
+  p1Id: null,
+  p2Id: null,
+  matchStartedAt: null,   // ISO timestamp from meta.started_at, captured at game start
+  matchRound: 1,          // meta.round captured at game start
+  matchMode: null,        // meta.kind captured at game start
+
   // Clock sync: offset between local Date.now() and server epoch (ms).
   // server_time = Date.now() + serverTimeOffset
   // Measured once at connect via round-trip ping.
@@ -6129,13 +6137,21 @@ async function ensureOnlineInitialized(lobby) {
     game.startPlacementDirect(picks1, picks2, 10, 6);
   }
 
+  const matchStartedAtIso = new Date().toISOString();
   const initState = buildSyncedState({
     ...prevMeta,
     players,
     round: nextRound,
     roundSeed,
-    started_at: new Date().toISOString(),
+    started_at: matchStartedAtIso,
   });
+
+  // Cache match identity now so _fireMatchRecord never needs to re-fetch the lobby at gameover.
+  online.p1Id          = String(players["1"] || players[1] || "");
+  online.p2Id          = String(players["2"] || players[2] || "");
+  online.matchStartedAt = matchStartedAtIso;
+  online.matchRound     = nextRound;
+  online.matchMode      = lobbyKind || null;
 
   const nextVersion = Number(lobbyToInit.version || 0) + 1;
 
@@ -6289,6 +6305,12 @@ async function startPollingLobby(lobbyId, role, modeHint = null) {
   online.initializingGame = false; // ✅ FIX (Bug 4): reset init lock for new session
   online.matchKind = null;
   if (modeHint) online.matchKind = modeHint;
+  // Reset captured match-identity (filled once both players confirmed)
+  online.p1Id = null;
+  online.p2Id = null;
+  online.matchStartedAt = null;
+  online.matchRound = 1;
+  online.matchMode = null;
   online.p1Name = null;
   online.p2Name = null;
   myPlayer.value = null;
@@ -6832,6 +6854,15 @@ watch(
       const p1Id = String(players["1"] || players[1] || "");
       const p2Id = String(players["2"] || players[2] || "");
       if (!p1Id || !p2Id) return;
+
+      // ── Capture match identity into online so _fireMatchRecord never needs
+      // to re-fetch the lobby at gameover (lobby may be deleted/wiped by then).
+      online.p1Id         = p1Id;
+      online.p2Id         = p2Id;
+      online.matchStartedAt = meta?.started_at || null;
+      online.matchRound     = Number(meta?.round ?? 1);
+      online.matchMode      = meta?.kind || null;
+
       replayLogger.startReplay({
         lobbyId,
         player1Id:  p1Id,
@@ -7497,58 +7528,80 @@ watch(
 );
 
 // ─── Match result recorder ────────────────────────────────────────────────────
-// Extracted from _handleGameover so it can be called BEFORE any early returns
-// (e.g. the rematch-prompt early return) without duplicating code.
-// Uses ON CONFLICT DO NOTHING server-side, so calling it twice is harmless.
+// Uses player IDs captured into `online` when both players were first confirmed
+// (in the waitingForOpponent watcher above). This avoids the race where the lobby
+// is deleted or its meta.players wiped by the time gameover fires 3+ seconds later.
 async function _fireMatchRecord() {
   if (!isOnline.value || !online.lobbyId) return;
+
+  // Use the IDs we captured at match-start. If they're somehow missing (e.g. the
+  // watcher never fired), fall back to a fresh lobby fetch as a last resort.
+  let p1Id = online.p1Id || "";
+  let p2Id = online.p2Id || "";
+  let lobbyMode = null;
+
+  if (!p1Id || !p2Id) {
+    // Last-resort fetch — lobby may still have the data if it hasn't been wiped yet.
+    try {
+      const lobby = await sbSelectLobbyById(online.lobbyId);
+      if (lobby) {
+        lobbyMode = lobby?.mode || null;
+        const players = lobby?.state?.meta?.players || {};
+        p1Id = String(players["1"] || players[1] || "");
+        p2Id = String(players["2"] || players[2] || "");
+      }
+    } catch { /* ignore */ }
+  }
+
+  console.log("[pbMatch] _fireMatchRecord — p1Id:", p1Id, "p2Id:", p2Id, "lobbyId:", online.lobbyId);
+  if (!p1Id || !p2Id) {
+    console.warn("[pbMatch] missing player IDs — match not recorded");
+    return;
+  }
+
   try {
-    const lobby = await sbSelectLobbyById(online.lobbyId);
-    console.log("[pbMatch] lobby fetched:", lobby?.id, "status:", lobby?.status);
-    if (!lobby) { console.warn("[pbMatch] lobby not found — aborting"); return; }
-    const meta    = lobby?.state?.meta || {};
-    const players = meta?.players || {};
-
-    const p1Id = String(players["1"] || players[1] || "");
-    const p2Id = String(players["2"] || players[2] || "");
-    console.log("[pbMatch] p1Id:", p1Id, "p2Id:", p2Id, "meta.players:", JSON.stringify(players));
-    if (!p1Id || !p2Id) { console.warn("[pbMatch] missing player IDs — aborting"); return; }
-
     const w        = game.winner;
     const winnerId = w ? (w === 1 ? p1Id : p2Id) : null;
     const loserId  = w ? (w === 1 ? p2Id : p1Id) : null;
 
-    const startedAt   = meta?.started_at ? Date.parse(meta.started_at) : null;
+    const startedAt   = online.matchStartedAt ? Date.parse(online.matchStartedAt) : null;
     const durationSec = startedAt ? Math.round((Date.now() - startedAt) / 1000) : null;
 
-    // BUG FIX 2: draft_timeout was mapping to "normal" — must map to "timeout"
+    // BUG FIX 2: draft_timeout should map to "timeout"
     const lm = game.lastMove?.type || "normal";
     const endReason = lm === "draft_timeout" ? "timeout"
                     : ["timeout","surrender","dodged","abandoned"].includes(lm) ? lm
                     : "normal";
 
-    // BUG FIX 3: lobby.source doesn't exist in schema — use lobby.mode instead
-    console.log("[pbMatch] calling sbRecordMatchResult with lobbyId:", online.lobbyId, "round:", Number(meta?.round || 1), "mode:", meta?.kind, lobby?.mode);
+    // BUG FIX 3: use lobby.mode (actual column) not lobby.source (doesn't exist)
+    const kind = online.matchMode; // captured at match start from meta.kind
+    const matchMode =
+        kind === "mirror_war"  && online.matchKind === "ranked" ? "ranked_mirror_war"
+      : kind === "blind_draft" && online.matchKind === "ranked" ? "ranked_blind_draft"
+      : online.matchKind === "ranked"   ? "ranked_standard"
+      : kind === "mirror_war"           ? "mirror_war"
+      : kind === "blind_draft"          ? "blind_draft"
+      : lobbyMode === "custom"          ? "custom"
+      : "standard";
+
+    console.log("[pbMatch] recording — lobbyId:", online.lobbyId, "round:", online.matchRound,
+      "matchMode:", matchMode, "winner:", winnerId, "endReason:", endReason);
+
     const matchId = await sbRecordMatchResult({
-      lobbyId:     online.lobbyId,
-      roundNumber: Number(meta?.round || 1),
-      player1Id:   p1Id,
-      player2Id:   p2Id,
+      lobbyId:      online.lobbyId,
+      roundNumber:  online.matchRound,
+      player1Id:    p1Id,
+      player2Id:    p2Id,
       winnerId,
       loserId,
       endReason,
       durationSec,
       player1Picks: [...(game.picks?.[1] || [])],
       player2Picks: [...(game.picks?.[2] || [])],
-      matchMode:   meta?.kind === "mirror_war"  && (meta?.mode === "ranked" || lobby?.mode === "ranked") ? "ranked_mirror_war"
-                 : meta?.kind === "blind_draft" && (meta?.mode === "ranked" || lobby?.mode === "ranked") ? "ranked_blind_draft"
-                 : meta?.mode === "ranked" || lobby?.mode === "ranked" ? "ranked_standard"
-                 : meta?.kind === "mirror_war"  ? "mirror_war"
-                 : meta?.kind === "blind_draft" ? "blind_draft"
-                 : lobby?.mode === "custom"     ? "custom"
-                 : "standard",
+      matchMode,
     });
 
+    // ── Save replay + link to match ──────────────────────────────────────────
     const replayId = await replayLogger.saveReplay({
       matchId,
       winnerId,
@@ -7561,14 +7614,14 @@ async function _fireMatchRecord() {
     }
     replayLogger.clearReplay();
 
-    // Fetch LP delta for ranked matches and update modal message
-    if (meta?.mode === "ranked" || lobby?.mode === "ranked") {
+    // ── LP delta for ranked matches ──────────────────────────────────────────
+    if (online.matchKind === "ranked") {
       try {
         const sb = requireSupabase();
         const myId = myPlayer.value === 1 ? p1Id : p2Id;
         const { data: lpResult } = await sb.rpc("pb_get_match_lp_result", {
           p_lobby_id:  online.lobbyId,
-          p_round:     Number(meta?.round || 1),
+          p_round:     online.matchRound,
           p_player_id: myId,
         });
         if (lpResult?.found) {
@@ -7580,14 +7633,12 @@ async function _fireMatchRecord() {
           const sign     = delta >= 0 ? "+" : "";
           const streakLine = streak >= 3 ? `\n🔥 ${streak}-win streak!` : "";
           const shieldLine = shield > 0 && delta < 0 ? "\n🛡 Demotion shield absorbed this loss." : "";
-
           if (modal.open) {
             modal.message =
               (modal.message || "") +
               `\n\n${sign}${delta} LP  →  ${newLp} LP  [${newTier.charAt(0).toUpperCase() + newTier.slice(1)}]` +
               streakLine + shieldLine;
           }
-
           memberStats.ranked_lp       = newLp;
           memberStats.ranked_tier     = newTier;
           memberStats.ranked_peak_lp  = lpResult.ranked_peak_lp ?? memberStats.ranked_peak_lp;
@@ -7598,7 +7649,7 @@ async function _fireMatchRecord() {
       } catch { /* non-fatal — LP display is cosmetic */ }
     }
   } catch (e) {
-    console.warn("[pbMatch] gameover record failed:", e?.message ?? e);
+    console.warn("[pbMatch] _fireMatchRecord failed:", e?.message ?? e, e);
   }
 }
 
