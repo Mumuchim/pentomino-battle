@@ -164,7 +164,7 @@
           <!-- Couch Play / AI Mode: Undo last placement (local only) -->
           <button
             class="btn ghost"
-            v-if="screen === 'couch' || screen === 'ai' || screen === 'puzzle'"
+            v-if="screen === 'couch' || screen === 'puzzle'"
             :disabled="!canUndo"
             @click="doUndo"
             aria-label="Undo"
@@ -1092,24 +1092,46 @@
                     YOUR TURN
                   </span>
                   <span v-else-if="game.phase === 'draft'">
-                    <span class="tbPlayerNum">P{{ game.draftTurn }}</span> PICKING
-                    <span v-if="isOnline && myPlayer === game.draftTurn" class="tbYouTag">YOU</span>
-                    <span v-else-if="screen === 'ai' && game.draftTurn === humanPlayer" class="tbYouTag">YOU</span>
+                    <template v-if="screen === 'ai' && game.draftTurn === aiPlayer">
+                      <div class="tbNameLine">
+                        <span class="tbAiName" :style="{ color: storyAiColor }">{{ storyAiName }}</span>
+                      </div>
+                      <div class="tbActionLine">is PICKING</div>
+                    </template>
+                    <template v-else-if="screen === 'ai' && game.draftTurn === humanPlayer">
+                      <div class="tbNameLine">
+                        <span class="tbPlayerNum tbHumanName">{{ displayName ?? 'YOU' }}</span>
+                        <span class="tbYouTag">YOU</span>
+                      </div>
+                      <div class="tbActionLine">is PICKING</div>
+                    </template>
+                    <template v-else>
+                      <span class="tbPlayerNum">P{{ game.draftTurn }}</span> PICKING
+                      <span v-if="isOnline && myPlayer === game.draftTurn" class="tbYouTag">YOU</span>
+                    </template>
                   </span>
                   <span v-else-if="game.phase === 'place'">
                     <template v-if="screen === 'ai' && game.currentPlayer === aiPlayer">
-                      AI THINKING…
+                      <div class="tbNameLine">
+                        <span class="tbAiName" :style="{ color: storyAiColor }">{{ storyAiName }}</span>
+                      </div>
+                      <div class="tbActionLine">is THINKING</div>
+                    </template>
+                    <template v-else-if="screen === 'ai' && game.currentPlayer === humanPlayer">
+                      <div class="tbNameLine">
+                        <span class="tbPlayerNum tbHumanName">{{ displayName ?? 'YOU' }}</span>
+                        <span class="tbYouTag">YOU</span>
+                      </div>
+                      <div class="tbActionLine">is THINKING</div>
                     </template>
                     <template v-else>
-                      <span class="tbPlayerNum">P{{ game.currentPlayer }}</span> TURN
+                      <span class="tbPlayerNum">{{ 'P' + game.currentPlayer }}</span> TURN
                       <span v-if="isOnline && myPlayer === game.currentPlayer" class="tbYouTag">YOU</span>
-                      <span v-else-if="screen === 'ai' && game.currentPlayer === humanPlayer" class="tbYouTag">YOU</span>
                     </template>
                   </span>
                   <span v-else>GAME OVER</span>
                 </div>
-                <div class="tbSub" v-if="phaseSub">{{ phaseSub }}</div>
-              </div>
+              </div><!-- /tbLeft -->
               <div class="tbRight">
                 <!-- Draft timer pill -->
                 <div v-if="timerHud?.kind === 'draft'" class="tbDraftTimer" :class="{ tbDraftUrgent: timerHud.seconds <= 10, tbDraftP2: game.draftTurn === 2 }">
@@ -1124,6 +1146,9 @@
                   WAITING
                 </div>
               </div>
+
+              <!-- ── STORY TAUNT BUBBLE moved to body Teleport below ── -->
+
             </div>
 
             <!-- ── DUAL CLOCKS: online + AI + couch MW/BD (not normal couch or puzzle) ── -->
@@ -1225,16 +1250,27 @@
         </section>
 
         <section class="rightPanel">
-          <Board :isOnline="isOnline" :myPlayer="myPlayer" :canAct="canAct" />
-          <!-- Fix 19 — contextual hint: P2 must touch P1's territory on first move -->
-          <div
-            v-if="showAdjacencyHint"
-            class="adjacencyHint"
-            aria-live="polite"
-          >
-            💡 Your first piece must touch Player 1's territory
-          </div>
+          <Board :isOnline="isOnline" :myPlayer="myPlayer" :canAct="canAct" :adjacencyHint="showAdjacencyHint" />
         </section>
+
+        <!-- ── STORY TAUNT BUBBLE — absolute inside gameLayout, escapes panelHead stacking context ── -->
+        <Transition name="storyTauntBubble">
+          <div
+            v-if="storyTaunt.visible && storyMode.active && screen === 'ai'"
+            class="storyTauntWrap"
+            :style="{ '--ch-color': storyTaunt.color }"
+          >
+            <div class="storyTauntTail" aria-hidden="true"></div>
+            <div class="storyTauntCard">
+              <span class="storyTauntChip">
+                <span class="storyTauntEmoji">{{ storyTaunt.emoji }}</span>
+                <span class="storyTauntName">{{ storyTaunt.charName }}</span>
+              </span>
+              <span class="storyTauntText">{{ storyTaunt.text }}</span>
+            </div>
+          </div>
+        </Transition>
+
       </section>
 
     <!-- ══════════════════════════════════════════════════════════
@@ -2179,6 +2215,53 @@ function uiClick() {
   if (showMenuChrome.value) tryPlayMenuBgm();
 }
 
+/* =========================
+   ✅ IN-GAME SFX
+   sfxPlayUrl  — plays pick.mp3 / place.mp3 from assets
+   sfx*        — synthesized sounds via Web Audio (no asset files needed)
+========================= */
+const _sfxCache = {};
+function sfxPlayUrl(url) {
+  try {
+    if (!url) return;
+    const vol = Math.max(0, Math.min(1, Number(sfxVolume?.value ?? 1)));
+    if (vol <= 0) return;
+    if (!_sfxCache[url]) _sfxCache[url] = new Audio(url);
+    const a = _sfxCache[url].cloneNode();
+    a.volume = vol;
+    a.play?.().catch?.(() => {});
+  } catch {}
+}
+
+// In-game SFX — each function plays its corresponding asset file.
+// Swap out the .wav files in /assets/audio/ to customise sounds.
+function sfxDraftStart()   { sfxPlayUrl(sfxDraftStartUrl);   }
+function sfxBattleStart()  { sfxPlayUrl(sfxBattleStartUrl);  }
+function sfxVictory()      { sfxPlayUrl(sfxVictoryUrl);      }
+function sfxDefeat()       { sfxPlayUrl(sfxDefeatUrl);       }
+function sfxTurnChime()    { sfxPlayUrl(sfxTurnChimeUrl);    }
+function sfxDraftTurn()    { sfxPlayUrl(sfxDraftTurnUrl);    }
+function sfxInvalid()      { sfxPlayUrl(sfxInvalidUrl);      }
+function sfxRotate()       { sfxPlayUrl(sfxRotateUrl);       }
+function sfxFlip()         { sfxPlayUrl(sfxFlipUrl);         }
+function sfxMatchFound()   { sfxPlayUrl(sfxMatchFoundUrl);   }
+function sfxQmAlert()      { sfxPlayUrl(sfxQmAlertUrl);      }
+function sfxTimerWarning() { sfxPlayUrl(sfxTimerWarningUrl); }
+function sfxSurrender()    { sfxPlayUrl(sfxSurrenderUrl);    }
+function sfxLastMove()     { sfxPlayUrl(sfxLastMoveUrl);     }
+
+// Story character SFX
+// sfxStoryAccept — plays when the challenge card appears (pre-fight overlay)
+// sfxStoryWin    — plays when you beat the character
+// sfxStoryLose   — plays when the character beats you
+function sfxStoryAccept(id) { sfxPlayUrl(STORY_SFX[id]?.accept); }
+function sfxStoryWin(id)    { sfxPlayUrl(STORY_SFX[id]?.win);    }
+function sfxStoryLose(id)   { sfxPlayUrl(STORY_SFX[id]?.lose);   }
+
+// Internal state for one-shot clock warnings (reset each turn)
+const _sfxClockWarned = { 30: false, 10: false };
+function _resetClockWarnings() { _sfxClockWarned[30] = false; _sfxClockWarned[10] = false; }
+
 
 // Cross-platform: optional landscape lock for mobile
 const isPortrait = ref(false);
@@ -2518,6 +2601,35 @@ const configTopTitleUrl = new URL("./assets/config.png", import.meta.url).href;
 const menuBgmUrl = new URL("./assets/audio/bgm.mp3", import.meta.url).href;
 const couchBgmUrl = new URL("./assets/audio/couch_bgm.mp3", import.meta.url).href;
 const onlineBgmUrl = new URL("./assets/audio/online_bgm.mp3", import.meta.url).href;
+
+// SFX asset files (replace each .wav with your own sound to customise)
+const sfxPickUrl         = new URL("./assets/audio/pick.mp3",         import.meta.url).href;
+const sfxPlaceUrl        = new URL("./assets/audio/place.mp3",        import.meta.url).href;
+const sfxDraftStartUrl   = new URL("./assets/audio/draft_start.wav",  import.meta.url).href;
+const sfxBattleStartUrl  = new URL("./assets/audio/battle_start.wav", import.meta.url).href;
+const sfxVictoryUrl      = new URL("./assets/audio/victory.wav",      import.meta.url).href;
+const sfxDefeatUrl       = new URL("./assets/audio/defeat.wav",       import.meta.url).href;
+const sfxTurnChimeUrl    = new URL("./assets/audio/turn_chime.wav",   import.meta.url).href;
+const sfxDraftTurnUrl    = new URL("./assets/audio/draft_turn.wav",   import.meta.url).href;
+const sfxInvalidUrl      = new URL("./assets/audio/invalid.wav",      import.meta.url).href;
+const sfxRotateUrl       = new URL("./assets/audio/rotate.wav",       import.meta.url).href;
+const sfxFlipUrl         = new URL("./assets/audio/flip.wav",         import.meta.url).href;
+const sfxMatchFoundUrl   = new URL("./assets/audio/match_found.wav",  import.meta.url).href;
+const sfxQmAlertUrl      = new URL("./assets/audio/qm_alert.wav",     import.meta.url).href;
+const sfxTimerWarningUrl = new URL("./assets/audio/timer_warning.wav",import.meta.url).href;
+const sfxSurrenderUrl    = new URL("./assets/audio/surrender.wav",    import.meta.url).href;
+const sfxLastMoveUrl     = new URL("./assets/audio/last_move.wav",    import.meta.url).href;
+
+// Story character SFX — one set per character: accept / win / lose
+// Drop your own .wav files in /assets/audio/ using these exact names.
+const STORY_SFX = Object.fromEntries(
+  ["dumbie","cyano","norm","ohmen","teift","lilica","sefia","vlad","axia","mumu","grand","zero"]
+  .map(id => [id, {
+    accept: new URL(`./assets/audio/story_${id}_accept.wav`, import.meta.url).href,
+    win:    new URL(`./assets/audio/story_${id}_win.wav`,    import.meta.url).href,
+    lose:   new URL(`./assets/audio/story_${id}_lose.wav`,   import.meta.url).href,
+  }])
+);
 
 // Audio settings (0..100 UI)
 const bgmVolumeUi = ref(100);
@@ -3006,17 +3118,45 @@ const phaseTitle = computed(() => {
   return game.phase || "—";
 });
 
+// Returns "NAME'S" or "NAME's" depending on the last character of the name.
+// Uppercase letter or digit → 'S  |  lowercase letter → 's  |  anything else → 's
+function possessive(name) {
+  if (!name) return "'S";
+  const last = name[name.length - 1];
+  return /[A-Z0-9]/.test(last) ? `${name}'S` : `${name}'s`;
+}
+
+// Convenient computed for the current story AI character name
+const storyAiName = computed(() => {
+  if (storyMode.active) return STORY_CHAPTERS[storyMode.chapterIndex]?.name ?? 'AI';
+  return 'AI';
+});
+
+// Theme color for the current story AI character
+const storyAiColor = computed(() => {
+  if (storyMode.active) return STORY_CHAPTERS[storyMode.chapterIndex]?.color ?? '#ffffff';
+  return '#ffffff';
+});
+
 const phaseSub = computed(() => {
   if (screen.value === "puzzle") return "";
   if (game.phase === "draft") {
     if (screen.value === "ai") {
-      return game.draftTurn === humanPlayer.value ? "Your Pick" : "AI Picking…";
+      if (game.draftTurn === humanPlayer.value) {
+        return `${possessive(displayName.value ?? 'YOUR')} Pick`;
+      } else {
+        return `${possessive(storyAiName.value)} Pick`;
+      }
     }
     return `Pick: P${game.draftTurn}`;
   }
   if (game.phase === "place") {
     if (screen.value === "ai") {
-      return game.currentPlayer === humanPlayer.value ? "Your Turn" : "Waiting for Computer";
+      if (game.currentPlayer === humanPlayer.value) {
+        return `${possessive(displayName.value ?? 'YOUR')} Turn`;
+      } else {
+        return `${possessive(storyAiName.value)} Turn`;
+      }
     }
     return `Turn: P${game.currentPlayer}`;
   }
@@ -4942,6 +5082,431 @@ watch(
 );
 
 /* =========================
+   ✅ IN-GAME SFX WATCHERS
+   All in-game sound effect triggers live here.
+   Separated from game logic so they are easy to adjust.
+========================= */
+
+// ── Phase transitions ──────────────────────────────────────────────────────
+// Modes WITH a draft phase  (normal / online):
+//   game.phase goes "draft" → "place"
+//   → draft_start.wav fires when drafting begins
+//   → battle_start.wav fires when battle begins (draft complete)
+//
+// Modes WITHOUT a draft phase (blind_draft / mirror_war / puzzle):
+//   game.phase starts directly at "place"
+//   → battle_start.wav fires immediately as the match start sound
+let _lastSfxPhase = null;
+watch(
+  () => game.phase,
+  (p) => {
+    if (!isInGame.value) return;
+    if (p === _lastSfxPhase) return;
+    _lastSfxPhase = p;
+    if (p === "draft") { sfxDraftStart(); }
+    if (p === "place") { sfxBattleStart(); _resetClockWarnings(); }
+    if (p === "gameover") {
+      const w = game.winner;
+      const me = myPlayer.value;
+      setTimeout(() => {
+        if (screen.value === "online" && me) {
+          if (w === me) sfxVictory(); else sfxDefeat();
+        } else if (screen.value === "ai") {
+          if (w === humanPlayer?.value) sfxVictory(); else sfxDefeat();
+          // Always fire a game-over taunt in AI mode
+          const trigger = w === aiPlayer?.value ? 'game_over_win' : 'game_over_lose';
+          _alwaysTaunt(trigger, 200);
+        } else {
+          if (w) sfxVictory();
+        }
+      }, 3000);
+    }
+  }
+);
+
+// ── Pick (draft phase) ─────────────────────────────────────────────────────
+let _lastPickTotal = 0;
+watch(
+  () => (game.picks?.[1]?.length ?? 0) + (game.picks?.[2]?.length ?? 0),
+  (n) => {
+    if (!isInGame.value || game.phase !== "draft") return;
+    if (n > _lastPickTotal) sfxPlayUrl(sfxPickUrl);
+    _lastPickTotal = n;
+  }
+);
+watch(isInGame, (v) => { if (!v) _lastPickTotal = 0; });
+
+// ── Draft turn change ──────────────────────────────────────────────────────
+watch(
+  () => game.draftTurn,
+  (v, prev) => {
+    if (!isInGame.value || game.phase !== "draft") return;
+    if (v !== prev) sfxDraftTurn();
+  }
+);
+
+// ── Place (battle phase) ───────────────────────────────────────────────────
+let _lastPlacedCount = 0;
+watch(
+  () => game.placedCount,
+  (n) => {
+    if (!isInGame.value || game.phase !== "place") return;
+    if (n > _lastPlacedCount) sfxPlayUrl(sfxPlaceUrl);
+    _lastPlacedCount = n;
+  }
+);
+watch(isInGame, (v) => { if (!v) _lastPlacedCount = 0; });
+
+// ── Turn change (battle phase) ─────────────────────────────────────────────
+watch(
+  () => game.currentPlayer,
+  (v, prev) => {
+    if (!isInGame.value || game.phase !== "place") return;
+    if (v !== prev) { sfxTurnChime(); _resetClockWarnings(); }
+  }
+);
+
+// ── Rotate / Flip ──────────────────────────────────────────────────────────
+watch(() => game.rotation, (v, prev) => {
+  if (!isInGame.value) return;
+  if (v !== prev) sfxRotate();
+});
+watch(() => game.flipped, (v, prev) => {
+  if (!isInGame.value) return;
+  if (v !== prev) sfxFlip();
+});
+
+// ── Battle clock urgency (fires once per turn at ≤30s and ≤10s) ───────────
+watch(
+  () => {
+    if (game.phase !== "place") return null;
+    return game.battleClockSec?.[game.currentPlayer] ?? null;
+  },
+  (sec) => {
+    if (sec === null || !isInGame.value) return;
+    if (!_sfxClockWarned[10] && sec <= 10) {
+      _sfxClockWarned[10] = true;
+      _sfxClockWarned[30] = true;
+      sfxTimerWarning();
+    } else if (!_sfxClockWarned[30] && sec <= 30) {
+      _sfxClockWarned[30] = true;
+      sfxTimerWarning();
+    }
+  }
+);
+
+// ── QM Accept window opens ─────────────────────────────────────────────────
+watch(() => qmAccept.open, (v) => { if (v) sfxQmAlert(); });
+
+// ── Opponent joined (host side — waitingForOpponent flips to false) ────────
+watch(
+  () => online.waitingForOpponent,
+  (v, prev) => {
+    if (!isOnline.value) return;
+    if (prev === true && v === false) sfxMatchFound();
+  }
+);
+
+// ── Surrender sound ────────────────────────────────────────────────────────
+// Fires on both clients when a surrender lastMove is recorded
+let _lastSfxMoveSeq = 0;
+watch(
+  () => game.moveSeq,
+  () => {
+    if (!isInGame.value) return;
+    if ((game.moveSeq ?? 0) <= _lastSfxMoveSeq) return;
+    _lastSfxMoveSeq = game.moveSeq ?? 0;
+    if (game.lastMove?.type === "surrender") sfxSurrender();
+  }
+);
+watch(isInGame, (v) => { if (!v) _lastSfxMoveSeq = 0; });
+
+/* =========================
+   STORY TAUNT BUBBLE
+   Claude-generated in-character taunts during AI story matches.
+========================= */
+const storyTaunt = reactive({
+  visible:  false,
+  text:     '',
+  charName: '',
+  emoji:    '',
+  color:    '#fff',
+  _timer:   null,
+});
+
+function _dismissTaunt() {
+  if (storyTaunt._timer) { clearTimeout(storyTaunt._timer); storyTaunt._timer = null; }
+  storyTaunt.visible = false;
+}
+
+// ── Build rich game-state context from actual move data ──────────────────
+function _buildGameContext(trigger) {
+  const ap = aiPlayer?.value;
+  const hp = humanPlayer?.value;
+  const lm = game.lastMove;
+
+  const aiRemaining  = game.remaining?.[ap]?.length ?? '?';
+  const humRemaining = game.remaining?.[hp]?.length ?? '?';
+  const aiPicked     = game.picks?.[ap]?.length     ?? '?';
+  const humPicked    = game.picks?.[hp]?.length     ?? '?';
+  const totalPlaced  = game.placedCount ?? 0;
+
+  // Territory count
+  let aiCells = 0, humCells = 0;
+  try {
+    for (const row of (game.board || [])) {
+      for (const cell of (row || [])) {
+        if (cell?.player === ap) aiCells++;
+        else if (cell?.player === hp) humCells++;
+      }
+    }
+  } catch {}
+  const leadDesc = aiCells > humCells + 4
+    ? `You lead on territory: ${aiCells} vs ${humCells} cells.`
+    : humCells > aiCells + 4
+    ? `The human leads: ${humCells} vs ${aiCells} cells.`
+    : `Territory even: ${aiCells} vs ${humCells} cells.`;
+
+  // Describe the actual last move
+  let lastMoveDesc = '';
+  if (lm?.type === 'place' && lm?.piece) {
+    const who = lm.player === ap ? 'You (the AI)' : 'The human opponent';
+    lastMoveDesc = `${who} just placed the ${lm.piece}-piece at board position (${lm.x}, ${lm.y}).`;
+  } else if (lm?.type === 'draft' && lm?.piece) {
+    const who = lm.player === ap ? 'You (the AI)' : 'The human opponent';
+    lastMoveDesc = `${who} just drafted the ${lm.piece}-piece from the pool.`;
+  }
+
+  const phaseDesc = game.phase === 'draft'
+    ? `DRAFT phase — you have picked ${aiPicked} pieces, human has picked ${humPicked}. ${game.pool?.length ?? '?'} pieces remain.`
+    : `BATTLE phase — you have ${aiRemaining} pieces left, human has ${humRemaining}. ${totalPlaced} placed total. ${leadDesc}`;
+
+  const triggerMap = {
+    draft_ai_pick:    "It is now your turn to pick a piece from the draft.",
+    battle_ai_turn:   "It is now your turn to place a piece.",
+    battle_ai_placed: "You just placed your piece; it is now the human's turn.",
+    battle_start:     "The placement battle phase has just begun.",
+    last_move:        "The human has only ONE valid placement left — this may be decisive.",
+    game_over_win:    "The game just ended and you won.",
+    game_over_lose:   "The game just ended and you lost.",
+  };
+
+  return `${lastMoveDesc} ${phaseDesc} Situation: ${triggerMap[trigger] || trigger}`.trim();
+}
+
+async function _fetchAndShowTaunt(trigger) {
+  if (!storyMode.active) return;
+  const ch = STORY_CHAPTERS[storyMode.chapterIndex];
+  if (!ch) return;
+
+  _dismissTaunt();
+
+  storyTaunt.charName = ch.name;
+  storyTaunt.emoji    = ch.emoji;
+  storyTaunt.color    = ch.color || '#fff';
+  storyTaunt.text     = '…';
+  storyTaunt.visible  = true;
+
+  const apiKey = import.meta.env.VITE_GROQ_API_KEY;
+  const context = _buildGameContext(trigger);
+
+  try {
+    if (!apiKey) {
+      console.warn('[PentoBattle Taunt] No VITE_GROQ_API_KEY found in .env — using fallback dialogue.');
+      throw new Error('No API key');
+    }
+    console.log('[PentoBattle Taunt] Calling Groq for:', ch.name, '| trigger:', trigger, '| context:', context);
+
+    const trashTalkStyle = {
+      easy:    "You are clueless and accidentally condescending. Trash-talk by saying something confidently wrong or hilariously unaware.",
+      cyano:   "You are a narcissist streamer. Trash-talk by making everything about yourself, your fans, and how effortless this is for you.",
+      norm:    "You are a quiet intimidator. Trash-talk with calm, clinical observations that feel more threatening than shouting.",
+      ohmen:   "You are a paranoid strategist. Trash-talk by claiming you already predicted their move and know their next three.",
+      teift:   "You are depressed and unbothered. Trash-talk by being so dismissive it's insulting — like you can't even be bothered to care.",
+      lilica:  "You are chaotically indecisive. Trash-talk by second-guessing yourself but still somehow making the opponent feel bad.",
+      sefia:   "You are a cold observer. Trash-talk by citing a specific tell or habit you've noticed about the opponent.",
+      vlad:    "You are a centuries-old vegetarian vampire. Trash-talk with eerie calm and occasional references to your dietary choices.",
+      axia:    "You are aggressively cheerful and secretly terrifying. Trash-talk with compliments that are actually devastating.",
+      mumu:    "You are the game's creator. Trash-talk by pointing out you BUILT this — you know every mechanic, every weakness.",
+      grand:   "You are the eternal runner-up with a chip on your shoulder. Trash-talk by invoking your years of experience and near-wins.",
+      zero:    "You are the undefeated champion. Trash-talk with quiet, absolute certainty — not aggression, just inevitability.",
+    }[ch.id] || "Trash-talk in your character's voice.";
+
+    const systemPrompt = `You are ${ch.name}, a competitive pentomino tile-placement game character. It is your turn and you are TRASH TALKING the human player.
+
+TITLE: "${ch.title}"
+TRASH-TALK STYLE: ${trashTalkStyle}
+
+Here is exactly how this character speaks — match this voice precisely:
+${(ch.preDialogue || []).map(l => '- ' + l.replace(/^\"|\"$/g, '').replace(/^"|"$/g, '')).join('\n')}
+
+Deliver ONE sentence of in-character trash talk. Max 12 words. Reference the game situation if it fits. No quotes. No narration. Speak directly to the opponent.`;
+
+    const resp = await fetch('/groq-api/v1/chat/completions', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${apiKey}`,
+      },
+      body: JSON.stringify({
+        model: 'llama-3.1-8b-instant',
+        max_tokens: 80,
+        messages: [
+          { role: 'system', content: systemPrompt },
+          { role: 'user',   content: context },
+        ],
+      }),
+    });
+    if (!resp.ok) throw new Error(`API ${resp.status}`);
+    const data = await resp.json();
+    const text = (data?.choices?.[0]?.message?.content || '').trim().replace(/^"|"$/g, '');
+    console.log('[PentoBattle Taunt] Groq response:', text || '(empty)');
+    if (data?.error) console.error('[PentoBattle Taunt] Groq API error:', data.error);
+    if (text) storyTaunt.text = text;
+  } catch (err) {
+    console.error('[PentoBattle Taunt] API failed, using fallback. Error:', err?.message || err);
+    const lines = ch.preDialogue || [];
+    storyTaunt.text = (lines[Math.floor(Math.random() * lines.length)] || '…').replace(/^"|"$/g, '');
+  }
+
+  storyTaunt._timer = setTimeout(_dismissTaunt, 5000);
+}
+
+// ── Taunt rate control ───────────────────────────────────────────────
+// Always fire: battle_start, last_move, game_over_win, game_over_lose
+// Draft picks: ~40% chance, min 20s cooldown between draft taunts
+// Battle turns: ~30% chance per AI turn, min 25s cooldown
+// After AI places: ~20% chance, only if no taunt fired in last 20s
+const TAUNT_COOLDOWN_DRAFT  = 20_000;
+const TAUNT_COOLDOWN_BATTLE = 25_000;
+let _lastTauntAt = 0;
+
+function _maybeTagunt(trigger, chance) {
+  const now = Date.now();
+  const cooldown = trigger.startsWith('draft') ? TAUNT_COOLDOWN_DRAFT : TAUNT_COOLDOWN_BATTLE;
+  if (now - _lastTauntAt < cooldown) return;
+  if (Math.random() > chance) return;
+  _lastTauntAt = now;
+  _fetchAndShowTaunt(trigger);
+}
+
+// Always-fire wrapper (resets cooldown too so nothing fires right after)
+function _alwaysTaunt(trigger, delayMs = 0) {
+  _lastTauntAt = Date.now();
+  setTimeout(() => _fetchAndShowTaunt(trigger), delayMs);
+}
+
+// draft_ai_pick and battle_ai_turn taunts are now fired directly
+// inside _doAiMove so the piece waits for the taunt to finish.
+
+// Taunt only fires from _doAiMove during AI's turn
+let _tauntLastPlaced = 0;
+watch(isInGame, (v) => { if (!v) { _tauntLastPlaced = 0; _lastTauntAt = 0; _dismissTaunt(); _lastMoveFired = false; } });
+
+// battle_start taunt is handled by _doAiMove when AI takes first turn
+
+// Called from the one-valid-move watcher when the human is down to 1 placement
+function _tauntLastMove() {
+  if (!storyMode.active || game.currentPlayer !== humanPlayer?.value) return;
+  _alwaysTaunt('last_move');
+}
+
+// ── Only one valid placement left ─────────────────────────────────────────
+// Counts total placeable positions across ALL remaining pieces of the current
+// player in all rotations (and flips if allowed). If exactly one legal position
+// exists across all of them, plays last_move.wav so the player knows they're
+// forced into a single spot.
+//
+// Uses early-exit: stops counting as soon as a second placement is found, so
+// the loop is cheap in practice (board is usually still mostly empty when this
+// triggers late in the game).
+function _countValidPlacements() {
+  try {
+    const cp = game.currentPlayer;
+    if (!cp || game.phase !== "place") return 0;
+    const pieces  = game.remaining?.[cp];
+    if (!pieces?.length) return 0;
+    const board   = game.board;
+    const W       = game.boardW;
+    const H       = game.boardH;
+    if (!board || !W || !H) return 0;
+    const doFlip  = game.allowFlip;
+
+    // Build the set of unique transforms to try per piece.
+    // Rotations 0-3 × flip true/false (if allowed).
+    const transforms = [];
+    for (let rot = 0; rot < 4; rot++) {
+      transforms.push({ rot, flip: false });
+      if (doFlip) transforms.push({ rot, flip: true });
+    }
+
+    // Normalise cells to top-left = (0,0) after each transform.
+    function normalisedCells(baseCells, rot, flip) {
+      const t = transformCells(baseCells, rot, flip);
+      const minR = Math.min(...t.map(([r]) => r));
+      const minC = Math.min(...t.map(([, c]) => c));
+      return t.map(([r, c]) => [r - minR, c - minC]);
+    }
+
+    // Deduplicate transformed shapes: no point checking the same orientation twice.
+    function shapeKey(cells) {
+      return cells.map(([r, c]) => `${r},${c}`).sort().join("|");
+    }
+
+    let count = 0;
+
+    outer:
+    for (const pk of pieces) {
+      const base = PENTOMINOES[pk];
+      if (!base) continue;
+
+      // Collect unique orientations for this piece.
+      const seen = new Set();
+      const orientations = [];
+      for (const { rot, flip } of transforms) {
+        const cells = normalisedCells(base, rot, flip);
+        const key   = shapeKey(cells);
+        if (seen.has(key)) continue;
+        seen.add(key);
+        orientations.push(cells);
+      }
+
+      for (const cells of orientations) {
+        const maxAy = H - (Math.max(...cells.map(([r]) => r)) + 1);
+        const maxAx = W - (Math.max(...cells.map(([, c]) => c)) + 1);
+
+        for (let ay = 0; ay <= maxAy; ay++) {
+          for (let ax = 0; ax <= maxAx; ax++) {
+            // Check if piece fits at anchor (ax, ay).
+            let fits = true;
+            for (const [r, c] of cells) {
+              const row = board[ay + r];
+              if (!row || row[ax + c] !== null) { fits = false; break; }
+            }
+            if (fits) {
+              count++;
+              if (count > 1) break outer; // early exit — we only care about exactly 1
+            }
+          }
+        }
+      }
+    }
+
+    return count;
+  } catch {
+    return -1; // on any error, don't fire
+  }
+}
+
+// Play last_move.wav when the final piece is placed (gameover triggers),
+// then delay any result modal by 3 seconds.
+let _lastMoveFired = false;
+let _gameoverDelay = 0; // tracks the 3s delay so callers can check
+watch(() => game.phase, (phase) => {
+  if (phase === 'draft' || phase === 'place') { _lastMoveFired = false; _gameoverDelay = 0; }
+});
+
+/* =========================
    ONLINE RESET / ACTIONS
 ========================= */
 async function onResetClick() {
@@ -5262,7 +5827,17 @@ watch(
   (p, prev) => {
     if (p !== "gameover" || prev === "gameover") return;
 
-    // Puzzle mode: show score modal, no online/ranked logic.
+    // Play last_move sound then wait 3s before showing any result
+    sfxLastMove();
+    _gameoverDelay = Date.now() + 3000;
+
+    setTimeout(() => {
+      _handleGameover();
+    }, 3000);
+  }
+);
+
+async function _handleGameover() {
     // _puzzleEndFired prevents double-call if remaining watcher fires first.
     if (screen.value === "puzzle") {
       if (!_puzzleEndFired) handlePuzzleEnd();
@@ -5515,7 +6090,6 @@ watch(
       }, 10 * 60 * 1000); // 10 minutes
     }
   }
-);
 
 watch(
   () => [game.phase, JSON.stringify(game.rematch), game.rematchDeclinedBy],
@@ -6854,9 +7428,7 @@ const STORY_CHAPTERS = [
     personality: 'Walking Tutorial',
     difficulty: 'easy', mode: 'normal', aiAsP1: false,
     preDialogue: [
-      '"Wait, which one is the I-piece again? The long one, right?"',
-      '"Okay I definitely know how to play this. I\'ve watched like three videos."',
-      '"If I lose it\'s fine I\'m still learning. If I win that would be INSANE though."',
+      '"Okay I\'ve totally watched videos about this. I\'m basically prepared."',
     ],
     postWinDialogue: 'Okay YEAH but I had a really good feeling about that last piece and I think that threw me off.',
     postLoseDialogue: 'SEE?? I said I was getting better! That was way closer than last time. Okay bye good game!!',
@@ -6867,9 +7439,7 @@ const STORY_CHAPTERS = [
     personality: 'Loverable Narcissist',
     difficulty: 'easy', mode: 'blind_draft', aiAsP1: false,
     preDialogue: [
-      '"Oh my ultimate, are people actually watching this match? Hi everyone!"',
-      '"I\'m literally #11 in the entire circuit. That\'s top twelve. Do you know how many people play this?"',
-      '"No pressure, I just don\'t want to look bad in front of my fans."',
+      '"I\'m literally top twelve. This is more for my fans than anything."',
     ],
     postWinDialogue: 'I am SO sorry to the newcomer, you played well, I just have a natural gift. It\'s a burden really.',
     postLoseDialogue: 'Okay chat... that did NOT just happen. We\'re not posting this one.',
@@ -6881,8 +7451,6 @@ const STORY_CHAPTERS = [
     difficulty: 'normal', mode: 'mirror_war', aiAsP1: false,
     preDialogue: [
       '"I don\'t start things. I just finish them."',
-      '"The circuit isn\'t a stage. You don\'t perform here. You just play."',
-      '"Take your time. I\'m not going anywhere."',
     ],
     postWinDialogue: 'No hard feelings. You were in over your head. That\'s not an insult, it\'s just where you are right now.',
     postLoseDialogue: 'Hm. You\'re more patient than I expected. Don\'t waste that.',
@@ -6893,9 +7461,7 @@ const STORY_CHAPTERS = [
     personality: 'Stoic Paranoid',
     difficulty: 'normal', mode: 'normal', aiAsP1: false,
     preDialogue: [
-      '"I\'ve seen your replays. You\'re not what people say you are."',
-      '"Everyone has a pattern. Everyone. I\'ll find yours."',
-      '"Don\'t try anything unexpected. I\'ll know before you do."',
+      '"Everyone has a pattern. I already found yours."',
     ],
     postWinDialogue: 'I knew. Three pieces in I knew. You confirmed it on the fifth.',
     postLoseDialogue: 'You broke the pattern. I didn\'t expect that. I\'ll remember it.',
@@ -6907,8 +7473,6 @@ const STORY_CHAPTERS = [
     difficulty: 'hard', mode: 'blind_draft', aiAsP1: false,
     preDialogue: [
       '"Oh. You\'re here. Okay."',
-      '"I don\'t really care how this goes. I just had nothing else to do."',
-      '"Don\'t read too much into this. I show up. I play. That\'s it."',
     ],
     postWinDialogue: 'Oh. I won. ...Cool.',
     postLoseDialogue: 'Doesn\'t matter. Nothing really does.',
@@ -6919,9 +7483,7 @@ const STORY_CHAPTERS = [
     personality: 'Indecisive Beauty',
     difficulty: 'hard', mode: 'mirror_war', aiAsP1: false,
     preDialogue: [
-      '"Okay wait should I go aggressive or defensive — I literally cannot decide—"',
-      '"You know what, aggressive. No wait. Okay. Aggressive. Final answer. Maybe."',
-      '"I\'ve been going back and forth on my whole strategy for like two days. Let\'s just see what happens."',
+      '"Okay aggressive. No wait — actually yeah, aggressive. Final answer."',
     ],
     postWinDialogue: 'WAIT I WON?? I didn\'t even have a plan!! Okay no I totally had a plan. Kind of. Go keep going!!',
     postLoseDialogue: 'Ugh I KNEW I should\'ve gone defensive. I literally said that to myself. Okay rematch someday.',
@@ -6933,9 +7495,7 @@ const STORY_CHAPTERS = [
     personality: 'Dangerous Cutie',
     difficulty: 'master', mode: 'normal', aiAsP1: false,
     preDialogue: [
-      '"You tilt your head left when you\'re deciding between two pieces. Did you know that?"',
-      '"You\'ve placed the I-piece in the bottom-right corner three times across your last four games."',
-      '"I\'ve been watching since your first match. I know you better than you know yourself right now."',
+      '"I\'ve been watching since your first match. I know your tells."',
     ],
     postWinDialogue: 'You changed your pattern. That was the only right move. I\'ll update my notes.',
     postLoseDialogue: 'You built inward. Again. Bottom-right corner. I wrote it down before the game started.',
@@ -6946,9 +7506,7 @@ const STORY_CHAPTERS = [
     personality: 'Vegetarian Vampire',
     difficulty: 'master', mode: 'blind_draft', aiAsP1: false,
     preDialogue: [
-      '"I want to be clear: yes, I\'m a vampire. No, I don\'t drink blood. I\'m vegetarian."',
-      '"People always expect me to be menacing. And I am. I just also care very deeply about ethical eating."',
-      '"Don\'t let the fangs distract you. I certainly won\'t be distracted by your jugular."',
+      '"Yes, I\'m a vampire. No, I don\'t drink blood. I\'m vegetarian. Don\'t ask."',
     ],
     postWinDialogue: 'I have lived for centuries and I have never once needed to drink blood to win. Remember that.',
     postLoseDialogue: 'You bested me. Remarkable. I\'ll be thinking about this over my lentil soup tonight.',
@@ -6959,9 +7517,7 @@ const STORY_CHAPTERS = [
     personality: 'Mysterious Extrovert',
     difficulty: 'expert', mode: 'normal', aiAsP1: true,
     preDialogue: [
-      '"I\'ve been SO excited to meet you!! I\'ve heard literally everything about you."',
-      '"I know this seems like small talk but I promise I\'m paying very close attention."',
-      '"People think I\'m easy to read. I love that for me."',
+      '"I\'ve been SO excited for this. People think I\'m easy to read — I love that for me."',
     ],
     postWinDialogue: 'That was so fun!! Also I knew exactly what you were doing from piece three. Amazing match though!!',
     postLoseDialogue: 'Okay WOW. I did not see that coming and I see everything coming. You\'re fascinating. Genuinely.',
@@ -6972,12 +7528,10 @@ const STORY_CHAPTERS = [
     personality: 'Pentobattle Creator',
     difficulty: 'expert', mode: 'mirror_war', aiAsP1: true,
     preDialogue: [
-      '"YOOO you\'re actually here!! I built this whole game and you\'re one of my favorite things to come out of it."',
-      '"I designed every rule, every interaction, every piece. And I STILL don\'t know what you\'re going to do next."',
-      '"That\'s why I love this. Okay let\'s go I\'m literally buzzing right now."',
+      '"I BUILT this game and I still don\'t know what you\'ll do. Let\'s GOOO."',
     ],
-    postWinDialogue: 'LETS GOOO!! GO GET ZERO!! YOU\'VE LITERALLY GOT THIS I\'M ROOTING FOR YOU!!',
-    postLoseDialogue: 'You used my own game against me. That\'s the best thing that\'s ever happened to me. Come back.',
+    postWinDialogue: 'You used my own game against me. That\'s the best thing that\'s ever happened to me. Come back.',
+    postLoseDialogue: 'LETS GOOO!! GO GET ZERO!! YOU\'VE LITERALLY GOT THIS I\'M ROOTING FOR YOU!!',
   },
   {
     id: 'grand', name: 'GRAND', title: 'First Loser',
@@ -6985,9 +7539,7 @@ const STORY_CHAPTERS = [
     personality: 'First Loser',
     difficulty: 'ultimate', mode: 'normal', aiAsP1: true,
     preDialogue: [
-      '"Second place. Three years straight. You know what that means? I\'ve never lost to anyone but ZERO."',
-      '"I used to hate the title. Now I wear it. At least it\'s honest."',
-      '"Beat me, and you\'ll finally see what I\'ve been staring at for three years."',
+      '"Second place, three years straight. I\'ve never lost to anyone but ZERO."',
     ],
     postWinDialogue: 'You\'re the first. Three years and you\'re the first. Whatever comes next — you earned it.',
     postLoseDialogue: 'You were close. Closer than most. That\'s not nothing. But second place knows all about close.',
@@ -6998,12 +7550,10 @@ const STORY_CHAPTERS = [
     personality: 'Legendary AI',
     difficulty: 'ultimate', mode: 'mirror_war', aiAsP1: true,
     preDialogue: [
-      '"You came from nothing. No history, no ranking, no one vouching for you."',
-      '"Eleven players between you and this seat. You moved through all of them."',
-      '"I\'ve been watching. Not worried. Just... curious what you actually are."',
+      '"Eleven players between you and this seat. I\'ve been watching. Just... curious."',
     ],
-    postWinDialogue: 'The seat is yours. You didn\'t just beat me — you answered the question. Don\'t forget what it cost.',
-    postLoseDialogue: 'You\'re close. Real close. Come back when the answer is clearer. I\'ll be here.',
+    postWinDialogue: 'You\'re close. Real close. Come back when the answer is clearer. I\'ll be here.',
+    postLoseDialogue: 'The seat is yours. You didn\'t just beat me — you answered the question. Don\'t forget what it cost.',
   },
 ];
 // ── Story Progress (localStorage) ──────────────────────────────────
@@ -7064,9 +7614,11 @@ function startStoryChapter(idx) {
   const ch = STORY_CHAPTERS[idx];
   if (!ch) return;
   uiClick();
+  sfxStoryAccept(ch.id);
   storyFight.chapter = ch;
   storyFight.index = idx;
   storyFight.active = true;
+  _lastMoveFired = false;
 }
 
 function launchStoryChapterGame() {
@@ -7132,6 +7684,7 @@ function handleStoryResult(humanWon) {
   storyMode.chapterIndex = -1;
 
   if (humanWon) {
+    sfxStoryWin(ch.id);
     // Mark chapter cleared
     storyProgress.cleared.add(idx);
     // Unlock next chapter
@@ -7145,7 +7698,7 @@ function handleStoryResult(humanWon) {
 
     const nextCh = nextIdx < STORY_CHAPTERS.length ? STORY_CHAPTERS[nextIdx] : null;
     storyResult.won = true;
-    storyResult.quote = ch.postWinDialogue;
+    storyResult.quote = ch.postLoseDialogue;  // fallback while Groq loads
     storyResult.chapterName = ch.name;
     storyResult.chapterIndex = idx;
     storyResult.chapterColor = ch.color || '#C0C0C0';
@@ -7153,9 +7706,11 @@ function handleStoryResult(humanWon) {
     storyResult.nextChapter = nextCh;
     storyResult.nextIndex = nextIdx;
     setTimeout(() => { storyResult.active = true; }, 900);
+    _fetchResultQuote(ch, true);
   } else {
+    sfxStoryLose(ch.id);
     storyResult.won = false;
-    storyResult.quote = ch.postLoseDialogue;
+    storyResult.quote = ch.postWinDialogue;   // fallback while Groq loads
     storyResult.chapterName = ch.name;
     storyResult.chapterIndex = idx;
     storyResult.chapterColor = ch.color || '#C0C0C0';
@@ -7163,7 +7718,52 @@ function handleStoryResult(humanWon) {
     storyResult.nextChapter = null;
     storyResult.nextIndex = -1;
     setTimeout(() => { storyResult.active = true; }, 900);
+    _fetchResultQuote(ch, false);
   }
+}
+
+async function _fetchResultQuote(ch, humanWon) {
+  const apiKey = import.meta.env.VITE_GROQ_API_KEY;
+  if (!apiKey) return;
+  const outcome = humanWon
+    ? `The human just BEAT you. React in character — defeated, in your voice.`
+    : `You just BEAT the human. React in character — victorious, in your voice.`;
+  const trashTalkStyle = {
+    easy:    "You are clueless and accidentally condescending.",
+    cyano:   "You are a narcissist streamer — everything is about you and your fans.",
+    norm:    "You are a quiet intimidator — calm, clinical, understated.",
+    ohmen:   "You are a paranoid strategist who predicted everything.",
+    teift:   "You are depressed and unbothered — barely care either way.",
+    lilica:  "You are chaotically indecisive — can't even process the result cleanly.",
+    sefia:   "You are a cold observer — cite something you noticed about the opponent.",
+    vlad:    "You are a centuries-old vegetarian vampire — eerie calm, odd dietary references.",
+    axia:    "You are aggressively cheerful and secretly terrifying.",
+    mumu:    "You are the game's creator — this is personal, you built every rule.",
+    grand:   "You are the eternal runner-up — this result hits deep.",
+    zero:    "You are the undefeated champion — absolute quiet certainty.",
+  }[ch.id] || "React in character.";
+  try {
+    const resp = await fetch('/groq-api/v1/chat/completions', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${apiKey}` },
+      body: JSON.stringify({
+        model: 'llama-3.1-8b-instant',
+        max_tokens: 60,
+        messages: [
+          { role: 'system', content: `You are ${ch.name}, title: "${ch.title}". ${trashTalkStyle}
+
+Examples of your voice:
+${(ch.preDialogue||[]).map(l=>l.replace(/^"|"$/g,'')).join('\n')}
+
+${outcome} ONE sentence, max 15 words. No quotes. No narration. Speak directly.` },
+          { role: 'user', content: 'React to the match result.' }
+        ]
+      })
+    });
+    const data = await resp.json();
+    const text = data.choices?.[0]?.message?.content?.trim();
+    if (text && storyResult.active) storyResult.quote = text;
+  } catch(e) { /* keep fallback */ }
 }
 
 function closeStoryResult() {
@@ -7427,17 +8027,21 @@ function _doAiMove() {
   if (game.phase === 'gameover') return;
   const ap = aiPlayer.value;
 
-  // ── DRAFT phase: fast pick, short humanising delay, no worker needed ──
+  // ── DRAFT phase: show taunt → wait → pick ──────────────────────────
   if (game.phase === 'draft' && game.draftTurn === ap) {
     const token = ++_aiTurnToken;
-    const draftDelay = 600 + Math.random() * 700; // 0.6–1.3 s
+    // ~35% chance to trash-talk during draft, with cooldown
+    const willTauntDraft = storyMode.active && Math.random() < 0.35 && (Date.now() - _lastTauntAt > 15000);
+    if (willTauntDraft) {
+      _lastTauntAt = Date.now();
+      _fetchAndShowTaunt('draft_ai_pick');
+    }
+    const draftDelay = willTauntDraft ? 3200 : 700 + Math.random() * 600;
     _aiTimer = setTimeout(() => {
-      if (token !== _aiTurnToken) return; // cancelled
+      if (token !== _aiTurnToken) return;
       if (screen.value !== 'ai' || game.phase !== 'draft' || game.draftTurn !== ap) return;
       const pick = _ai.pickDraftPiece();
       if (pick) game.draftPick(pick);
-      // Snake draft can assign the same player twice in a row — if draftTurn
-      // didn't change, the watcher won't re-fire, so we kick the next pick here.
       if (game.phase === 'draft' && game.draftTurn === ap) {
         _doAiMove();
       }
@@ -7445,24 +8049,29 @@ function _doAiMove() {
     return;
   }
 
-  // ── PLACE phase: 3–5 s display delay + worker computation in parallel ──
+  // ── PLACE phase: show taunt → wait 3s → place ───────────────────────
   if (game.phase === 'place' && game.currentPlayer === ap) {
     const token = ++_aiTurnToken;
 
-    // Deep-copy the board so the worker receives a plain serialisable object
-    // (avoids any Pinia/Vue proxy serialisation edge-cases with structuredClone)
+    // ~40% chance to trash-talk on AI's turn, with cooldown
+    const willTauntBattle = storyMode.active && Math.random() < 0.40 && (Date.now() - _lastTauntAt > 18000);
+    if (willTauntBattle) {
+      _lastTauntAt = Date.now();
+      _fetchAndShowTaunt('battle_ai_turn');
+    }
+
     const boardCopy = game.board.map(row =>
       row.map(cell => cell === null ? null : { player: cell.player, pieceKey: cell.pieceKey })
     );
 
-    let workerMove   = null;  // result from the worker
-    let delayElapsed = false; // has the 3-5 s display timer fired?
-    let workerDone   = false; // has the worker returned?
+    let workerMove   = null;
+    let delayElapsed = false;
+    let workerDone   = false;
 
-    // When BOTH the delay and the worker are done, apply the move.
+    // Apply move only when BOTH the taunt delay and worker are done
     function tryApply() {
-      if (token !== _aiTurnToken) return;           // this turn was cancelled
-      if (!delayElapsed || !workerDone) return;     // still waiting for one side
+      if (token !== _aiTurnToken) return;
+      if (!delayElapsed || !workerDone) return;
       if (screen.value !== 'ai' || game.phase !== 'place' || game.currentPlayer !== ap) return;
 
       const move = workerMove;
@@ -7477,8 +8086,8 @@ function _doAiMove() {
       game.flipped          = false;
     }
 
-    // 1) Start the 3–5 second display delay (feels natural & fair to the human)
-    const displayDelay = 3000 + Math.random() * 2000;
+    // Only extend delay if a taunt is showing — must outlast the 5s taunt timer
+    const displayDelay = willTauntBattle ? 5500 : 1200 + Math.random() * 800;
     _aiTimer = setTimeout(() => {
       if (token !== _aiTurnToken) return;
       delayElapsed = true;
@@ -9525,14 +10134,14 @@ onBeforeUnmount(() => {
   z-index: 2;
   background: #0a0c16;
   border: 1px solid rgba(255,255,255,0.08);
-  border-top: 2px solid var(--ch-color);
+  border-top: 3px solid var(--ch-color);
   border-radius: 8px;
   width: clamp(300px, 36vw, 520px);
-  padding: 28px 32px 24px;
+  padding: 20px 28px 20px;
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: 10px;
+  gap: 8px;
   box-shadow: 0 0 60px rgba(0,0,0,0.6), 0 0 80px color-mix(in srgb, var(--ch-color) 10%, transparent);
   animation: fcFightCardIn .35s cubic-bezier(.22,1,.36,1) both;
 }
@@ -9556,9 +10165,9 @@ onBeforeUnmount(() => {
 }
 .fcFightPortrait {
   position: relative;
-  width: 72px; height: 72px;
+  width: 56px; height: 56px;
   display: flex; align-items: center; justify-content: center;
-  margin: 4px 0;
+  margin: 0;
 }
 .fcFightPortraitRing {
   position: absolute; inset: 0;
@@ -9579,7 +10188,7 @@ onBeforeUnmount(() => {
 .fcFightPortraitEmoji { font-size: 36px; position: relative; }
 .fcFightName {
   font-family: 'Orbitron', sans-serif;
-  font-size: clamp(20px, 2.5vw, 30px); font-weight: 900; letter-spacing: 5px;
+  font-size: clamp(32px, 4vw, 52px); font-weight: 900; letter-spacing: 6px;
   color: #fff; text-transform: uppercase; text-align: center; line-height: 1;
 }
 .fcFightPersonality {
@@ -9589,8 +10198,8 @@ onBeforeUnmount(() => {
 }
 .fcFightCharTitle {
   font-family: 'Orbitron', sans-serif;
-  font-size: 8px; font-weight: 500; letter-spacing: 2px;
-  color: rgba(255,255,255,0.35); text-transform: uppercase; text-align: center;
+  font-size: 8px; font-weight: 600; letter-spacing: 2px;
+  color: var(--ch-color); text-transform: uppercase; text-align: center; opacity: 0.85;
 }
 .fcFightBadges { display: flex; gap: 6px; flex-wrap: wrap; justify-content: center; }
 .fcModeBadge, .fcDiffBadge {
@@ -9622,8 +10231,9 @@ onBeforeUnmount(() => {
 }
 .fcFightLine {
   font-family: 'Orbitron', 'Rajdhani', sans-serif;
-  font-size: 10px; font-weight: 500; letter-spacing: 0.3px;
+  font-size: 14px; font-weight: 500; letter-spacing: 0.3px;
   color: rgba(255,255,255,0.6); line-height: 1.5;
+  text-align: center;
   opacity: 0;
   animation: fcFightLineIn .4s ease both;
 }
@@ -10397,6 +11007,7 @@ onBeforeUnmount(() => {
   height: 100%;
   min-height: 0;
   align-items: stretch;
+  position: relative;
   /* Always keep the desktop 2-panel side-by-side layout — never stack on mobile */
 }
 
@@ -10431,7 +11042,7 @@ onBeforeUnmount(() => {
   border-radius: 16px;
   border: 1px solid rgba(255,255,255,0.10);
   background: rgba(255,255,255,0.04);
-  overflow: hidden;
+  overflow: visible;
   transition: border-color .2s, box-shadow .2s;
 }
 .tbGlow{
@@ -10504,6 +11115,10 @@ onBeforeUnmount(() => {
   letter-spacing: 1px;
   line-height: 1.1;
   font-family: 'Orbitron', 'Rajdhani', Inter, system-ui, sans-serif;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 0;
 }
 .turnBanner.tbP1 .tbMain{ color: rgba(0,229,255,0.95); }
 .turnBanner.tbP2 .tbMain{ color: rgba(255,64,96,0.95); }
@@ -10511,6 +11126,33 @@ onBeforeUnmount(() => {
 .tbPlayerNum{
   font-size: 26px;
   font-weight: 900;
+}
+/* Human player name stays white regardless of P1/P2 color */
+.tbHumanName {
+  color: #ffffff !important;
+  text-shadow: none;
+}
+/* AI name line (themed color) */
+.tbNameLine {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  line-height: 1.1;
+}
+.tbAiName {
+  font-size: 26px;
+  font-weight: 900;
+  font-family: 'Orbitron', 'Rajdhani', Inter, system-ui, sans-serif;
+  text-shadow: 0 0 14px currentColor;
+  letter-spacing: 1px;
+}
+.tbActionLine {
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 2px;
+  text-transform: uppercase;
+  opacity: 0.65;
+  margin-top: 2px;
 }
 .tbSub{
   font-size: 11px;
@@ -14524,4 +15166,189 @@ onBeforeUnmount(() => {
     linear-gradient(to bottom, rgba(5,5,8,0.4) 0%, transparent 20%, transparent 80%, rgba(5,5,8,0.4) 100%);
 }
 
+/* ══ STORY TAUNT BUBBLE ══════════════════════════════════════════════════ */
+.storyTauntWrap {
+  position: absolute;
+  top: 110px;
+  left: 14px;
+  width: min(320px, calc(420px - 28px));
+  padding-top: 12px;
+  z-index: 500;
+  pointer-events: none;
+}
+
+/* Tail pointing UP toward IS PICKING / IS THINKING */
+.storyTauntTail {
+  position: absolute;
+  top: 0px;
+  left: 28px;
+  width: 0;
+  height: 0;
+  border-left: 10px solid transparent;
+  border-right: 10px solid transparent;
+  border-bottom: 13px solid color-mix(in srgb, var(--ch-color) 35%, transparent);
+}
+.storyTauntTail::after {
+  content: '';
+  position: absolute;
+  top: 3px;
+  left: -8px;
+  width: 0;
+  height: 0;
+  border-left: 8px solid transparent;
+  border-right: 8px solid transparent;
+  border-bottom: 10px solid rgb(20, 20, 40);
+}
+
+.storyTauntCard {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 10px 14px;
+  background: rgba(20, 20, 40, 0.92);
+  border: 1px solid color-mix(in srgb, var(--ch-color) 35%, transparent);
+  border-radius: 12px;
+  box-shadow:
+    0 0 0 1px color-mix(in srgb, var(--ch-color) 10%, transparent) inset,
+    0 8px 24px rgba(0,0,0,0.5),
+    0 0 16px color-mix(in srgb, var(--ch-color) 8%, transparent);
+  backdrop-filter: blur(8px);
+}
+
+.storyTauntChip {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.storyTauntEmoji {
+  font-size: 14px;
+  line-height: 1;
+}
+.storyTauntName {
+  font-size: 10px;
+  font-weight: 800;
+  letter-spacing: 1.5px;
+  text-transform: uppercase;
+  color: var(--ch-color);
+  opacity: 0.9;
+}
+
+.storyTauntText {
+  font-size: 12px;
+  font-weight: 500;
+  line-height: 1.5;
+  color: rgba(255,255,255,0.88);
+  font-style: italic;
+}
+
+/* Transition */
+.storyTauntBubble-enter-active {
+  animation: storyTauntIn 0.25s cubic-bezier(0.34, 1.56, 0.64, 1) both;
+}
+.storyTauntBubble-leave-active {
+  animation: storyTauntOut 0.3s ease-in both;
+}
+@keyframes storyTauntIn {
+  from { opacity: 0; transform: translateY(-6px) scale(0.95); }
+  to   { opacity: 1; transform: translateY(0)   scale(1);    }
+}
+@keyframes storyTauntOut {
+  from { opacity: 1; transform: translateY(0); }
+  to   { opacity: 0; transform: translateY(4px); }
+}
+
+</style>
+
+<style>
+/* Global styles for taunt bubble inside gameLayout */
+.storyTauntWrap {
+  position: absolute !important;
+  top: 110px;
+  left: 14px;
+  width: min(320px, calc(420px - 28px));
+  padding-top: 12px;
+  z-index: 500;
+  pointer-events: none;
+}
+.storyTauntTail {
+  position: absolute;
+  top: 0px;
+  left: 28px;
+  width: 0;
+  height: 0;
+  border-left: 10px solid transparent;
+  border-right: 10px solid transparent;
+  border-bottom: 13px solid color-mix(in srgb, var(--ch-color) 35%, transparent);
+}
+.storyTauntTail::after {
+  content: '';
+  position: absolute;
+  top: 3px;
+  left: -8px;
+  width: 0;
+  height: 0;
+  border-left: 8px solid transparent;
+  border-right: 8px solid transparent;
+  border-bottom: 10px solid rgb(20, 20, 40);
+}
+.storyTauntCard {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 10px 14px;
+  background: rgba(20, 20, 40, 0.92);
+  border: 1px solid color-mix(in srgb, var(--ch-color) 35%, transparent);
+  border-radius: 12px;
+  box-shadow:
+    0 0 0 1px color-mix(in srgb, var(--ch-color) 10%, transparent) inset,
+    0 8px 24px rgba(0,0,0,0.5),
+    0 0 16px color-mix(in srgb, var(--ch-color) 8%, transparent);
+  backdrop-filter: blur(8px);
+}
+.storyTauntChip {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.storyTauntName {
+  font-family: 'Orbitron', sans-serif;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 1px;
+  color: var(--ch-color);
+}
+.storyTauntText {
+  font-size: 12px;
+  font-weight: 500;
+  line-height: 1.5;
+  color: rgba(255,255,255,0.88);
+  font-style: italic;
+}
+
+/* First-move adjacency hint — centered overlay over the board */
+.adjacencyHintOverlay {
+  position: fixed;
+  bottom: 80px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 9100;
+  padding: 10px 20px;
+  border-radius: 12px;
+  background: rgba(10, 10, 20, 0.88);
+  border: 1px solid rgba(255, 200, 80, 0.5);
+  color: rgba(255, 220, 120, 0.95);
+  font-size: 13px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  pointer-events: none;
+  white-space: nowrap;
+  box-shadow: 0 4px 24px rgba(0,0,0,0.5), 0 0 16px rgba(255,200,80,0.12);
+  backdrop-filter: blur(8px);
+}
+.adjHintFade-enter-active { animation: adjHintIn 0.3s cubic-bezier(0.34,1.56,0.64,1) both; }
+.adjHintFade-leave-active { animation: adjHintIn 0.2s ease reverse both; }
+@keyframes adjHintIn {
+  from { opacity: 0; transform: translateX(-50%) translateY(10px); }
+  to   { opacity: 1; transform: translateX(-50%) translateY(0); }
+}
 </style>

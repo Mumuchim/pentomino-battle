@@ -141,6 +141,12 @@ const props = defineProps({
   isOnline: { type: Boolean, default: false },
   myPlayer: { type: [Number, null], default: null },
   canAct: { type: Boolean, default: true },
+  adjacencyHint: { type: Boolean, default: false },
+});
+
+// Show first-move adjacency tip using the same warning toast as illegal placements
+watch(() => props.adjacencyHint, (v) => {
+  if (v) showWarning('💡 Your first piece must touch Player 1\'s territory', 2000);
 });
 
 const game = useGameStore();
@@ -307,13 +313,13 @@ function handleFlip() {
 
 const warningMessage = ref("");
 let warnTimer = null;
-function showWarning(msg) {
+function showWarning(msg, duration = 1400) {
   warningMessage.value = msg;
   if (warnTimer) clearTimeout(warnTimer);
   warnTimer = setTimeout(() => {
     warningMessage.value = "";
     warnTimer = null;
-  }, 1400);
+  }, duration);
 }
 
 const activeBoard = computed(() => (game.phase === "draft" ? game.draftBoard : game.board));
