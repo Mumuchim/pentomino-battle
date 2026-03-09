@@ -2338,7 +2338,7 @@
   <div class="pageCurtainBot" :class="{ active: pageBlackActive }" :style="{ background: curtainColorBot }" aria-hidden="true"></div>
 
   <!-- ── Global back/logout — at root level to escape .main overflow stacking context ── -->
-  <div class="gNavOverlay" aria-hidden="false">
+  <div class="gNavOverlay" aria-hidden="false" v-show="!modal.open && !inGameSettingsOpen && !qmAccept.open">
     <button v-if="screen === 'mode' && loggedIn" class="figmaNavBtn figmaLogoutBtn" @mouseenter="uiHover" @click="uiClick(); confirmLogOut()" aria-label="Log Out">
       <img :src="logoutBtnUrl" class="figmaNavBtnImg" alt="LOG OUT" />
     </button>
