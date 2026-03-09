@@ -2501,8 +2501,20 @@ function _tickPhysics() {
     }
   }
 
-  _physicsRaf = requestAnimationFrame(_tickPhysics);
+  // Only schedule next frame when on menu screens — no need for physics during gameplay
+  if (!isInGame.value) {
+    _physicsRaf = requestAnimationFrame(_tickPhysics);
+  } else {
+    _physicsRaf = null;
+  }
 }
+
+// Resume/pause physics whenever the player enters/leaves the game
+watch(isInGame, (inGame) => {
+  if (!inGame && _physicsRaf === null) {
+    _physicsRaf = requestAnimationFrame(_tickPhysics);
+  }
+});
 
 onMounted(() => {
   _initPiecePhysics();
@@ -9440,6 +9452,34 @@ onMounted(() => {
   loadAudioPrefs();
   loadConfirmMovePref();
 
+  // ── Mobile scale-to-fit ─────────────────────────────────────────────────
+  // Viewport is now device-width so the responsive layout works naturally.
+  // On very narrow screens (< 360px) we scale the root element to avoid
+  // overflow — this is cheaper than forcing the user to manually zoom out.
+  function applyMobileScale() {
+    try {
+      const isTouch = window.matchMedia?.('(pointer: coarse)').matches;
+      if (!isTouch) return;
+      const vw = window.innerWidth;
+      const el = appRoot.value;
+      if (!el) return;
+      const minW = 360;
+      if (vw < minW) {
+        const scale = vw / minW;
+        el.style.transform = `scale(${scale})`;
+        el.style.transformOrigin = 'top left';
+        el.style.width = minW + 'px';
+        el.style.height = (window.innerHeight / scale) + 'px';
+      } else {
+        el.style.transform = '';
+        el.style.width = '';
+        el.style.height = '';
+      }
+    } catch {}
+  }
+  applyMobileScale();
+  window.addEventListener('resize', applyMobileScale, { passive: true });
+
   // ── PC default: disable Verify Move (requireSubmit) on desktop pointer devices.
   // Mobile/touch devices keep it enabled for the "stage → Submit" flow.
   try {
@@ -9908,6 +9948,16 @@ onBeforeUnmount(() => {
 @keyframes floaty {
   0%, 100% { transform: translateY(0px) translateX(0px) scale(1); }
   50% { transform: translateY(-18px) translateX(10px) scale(1.05); }
+}
+
+/* ── Mobile: disable expensive animated backgrounds ─────────────────────── */
+@media (pointer: coarse) {
+  /* Stop the spinning conic gradient — blur + animation = heavy compositing */
+  .bgGradient { animation: none; }
+  /* Reduce glow blur radius — blur() is the most expensive filter on mobile */
+  .bgGlow { filter: blur(30px); animation: none; opacity: 0.18; }
+  /* Kill noise texture — multiple radial-gradients repaint on every scroll */
+  .bgNoise { display: none; }
 }
 
 .topbar {

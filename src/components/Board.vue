@@ -582,11 +582,22 @@ function spawnFlyClone(pieceKey, player, fromEl) {
 
 // Fix 18 — unified Pointer Events so mouse and touch share one code path
 // and hybrid (touch+mouse) devices never fire both simultaneously.
+// RAF throttle — on mobile, pointermove can fire at 120–240 Hz.
+// We only need one update per frame; extra events are discarded.
+let _moveRafId = null;
+let _moveClientX = 0;
+let _moveClientY = 0;
+
 function onShellPointerMove(e) {
-  // Only handle primary pointer (left button / first touch)
   if (!e.isPrimary) return;
-  onPointerMove(e);
-  if (game.drag?.active) game.updateDrag(e.clientX, e.clientY);
+  _moveClientX = e.clientX;
+  _moveClientY = e.clientY;
+  if (_moveRafId !== null) return; // already scheduled this frame
+  _moveRafId = requestAnimationFrame(() => {
+    _moveRafId = null;
+    onPointerMove({ clientX: _moveClientX, clientY: _moveClientY });
+    if (game.drag?.active) game.updateDrag(_moveClientX, _moveClientY);
+  });
 }
 
 function onShellPointerDown(e) {
@@ -721,12 +732,12 @@ function cellClass(cell) {
     };
   }
 
-  const isGhost = ghost.value.map?.has(cell.key);
+  // Ghost highlighting is handled entirely by the ghostOverlay absolute blocks.
+  // Do NOT also set ghost-ok/ghost-bad here — that creates a duplicate visual
+  // on mobile where both the overlay AND the cell outline render simultaneously.
   return {
     empty: cell.v === null,
     placed: cell.v !== null,
-    "ghost-ok": isGhost && ghost.value.ok,
-    "ghost-bad": isGhost && !ghost.value.ok,
   };
 }
 
@@ -1022,6 +1033,7 @@ const ghostOverlayGridStyle = computed(() => ({}));
   pointer-events: none;
   z-index: 999;
   overflow: visible;
+  will-change: contents;
   filter:
     drop-shadow(0 18px 32px rgba(0,0,0,0.60))
     drop-shadow(0 0 12px rgba(0,255,255,0.10));
@@ -1031,6 +1043,7 @@ const ghostOverlayGridStyle = computed(() => ({}));
 .ghostBlock {
   border-radius: 8%;
   border: 1px solid rgba(0,0,0,0.30);
+  will-change: left, top;
   box-shadow:
     inset 0 calc(-1 * var(--cell-bevel, 3px)) 0 rgba(0,0,0,0.25),
     inset 0 1px 0 rgba(255,255,255,0.18),
@@ -1205,6 +1218,22 @@ const ghostOverlayGridStyle = computed(() => ({}));
 }
 
 .flyClone { will-change: transform, opacity, filter; }
+
+/* ── Mobile performance optimizations ───────────────────────────────────── */
+@media (pointer: coarse) {
+  /* Kill cell hover transition — 60 simultaneous CSS transitions thrash the GPU */
+  .cell { transition: none !important; }
+  .cell:hover { filter: none; }
+
+  /* Kill scanlines repeating gradient — expensive to composite on mobile */
+  .scanlines { display: none; }
+
+  /* Contain layout/style reflows to the board subtree */
+  .board { contain: layout style; }
+
+  /* Promote ghost overlay to its own compositor layer */
+  .ghostOverlay { transform: translateZ(0); }
+}
 .flyClone.p1 { }
 .flyClone.p2 { }
 </style>
