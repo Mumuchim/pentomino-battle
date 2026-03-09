@@ -3,6 +3,7 @@
     <div
       class="boardShell"
       ref="shell"
+      :style="shellTouchStyle"
       @pointermove="onShellPointerMove"
       @pointerleave="clearHover"
       @pointerdown="onShellPointerDown"
@@ -221,6 +222,20 @@ const exactCellSize = computed(() => {
   return { cellW, cellH, stepX: cellW + gap, stepY: cellH + gap };
 });
 
+// When a piece is selected, set touch-action:none on the shell so the browser
+// doesn't defer pointer events for scroll detection — eliminates drag lag on mobile.
+const shellTouchStyle = computed(() => {
+  if (game.phase === 'place' && game.selectedPieceKey) {
+    return { touchAction: 'none' };
+  }
+  return {};
+});
+
+// RAF throttle for pointermove — mobile fires at 120–240 Hz, one update/frame is enough.
+let _moveRafId = null;
+let _moveClientX = 0;
+let _moveClientY = 0;
+
 onMounted(() => {
   const host = shell.value;
   if (!host) return;
@@ -283,8 +298,11 @@ function handleRotate() {
       game.endDrag();
     }
     // requireSubmit OFF: keep drag active, just rotate the shape in place.
+  } else if (game.drag?.active) {
+    // PiecePicker drag was interrupted by rotate tap (finger was outside board).
+    // End the stale drag so the piece can be re-dragged cleanly after rotating.
+    game.endDrag();
   }
-  // Preserve scroll position so mobile doesn't snap back to the left panel.
   const scrollEl = document.querySelector('.app.inGame .main');
   const savedLeft = scrollEl?.scrollLeft ?? 0;
   game.rotateSelected();
@@ -303,8 +321,10 @@ function handleFlip() {
       game.endDrag();
     }
     // requireSubmit OFF: keep drag active, just flip the shape in place.
+  } else if (game.drag?.active) {
+    // PiecePicker drag interrupted by flip tap (finger outside board).
+    game.endDrag();
   }
-  // Preserve scroll position so mobile doesn't snap back to the left panel.
   const scrollEl = document.querySelector('.app.inGame .main');
   const savedLeft = scrollEl?.scrollLeft ?? 0;
   game.flipSelected();
@@ -582,12 +602,6 @@ function spawnFlyClone(pieceKey, player, fromEl) {
 
 // Fix 18 — unified Pointer Events so mouse and touch share one code path
 // and hybrid (touch+mouse) devices never fire both simultaneously.
-// RAF throttle — on mobile, pointermove can fire at 120–240 Hz.
-// We only need one update per frame; extra events are discarded.
-let _moveRafId = null;
-let _moveClientX = 0;
-let _moveClientY = 0;
-
 function onShellPointerMove(e) {
   if (!e.isPrimary) return;
   _moveClientX = e.clientX;
@@ -617,6 +631,9 @@ function onShellPointerDown(e) {
 function onShellPointerUp(e) {
   if (!e.isPrimary) return;
   if (game.phase !== 'place') return;
+
+  // Cancel any pending RAF move so it doesn't fire after the drag ends
+  if (_moveRafId !== null) { cancelAnimationFrame(_moveRafId); _moveRafId = null; }
 
   try { e.currentTarget.releasePointerCapture(e.pointerId); } catch {}
 
@@ -732,12 +749,12 @@ function cellClass(cell) {
     };
   }
 
-  // Ghost highlighting is handled entirely by the ghostOverlay absolute blocks.
-  // Do NOT also set ghost-ok/ghost-bad here — that creates a duplicate visual
-  // on mobile where both the overlay AND the cell outline render simultaneously.
+  const isGhost = ghost.value.map?.has(cell.key);
   return {
     empty: cell.v === null,
     placed: cell.v !== null,
+    "ghost-ok": isGhost && ghost.value.ok,
+    "ghost-bad": isGhost && !ghost.value.ok,
   };
 }
 
@@ -908,9 +925,9 @@ const ghostOverlayGridStyle = computed(() => ({}));
 
   border-radius: 16px;
 
-  /* Capture single-touch drag events for piece placement without blocking
-     the browser's native pinch-to-zoom gesture on the surrounding shell. */
-  touch-action: pan-x pan-y;
+  /* touch-action is managed dynamically on .boardShell via shellTouchStyle:
+     touch-action:none when a piece is selected (enables instant drag response),
+     default otherwise (allows pinch-zoom on the surrounding shell). */
 
   /* Dark ebony wood — fine grain, near-black neutral */
   background:
@@ -1033,7 +1050,6 @@ const ghostOverlayGridStyle = computed(() => ({}));
   pointer-events: none;
   z-index: 999;
   overflow: visible;
-  will-change: contents;
   filter:
     drop-shadow(0 18px 32px rgba(0,0,0,0.60))
     drop-shadow(0 0 12px rgba(0,255,255,0.10));
@@ -1043,7 +1059,6 @@ const ghostOverlayGridStyle = computed(() => ({}));
 .ghostBlock {
   border-radius: 8%;
   border: 1px solid rgba(0,0,0,0.30);
-  will-change: left, top;
   box-shadow:
     inset 0 calc(-1 * var(--cell-bevel, 3px)) 0 rgba(0,0,0,0.25),
     inset 0 1px 0 rgba(255,255,255,0.18),
@@ -1218,22 +1233,23 @@ const ghostOverlayGridStyle = computed(() => ({}));
 }
 
 .flyClone { will-change: transform, opacity, filter; }
+.flyClone.p1 { }
+.flyClone.p2 { }
 
-/* ── Mobile performance optimizations ───────────────────────────────────── */
+/* ── Mobile performance ─────────────────────────────────────────────────── */
 @media (pointer: coarse) {
-  /* Kill cell hover transition — 60 simultaneous CSS transitions thrash the GPU */
+  /* Kill per-cell hover transitions — 60 simultaneous CSS transitions thrash the GPU */
   .cell { transition: none !important; }
   .cell:hover { filter: none; }
 
-  /* Kill scanlines repeating gradient — expensive to composite on mobile */
+  /* Hide scanlines — repeating-linear-gradient is expensive to composite on mobile */
   .scanlines { display: none; }
 
-  /* Contain layout/style reflows to the board subtree */
+  /* Contain layout/style work to the board subtree */
   .board { contain: layout style; }
 
   /* Promote ghost overlay to its own compositor layer */
-  .ghostOverlay { transform: translateZ(0); }
+  .ghostOverlay { transform: translateZ(0); will-change: contents; }
+  .ghostBlock { will-change: left, top; }
 }
-.flyClone.p1 { }
-.flyClone.p2 { }
 </style>
