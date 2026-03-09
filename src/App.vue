@@ -1359,7 +1359,7 @@
             <button class="puzzleFinishBtn" @click="handlePuzzleEnd">FINISH PUZZLE</button>
           </div>
 
-          <DraftPanel v-if="game.phase === 'draft'" />
+          <DraftPanel v-if="game.phase === 'draft'" :isOnline="isOnline" :myPlayer="myPlayer" />
 
           <section v-else class="panel">
             <h2 class="panelTitle" v-if="screen !== 'puzzle'">{{ screen === 'ai' && game.phase === 'place' && game.currentPlayer === aiPlayer ? 'AI Pieces' : `Player ${game.currentPlayer} Pieces` }}</h2>

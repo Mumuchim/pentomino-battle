@@ -2,6 +2,34 @@
   <section class="panel">
     <h2 class="panelTitle">Picks</h2>
 
+    <!-- Online: show only your own picks -->
+    <template v-if="props.isOnline && props.myPlayer">
+      <div class="draftCol">
+        <div class="draftHead" :class="props.myPlayer === 1 ? 'p1' : 'p2'">
+          Your Picks
+          <span
+            class="trayAnchor"
+            :data-tray="props.myPlayer"
+            data-tray-context="draft"
+            aria-hidden="true"
+          ></span>
+        </div>
+        <div class="chips big">
+          <PiecePreview
+            v-for="k in game.picks[props.myPlayer]"
+            :key="k"
+            :pieceKey="k"
+            :cell="cell"
+          />
+          <div v-if="game.picks[props.myPlayer].length === 0" class="emptyNote">
+            None yet
+          </div>
+        </div>
+      </div>
+    </template>
+
+    <!-- Couch / AI: two-column layout (unchanged) -->
+    <template v-else>
     <div class="draftRow">
 
       <!-- PLAYER 1 -->
@@ -66,6 +94,7 @@
       </div>
 
     </div>
+    </template>
 
     <div class="divider"></div>
 
@@ -80,6 +109,11 @@
 import { onBeforeUnmount, onMounted, ref } from "vue";
 import { useGameStore } from "../store/game";
 import PiecePreview from "./PiecePreview.vue";
+
+const props = defineProps({
+  isOnline: { type: Boolean, default: false },
+  myPlayer: { type: [Number, null], default: null },
+});
 
 const game = useGameStore();
 
