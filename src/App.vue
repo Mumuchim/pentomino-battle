@@ -15099,13 +15099,12 @@ onBeforeUnmount(() => {
   font-size: 13px; font-weight: 500; line-height: 1.4; word-break: break-word;
 }
 .pbChatMsgMe   .pbChatBubble {
-  background: #3d2a6e; color: #e8dcff;
+  background: #50C9EE; color: #fff;
   border-bottom-right-radius: 4px;
 }
 .pbChatMsgThem .pbChatBubble {
-  background: #1e1e30; color: #ddd;
+  background: #EE4B72; color: #fff;
   border-bottom-left-radius: 4px;
-  border: 1px solid rgba(255,255,255,0.07);
 }
 .pbChatMsgTime {
   font-size: 9px; color: rgba(255,255,255,0.2);
