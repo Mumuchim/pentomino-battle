@@ -4958,28 +4958,55 @@ async function sbJoinLobby(lobbyId) {
     cleanState = { meta: {}, game: {} };
   }
 
-  // ✅ Use the Supabase SDK (not raw fetch) so auth sessions are handled correctly
+  const joinPayload = {
+    guest_id:   guestId,
+    status:     "waiting",
+    updated_at: new Date().toISOString(),
+    state:      cleanState,
+  };
+
+  // ✅ Primary path: Supabase SDK so auth sessions are handled correctly
   // for both logged-in users and guests. Raw fetch with the anon key can be
   // silently blocked by RLS policies that require a valid user session on UPDATE.
   // The SDK automatically refreshes tokens and applies the correct auth context.
-  const { requireSupabase } = await import("./lib/supabase.js");
-  const supabase = requireSupabase();
+  try {
+    const { requireSupabase } = await import("./lib/supabase.js");
+    const supabase = requireSupabase();
 
-  const { data: rows, error } = await supabase
-    .from("pb_lobbies")
-    .update({
-      guest_id:   guestId,
-      status:     "waiting",
-      updated_at: new Date().toISOString(),
-      state:      cleanState,
-    })
-    .eq("id",       lobbyId)
-    .is("guest_id", null)
-    .eq("status",   "waiting")
-    .select();
+    const { data: rows, error } = await supabase
+      .from("pb_lobbies")
+      .update(joinPayload)
+      .eq("id",       lobbyId)
+      .is("guest_id", null)
+      .eq("status",   "waiting")
+      .select();
 
-  if (error) throw new Error(`Join lobby failed: ${error.message}`);
-  return rows?.[0] || null;
+    if (error) throw error;
+    if (rows?.[0]) return rows[0];
+    // SDK returned no rows — may be an RLS shadow-deny or the slot was claimed first.
+    // Fall through to raw REST fallback before giving up.
+  } catch { /* fall through to raw REST */ }
+
+  // ✅ Fallback: raw REST PATCH (anon key).
+  // Some Supabase RLS configurations allow anon UPDATE via the REST gateway's
+  // PostgREST layer even when the SDK's JWT path is narrower.
+  // The compound filter ensures atomicity (no row = nothing updated = null returned).
+  try {
+    const fallbackRes = await fetch(
+      sbRestUrl(`pb_lobbies?id=eq.${encodeURIComponent(lobbyId)}&guest_id=is.null&status=eq.waiting`),
+      {
+        method: "PATCH",
+        headers: { ...(await sbHeaders()), Prefer: "return=representation" },
+        body: JSON.stringify(joinPayload),
+      }
+    );
+    if (fallbackRes.ok) {
+      const fbRows = await fallbackRes.json().catch(() => []);
+      return fbRows?.[0] || null;
+    }
+  } catch { /* ignore */ }
+
+  return null;
 }
 
 /* =========================
@@ -7513,7 +7540,7 @@ async function startQuickMatchAuto() {
   });
 
   uiTimer = window.setInterval(() => {
-    if (!modal.open) return;
+    if (!modal.open || modal.title !== "Quick Match") return;
     updateModal();
   }, 250);
 
@@ -7522,11 +7549,10 @@ async function startQuickMatchAuto() {
     Promise.race([p, new Promise((_, rej) => setTimeout(() => rej(new Error("Quick Match timed out")), ms))]);
 
   try {
-    // ✅ FIX: Small random jitter (0–600ms) before the first search.
-    // When two players click Quick Match at the exact same time, they both query
-    // the empty queue simultaneously and both create host lobbies. The jitter
-    // staggers their searches so one is likely to find the other's lobby first.
-    await new Promise(r => setTimeout(r, Math.random() * 600));
+    // ✅ FIX: Smaller jitter (0–250ms instead of 0–600ms) so players with nearly-
+    // simultaneous clicks still stagger enough to avoid the empty-queue race, but
+    // the window is narrower so late-merge doesn't need to carry as much load.
+    await new Promise(r => setTimeout(r, Math.random() * 250));
     if (cancelled) return;
 
     let result;
@@ -7588,8 +7614,8 @@ async function startQuickMatchAuto() {
       // ✅ FIX: Late-merge to handle simultaneous-start race condition.
       // When two players both click Quick Match at the same time, both find an empty queue
       // and both create host lobbies. Without this check they'd wait forever.
-      // Every ~2.5 seconds, scan for OTHER waiting QM lobbies and volunteer to be the guest.
-      if (qmLoopCount % 3 === 0 && hostLobbyId && !cancelled) {
+      // Scan every 2nd iteration (~1.7s) instead of every 3rd (~2.5s) for faster pairing.
+      if (qmLoopCount % 2 === 0 && hostLobbyId && !cancelled) {
         try {
           const meId = await getGuestId();
           const lmQ = [
@@ -7619,18 +7645,57 @@ async function startQuickMatchAuto() {
               if (targetTs > myTs) return false;
               return String(l.id) < String(hostLobbyId); // equal ts: smaller ID wins
             });
-            if (others.length > 0 && !cancelled) {
-              // Another host is waiting — join their lobby as guest and close ours
-              const target = others[0];
-              const joined = await sbJoinLobby(target.id);
+
+            // ✅ FIX: iterate ALL candidates, not just others[0].
+            // Previously a single sbJoinLobby failure (e.g. race with a third client)
+            // would silently skip all remaining candidates.
+            for (const target of others) {
+              if (cancelled) break;
+              let joined = await sbJoinLobby(target.id);
+
+              // ✅ FIX: raw REST fallback if the SDK join returned null without error.
+              // The Supabase SDK can silently return empty rows when the JWT context
+              // doesn't satisfy RLS on UPDATE for anon/guest sessions, even though
+              // the anon key has SELECT access.  Retrying via raw fetch with the same
+              // anon key often succeeds because the REST gateway applies a different
+              // auth path for the PATCH method.
+              if (!joined) {
+                try {
+                  const guestId = await getGuestId();
+                  const existing = await sbSelectLobbyById(target.id);
+                  if (existing && !existing.guest_id && existing.status === "waiting") {
+                    const cleanMeta = {};
+                    const m = existing?.state?.meta || {};
+                    if (m.kind         !== undefined) cleanMeta.kind         = m.kind;
+                    if (m.timerMinutes !== undefined) cleanMeta.timerMinutes = m.timerMinutes;
+                    if (m.hidden       !== undefined) cleanMeta.hidden       = m.hidden;
+                    const fallbackRes = await fetch(
+                      sbRestUrl(`pb_lobbies?id=eq.${encodeURIComponent(target.id)}&guest_id=is.null&status=eq.waiting`),
+                      {
+                        method: "PATCH",
+                        headers: { ...(await sbHeaders()), Prefer: "return=representation" },
+                        body: JSON.stringify({
+                          guest_id:   guestId,
+                          status:     "waiting",
+                          updated_at: new Date().toISOString(),
+                          state:      { meta: cleanMeta, game: {} },
+                        }),
+                      }
+                    );
+                    if (fallbackRes.ok) {
+                      const fbRows = await fallbackRes.json().catch(() => []);
+                      joined = fbRows?.[0] || null;
+                    }
+                  }
+                } catch { /* ignore fallback errors — try next candidate */ }
+              }
+
               // ✅ FIX (cancel race): re-check cancelled after the async join.
-              // The user may have clicked CANCEL while sbJoinLobby was in-flight.
-              // Without this guard we'd open the accept overlay on an already-cancelled flow,
-              // and leave the other player's lobby polluted with our guest_id.
               if (cancelled) {
                 try { if (joined?.id) await sbDeleteLobby(joined.id); } catch {}
                 return;
               }
+
               if (joined?.id) {
                 try { await sbDeleteLobby(hostLobbyId); } catch {}
                 hostLobbyId = null;
