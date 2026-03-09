@@ -4943,54 +4943,42 @@ async function sbCreateLobby({ isPrivate = false, lobbyName = "", extraStateMeta
 async function sbJoinLobby(lobbyId) {
   const guestId = await getGuestId();
 
-  // Guard join so you can't join closed/full/expired lobbies.
-  // This PATCH will only succeed if the lobby is still waiting and has no guest.
-  //
   // FIX (Bug 2 - root cause): Clear ALL stale session data when a new guest joins.
-  //
-  // The core problem: a QM host lobby may carry meta.players / game state from a
-  // PREVIOUS session (previous game ended without full cleanup). When a new guest
-  // joins and meta.players is already set, ensureOnlineInitialized returns early
-  // ("if (hasPlayers) return"), so the game is never re-initialized. Both players
-  // end up applying the OLD state (gameover, old board) and get stuck.
-  //
-  // The fix: wipe ALL session-specific state on join (players, round, roundSeed,
-  // started_at, qmAccept, etc.) and keep ONLY permanent lobby config.
-  // After this, hasPlayers=false, so ensureOnlineInitialized runs a fresh init.
-  let clearStateBody;
+  // Keep ONLY permanent lobby config so ensureOnlineInitialized runs a fresh init.
+  let cleanState;
   try {
     const existing = await sbSelectLobbyById(lobbyId);
     const m = existing?.state?.meta || {};
-    // Only preserve permanent lobby config, drop all previous-session data
     const cleanMeta = {};
     if (m.kind         !== undefined) cleanMeta.kind         = m.kind;
     if (m.timerMinutes !== undefined) cleanMeta.timerMinutes = m.timerMinutes;
     if (m.hidden       !== undefined) cleanMeta.hidden       = m.hidden;
-    // Note: heartbeat is intentionally NOT preserved - it gets a fresh write on first poll
-    // Note: players, round, roundSeed, started_at, qmAccept are all cleared
-    clearStateBody = { state: { meta: cleanMeta, game: {} } };
+    cleanState = { meta: cleanMeta, game: {} };
   } catch {
-    clearStateBody = { state: { meta: {}, game: {} } };
+    cleanState = { meta: {}, game: {} };
   }
 
-  const res = await fetch(sbRestUrl(`pb_lobbies?id=eq.${encodeURIComponent(lobbyId)}&guest_id=is.null&status=eq.waiting`), {
-    method: "PATCH",
-    headers: { ...(await sbHeaders()), Prefer: "return=representation" },
-    body: JSON.stringify({
-      guest_id: guestId,
-      // Keep status as 'waiting' until the match is fully initialized (players assigned).
-      status: "waiting",
+  // ✅ Use the Supabase SDK (not raw fetch) so auth sessions are handled correctly
+  // for both logged-in users and guests. Raw fetch with the anon key can be
+  // silently blocked by RLS policies that require a valid user session on UPDATE.
+  // The SDK automatically refreshes tokens and applies the correct auth context.
+  const { requireSupabase } = await import("./lib/supabase.js");
+  const supabase = requireSupabase();
+
+  const { data: rows, error } = await supabase
+    .from("pb_lobbies")
+    .update({
+      guest_id:   guestId,
+      status:     "waiting",
       updated_at: new Date().toISOString(),
-      ...clearStateBody,
-    }),
-  });
+      state:      cleanState,
+    })
+    .eq("id",       lobbyId)
+    .is("guest_id", null)
+    .eq("status",   "waiting")
+    .select();
 
-  if (!res.ok) {
-    const txt = await res.text().catch(() => "");
-    throw new Error(`Join lobby failed (${res.status})\n${txt}`);
-  }
-
-  const rows = await res.json();
+  if (error) throw new Error(`Join lobby failed: ${error.message}`);
   return rows?.[0] || null;
 }
 
