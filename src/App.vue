@@ -87,27 +87,14 @@
       </div>
     </div>
 
-    <!-- 📱 Landscape lock overlay (optional) -->
-    <div v-if="landscapeLockActive" class="rotateOverlay" aria-live="polite" aria-busy="true">
+    <!-- 📱 Portrait block — always shown on touch devices in portrait mode, all screens -->
+    <div v-if="isPortrait && isTouchDevice" class="rotateOverlay" aria-live="polite">
       <div class="rotateCard">
+        <div class="rotateIcon">📱</div>
         <div class="rotateTitle">Rotate your device</div>
-        <div class="rotateSub">This match is locked to <b>landscape</b>.</div>
+        <div class="rotateSub">PENTObattle is <b>landscape only</b>.<br>Please rotate to continue.</div>
       </div>
     </div>
-
-    <!-- 📱 Soft portrait suggestion (non-blocking, mobile only, dismissable) -->
-    <Transition name="portraitHint">
-      <div
-        v-if="portraitSuggestionVisible"
-        class="portraitHint"
-        role="status"
-        aria-live="polite"
-      >
-        <span class="portraitHintIcon">📱↻</span>
-        <span class="portraitHintText">Rotate to landscape for the best experience</span>
-        <button class="portraitHintDismiss" tabindex="-1" @click="dismissPortraitHint">✕</button>
-      </div>
-    </Transition>
 
     <header v-if="screen !== 'landing'" class="topbar" :class="{ tetBar: showMenuChrome, hpTopbar: screen === 'auth', mnTopbar: ['mode','multiplayer','solo'].includes(screen), vsaiTopbarBar: screen === 'story', stTopbar: ['settings','credits'].includes(screen), lbTopbar: screen === 'lobby' }" :style="screen === 'auth' ? { '--hp-topbar-img': `url(${hpAuthTopbarUrl})` } : screen === 'mode' ? { '--mn-topbar-img': `url(${menuTopbarUrl})` } : screen === 'multiplayer' ? { '--mn-topbar-img': `url(${mpTopbarUrl})` } : screen === 'solo' ? { '--mn-topbar-img': `url(${soloTopbarUrl})` } : screen === 'story' ? { '--vsai-topbar-img': `url(${vsaiTopbarUrl})` } : screen === 'settings' ? { '--st-topbar-img': `url(${settingsTopbarUrl})` } : screen === 'credits' ? { '--st-topbar-img': `url(${creditsTopbarUrl})` } : screen === 'lobby' ? { '--lb-topbar-img': `url(${lobbyTopbarNewUrl})` } : {}">
       <!-- TETR.IO-style menu top bar -->
@@ -2501,13 +2488,7 @@ function _tickPhysics() {
     }
   }
 
-  // Only schedule next frame when on menu screens — physics not needed during gameplay
-  const gameScreens = ["couch", "ai", "online", "puzzle"];
-  if (!gameScreens.includes(screen.value)) {
-    _physicsRaf = requestAnimationFrame(_tickPhysics);
-  } else {
-    _physicsRaf = null;
-  }
+  _physicsRaf = requestAnimationFrame(_tickPhysics);
 }
 
 onMounted(() => {
@@ -3331,8 +3312,17 @@ function computeIsPortrait() {
   } catch {}
   isPortrait.value = window.innerHeight > window.innerWidth;
 }
-const landscapeLockActive = computed(() => isInGame.value && !!game.ui?.lockLandscape && isPortrait.value);
 
+// True on phones/tablets — used to show the portrait block overlay
+const isTouchDevice = computed(() => {
+  try {
+    if (window.matchMedia?.('(pointer: coarse)').matches) return true;
+    if ((navigator?.maxTouchPoints ?? 0) > 0) return true;
+  } catch {}
+  return false;
+});
+
+const landscapeLockActive = computed(() => isInGame.value && !!game.ui?.lockLandscape && isPortrait.value);
 // Mobile landscape hint on the auth screen: nudge users to zoom out + hide the
 // URL bar so the full 1920px layout fits comfortably without manual fiddling.
 const mobileAuthLandscapeHintDismissed = ref(false);
@@ -3977,13 +3967,6 @@ watch(loggedIn, async (isIn) => {
 }, { immediate: true });
 
 const isInGame = computed(() => screen.value === "couch" || screen.value === "ai" || screen.value === "online" || screen.value === "puzzle");
-
-// Resume bouncing-pieces physics when returning to menu screens
-watch(isInGame, (inGame) => {
-  if (!inGame && _physicsRaf === null) {
-    _physicsRaf = requestAnimationFrame(_tickPhysics);
-  }
-});
 
 /* ============================================================
    MATCH HISTORY
@@ -9718,27 +9701,35 @@ onBeforeUnmount(() => {
 .rotateOverlay{
   position: fixed;
   inset: 0;
-  z-index: 65;
+  z-index: 9999;
   display: grid;
   place-items: center;
   padding: 18px;
-  background: rgba(0,0,0,0.78);
-  backdrop-filter: blur(10px);
+  background: #0a0a0f;
 }
 .rotateCard{
-  width: min(420px, 92vw);
-  border-radius: 18px;
+  width: min(320px, 90vw);
+  border-radius: 20px;
   border: 1px solid rgba(255,255,255,0.12);
   background:
     radial-gradient(800px 320px at 50% 0%, rgba(0,229,255,0.16), transparent 70%),
     radial-gradient(800px 320px at 50% 100%, rgba(255,43,214,0.14), transparent 70%),
     rgba(255,255,255,0.04);
   box-shadow: 0 20px 70px rgba(0,0,0,0.65);
-  padding: 16px 16px 14px;
+  padding: 32px 24px 28px;
   text-align: center;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 10px;
 }
-.rotateTitle{ font-weight: 1000; letter-spacing: 1.2px; text-transform: uppercase; font-size: 16px; }
-.rotateSub{ margin-top: 6px; opacity: 0.85; font-weight: 700; }
+.rotateIcon{ font-size: 52px; animation: rotatePulse 2s ease-in-out infinite; }
+@keyframes rotatePulse {
+  0%, 100% { transform: rotate(-15deg); }
+  50% { transform: rotate(15deg); }
+}
+.rotateTitle{ font-weight: 1000; letter-spacing: 1.2px; text-transform: uppercase; font-size: 18px; }
+.rotateSub{ margin-top: 4px; opacity: 0.75; font-weight: 600; font-size: 14px; line-height: 1.5; }
 
 /* ── Soft portrait hint banner ─────────────────────────────────── */
 .portraitHint {
@@ -9921,16 +9912,6 @@ onBeforeUnmount(() => {
 @keyframes floaty {
   0%, 100% { transform: translateY(0px) translateX(0px) scale(1); }
   50% { transform: translateY(-18px) translateX(10px) scale(1.05); }
-}
-
-/* ── Mobile: disable expensive animated backgrounds ─────────────────────── */
-@media (pointer: coarse) {
-  /* Stop the spinning conic gradient — blur + animation = heavy compositing */
-  .bgGradient { animation: none; }
-  /* Reduce glow blur radius — blur() is the most expensive filter on mobile */
-  .bgGlow { filter: blur(30px); animation: none; opacity: 0.18; }
-  /* Kill noise texture — multiple radial-gradients repaint on every scroll */
-  .bgNoise { display: none; }
 }
 
 .topbar {
