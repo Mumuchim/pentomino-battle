@@ -188,7 +188,7 @@
             title="Settings (Esc)"
           >⚙</button>
 
-          <button class="btn ghost" v-if="canGoBack" @click="goBack" aria-label="Back">BACK</button>
+          <button class="btn ghost" v-if="canGoBack && screen !== 'puzzle'" @click="goBack" aria-label="Back">BACK</button>
           <button class="btn ghost" v-if="screen !== 'auth'" @click="goAuth" aria-label="Main Menu">MENU</button>
 
           <!-- Couch Play / AI Mode: Undo last placement (local only) -->
@@ -200,7 +200,7 @@
             aria-label="Undo"
             title="Undo"
           >UNDO</button>
-          <button class="btn" v-if="isInGame" @click="onPrimaryMatchAction">{{ primaryMatchActionLabel }}</button>
+          <button class="btn" v-if="isInGame && !(screen === 'puzzle' && game.phase !== 'gameover')" @click="onPrimaryMatchAction">{{ primaryMatchActionLabel }}</button>
         </div>
       </template>
     </header>
@@ -1210,10 +1210,10 @@
             >
               <div class="tbGlow" aria-hidden="true"></div>
               <div class="tbLeft">
-                <div class="tbPhaseTag">{{ screen === 'puzzle' ? 'PUZZLE' : game.phase === 'draft' ? 'DRAFT' : game.phase === 'place' ? 'BATTLE' : 'END' }}</div>
+                <div class="tbPhaseTag">{{ screen === 'puzzle' ? 'ZEN PUZZLE' : game.phase === 'draft' ? 'DRAFT' : game.phase === 'place' ? 'BATTLE' : 'END' }}</div>
                 <div class="tbMain">
                   <span v-if="screen === 'puzzle' && game.phase !== 'gameover'">
-                    YOUR TURN
+                    FILL THE BOARD
                   </span>
                   <span v-else-if="game.phase === 'draft'">
                     <template v-if="screen === 'ai' && game.draftTurn === aiPlayer">
@@ -1328,7 +1328,7 @@
                 <span class="hudLegendItem"><span class="hudSwatch bad"></span> BAD</span>
               </span>
 
-              <span v-if="game.phase === 'place'" class="hudControlsHint">
+              <span v-if="game.phase === 'place' && screen !== 'puzzle'" class="hudControlsHint">
                 <b>Q</b> Rotate &nbsp;·&nbsp; <b>E</b> Flip
               </span>
             </div>
@@ -1337,10 +1337,6 @@
 
           <!-- ── PUZZLE HUD: pieces remaining + cells covered ── -->
           <div v-if="screen === 'puzzle' && game.phase !== 'gameover'" class="puzzleHud">
-            <div class="puzzleHudHeader">
-              <span class="puzzleHudTitle">🧩 ZEN PUZZLE</span>
-              <button class="puzzleFinishBtn" @click="handlePuzzleEnd">FINISH</button>
-            </div>
             <div class="puzzleHudStats">
               <div class="puzzleHudStat">
                 <span class="puzzleHudValue">{{ game.remaining?.[1]?.length ?? 0 }}</span>
@@ -1360,6 +1356,7 @@
             <div class="puzzleProgressBar">
               <div class="puzzleProgressFill" :style="{ width: (puzzleCellsCovered / 60 * 100) + '%' }"></div>
             </div>
+            <button class="puzzleFinishBtn" @click="handlePuzzleEnd">FINISH PUZZLE</button>
           </div>
 
           <DraftPanel v-if="game.phase === 'draft'" />
@@ -4434,6 +4431,7 @@ const primaryMatchActionLabel = computed(() => {
 
 // Fix 19 — show a one-time hint explaining P2's adjacency constraint on their first move
 const showAdjacencyHint = computed(() =>
+  !game.isPuzzle &&
   game.phase === 'place' &&
   game.placedCount > 0 &&
   (game.remaining[2]?.length ?? 0) === (game.picks[2]?.length ?? 0) &&
@@ -6595,6 +6593,7 @@ function _countValidPlacements() {
 // then delay any result modal by 3 seconds.
 let _lastMoveFired = false;
 let _gameoverDelay = 0; // tracks the 3s delay so callers can check
+let _gameoverGen = 0;   // incremented on every new game to cancel stale timeouts
 watch(() => game.phase, (phase) => {
   if (phase === 'draft' || phase === 'place') { _lastMoveFired = false; _gameoverDelay = 0; }
 });
@@ -6926,12 +6925,15 @@ watch(
   () => game.phase,
   (p, prev) => {
     if (p !== "gameover" || prev === "gameover") return;
+    if (screen.value === "puzzle") return; // puzzle handles its own end flow
 
     // Play last_move sound then wait 3s before showing any result
     sfxLastMove();
     _gameoverDelay = Date.now() + 3000;
 
+    const genAtSchedule = ++_gameoverGen;
     setTimeout(() => {
+      if (_gameoverGen !== genAtSchedule) return; // stale — a new game started
       _handleGameover();
     }, 3000);
   }
@@ -8427,9 +8429,11 @@ async function goAuth() {
   // Determine the right "home" screen based on what game was being played
   const homeScreen = screen.value === 'online'
     ? 'multiplayer'
-    : ['ai', 'couch', 'puzzle'].includes(screen.value)
+    : ['ai', 'couch'].includes(screen.value)
       ? 'solo'
-      : 'auth';
+      : screen.value === 'puzzle'
+        ? 'mode'
+        : 'auth';
 
   // ✅ If the player is currently in a match, confirm first.
   if (isInGame.value) {
@@ -8552,10 +8556,12 @@ const PUZZLE_PIECES = ["F","I","L","P","N","T","U","V","W","X","Y","Z"];
 function startPuzzleMode() {
   stopPolling();
   _puzzleEndFired = false; // reset double-fire guard for fresh run
+  _gameoverGen++;          // cancel any pending gameover timeout from previous run
   myPlayer.value = null;
   game.boardW = 10;
   game.boardH = 6;
   game.allowFlip = true;
+  game.isPuzzle = true;
   try { game.$patch(s => { s.ui.confirmMove = confirmMove.value; }); } catch {}
   // Give P2 a single dummy piece so the store's playerHasAnyMove(2) check
   // after each P1 placement never triggers an immediate gameover.
@@ -8585,19 +8591,21 @@ let _puzzleEndFired = false;
 function handlePuzzleEnd() {
   if (_puzzleEndFired) return;
   _puzzleEndFired = true;
+  game.isPuzzle = false;
 
   const covered = puzzleCellsCovered.value;
   const pct = Math.round((covered / 60) * 100);
-  const emoji = covered === 60 ? "🎉 PERFECT!" : covered >= 48 ? "⭐ Great!" : covered >= 30 ? "👍 Good effort!" : "💪 Keep practicing!";
+  const isPerfect = covered === 60;
+  const emoji = isPerfect ? "🎉 PERFECT!" : covered >= 48 ? "⭐ Great!" : covered >= 30 ? "👍 Good effort!" : "💪 Keep practicing!";
 
-  if (game.phase !== "gameover") {
-    game.phase = "gameover";
-  }
+  // Never set gameover for zen puzzle — keep phase as-is so clicking outside
+  // the modal doesn't strand the player on a dead screen.
 
   showModal({
-    title: "PUZZLE COMPLETE",
-    tone: covered === 60 ? "victory" : "good",
+    title: isPerfect ? "PUZZLE COMPLETE" : "PUZZLE INCOMPLETE",
+    tone: isPerfect ? "victory" : "good",
     message: `${emoji}\n\nYou covered ${covered} / 60 cells  (${pct}%)`,
+    locked: true, // prevent accidental dismiss by clicking outside
     actions: [
       { label: "Try Again", tone: "primary", onClick: () => { closeModal(); startPuzzleMode(); } },
       { label: "Main Menu", tone: "soft",    onClick: () => { closeModal(); screen.value = "solo"; } },
@@ -12280,14 +12288,15 @@ onBeforeUnmount(() => {
 /* P1 = cyan */
 /* Puzzle mode = teal/green neutral tone */
 .turnBanner.tbPuzzle{
-  border-color: rgba(61,255,160,0.25);
-  box-shadow: 0 0 0 1px rgba(61,255,160,0.06) inset, 0 8px 32px rgba(0,0,0,0.40);
+  border-color: rgba(220,50,50,0.35);
+  box-shadow: 0 0 0 1px rgba(220,50,50,0.08) inset, 0 8px 32px rgba(0,0,0,0.40);
 }
 .turnBanner.tbPuzzle .tbGlow{
-  background: radial-gradient(ellipse 140% 100% at 0% 50%, rgba(61,255,160,0.10), transparent 65%);
+  background: radial-gradient(ellipse 140% 100% at 0% 50%, rgba(220,50,50,0.13), transparent 65%);
   opacity: 1;
 }
-.turnBanner.tbPuzzle .tbMain{ color: rgba(61,255,160,0.90); }
+.turnBanner.tbPuzzle .tbMain{ color: rgba(255,100,100,0.95); }
+.turnBanner.tbPuzzle .tbPhaseTag{ color: rgba(255,100,100,0.70); }
 .turnBanner.tbP1{
   border-color: rgba(0,229,255,0.30);
   box-shadow: 0 0 0 1px rgba(0,229,255,0.08) inset, 0 8px 32px rgba(0,0,0,0.40);
@@ -12591,7 +12600,7 @@ onBeforeUnmount(() => {
   gap: 10px;
   padding: 12px 14px;
   background: rgba(255,255,255,0.04);
-  border: 1px solid rgba(61,255,160,0.15);
+  border: 1px solid rgba(220,50,50,0.25);
   border-radius: 12px;
   margin-bottom: 10px;
 }
@@ -12605,7 +12614,7 @@ onBeforeUnmount(() => {
   font-size: 10px;
   font-weight: 900;
   letter-spacing: 2px;
-  color: rgba(61,255,160,0.80);
+  color: rgba(255,100,100,0.80);
   text-transform: uppercase;
 }
 .puzzleHudStats {
@@ -12654,7 +12663,7 @@ onBeforeUnmount(() => {
 }
 .puzzleProgressFill {
   height: 100%;
-  background: linear-gradient(90deg, #3dffa0, #00e5ff);
+  background: linear-gradient(90deg, #e03030, #ff6060);
   border-radius: 999px;
   transition: width 0.4s ease;
 }
@@ -12666,17 +12675,17 @@ onBeforeUnmount(() => {
   text-transform: uppercase;
   padding: 7px 14px;
   border-radius: 8px;
-  border: 1px solid rgba(61,255,160,0.35);
-  background: rgba(61,255,160,0.10);
-  color: rgba(61,255,160,0.90);
+  border: 1px solid rgba(220,50,50,0.45);
+  background: rgba(220,50,50,0.12);
+  color: rgba(255,100,100,0.90);
   cursor: pointer;
   transition: background .15s, border-color .15s, color .15s;
   white-space: nowrap;
 }
 .puzzleFinishBtn:hover {
-  background: rgba(61,255,160,0.20);
-  border-color: rgba(61,255,160,0.60);
-  color: #3dffa0;
+  background: rgba(220,50,50,0.25);
+  border-color: rgba(220,50,50,0.70);
+  color: #ff6060;
 }
 .hintSmall{ margin-top: 10px; opacity:.75; font-size: 12px; }
 .turnBadge{ padding: 8px 10px; border-radius: 999px; font-weight: 900; border: 1px solid rgba(255,255,255,.12); background: rgba(255,255,255,.06); }

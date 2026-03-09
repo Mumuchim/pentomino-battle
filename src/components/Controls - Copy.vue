@@ -13,7 +13,7 @@
         Flip (E)
       </button>
 
-      <button v-if="!game.isPuzzle" class="btn" :disabled="props.isOnline || !props.canAct" @click="toggleFlipAllowed">
+      <button class="btn" :disabled="props.isOnline || !props.canAct" @click="toggleFlipAllowed">
         Allow Flip: <b>{{ game.allowFlip ? "ON" : "OFF" }}</b>
       </button>
     </div>
@@ -30,7 +30,7 @@
       </button>
     </div>
 
-    <div v-if="!game.isPuzzle" class="muted small">
+    <div class="muted small">
       Drag a piece onto the board to preview. Click a cell to place too.
     </div>
   </div>

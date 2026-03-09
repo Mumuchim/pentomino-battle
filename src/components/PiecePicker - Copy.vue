@@ -1,42 +1,5 @@
 <template>
   <div class="picker">
-
-    <!-- ── PUZZLE MODE: single column, P1 only (mirrors online single-player view) ── -->
-    <template v-if="game.isPuzzle">
-      <div class="draftCol active">
-        <div class="draftHead p1">
-          <span class="headLeft">Your Pieces</span>
-          <span class="count">{{ game.remaining[1].length }}</span>
-          <span
-            class="trayAnchor"
-            data-tray="1"
-            data-tray-context="battle"
-            aria-hidden="true"
-          ></span>
-        </div>
-        <div class="chips big puzzleChips">
-          <button
-            v-for="k in game.remaining[1]"
-            :key="'pz-' + k"
-            class="chipBtn mine"
-            :class="[{ dragging: activeDragKey === k, selected: game.selectedPieceKey === k }]"
-            draggable="false"
-            @dragstart.prevent
-            @click="onPick(1, k)"
-            @pointerdown="onPiecePointerDown(1, k, $event)"
-            title="Drag to board or click to select"
-          >
-            <PiecePreview :pieceKey="k" :cell="cell" />
-          </button>
-          <div v-if="game.remaining[1].length === 0" class="emptyNote">
-            All pieces placed!
-          </div>
-        </div>
-      </div>
-    </template>
-
-    <!-- ── BATTLE MODE: P1 / P2 two-column layout ── -->
-    <template v-else>
     <div class="draftRow">
       <!-- PLAYER 1 -->
       <div class="draftCol" :class="{ active: canSelect(1) }">
@@ -110,8 +73,6 @@
         </div>
       </div>
     </div>
-    </template>
-
   </div>
 </template>
 
@@ -411,9 +372,6 @@ onBeforeUnmount(() => {
 
 .draftCol { min-width: 0; }
 
-/* Puzzle mode: single column fills full width */
-.picker > .draftCol { width: 100%; }
-
 .draftCol.active .draftHead { filter: brightness(1.08); }
 .draftCol.active .draftHead::after {
   content: "";
@@ -459,10 +417,6 @@ onBeforeUnmount(() => {
   flex-wrap: wrap;
   gap: 10px;
   min-height: 64px;
-}
-
-.chips.big.puzzleChips {
-  justify-content: center;
 }
 
 .chipBtn {

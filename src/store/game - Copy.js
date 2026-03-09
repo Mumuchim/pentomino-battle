@@ -164,7 +164,6 @@ export const useGameStore = defineStore("game", {
 
     remaining: { 1: [], 2: [] },
     placedCount: 0,
-    isPuzzle: false,
 
     selectedPieceKey: null,
     rotation: 0,
@@ -577,12 +576,12 @@ export const useGameStore = defineStore("game", {
       const shape = this.selectedCells;
       if (!shape.length) return false;
       // Fix 2 — use the single canonical validator shared with aiEngine.js
-      return validatePlacement(this.board, shape, anchorX, anchorY, this.boardW, this.boardH, this.isPuzzle ? 0 : this.placedCount) !== null;
+      return validatePlacement(this.board, shape, anchorX, anchorY, this.boardW, this.boardH, this.placedCount) !== null;
     },
 
     placeAt(anchorX, anchorY) {
       // Fix 2 — use canonical validator so legality logic is defined in exactly one place
-      const abs = validatePlacement(this.board, this.selectedCells, anchorX, anchorY, this.boardW, this.boardH, this.isPuzzle ? 0 : this.placedCount);
+      const abs = validatePlacement(this.board, this.selectedCells, anchorX, anchorY, this.boardW, this.boardH, this.placedCount);
       if (!abs) return false;
 
       // Couch Play undo support: snapshot BEFORE mutating
@@ -613,21 +612,15 @@ export const useGameStore = defineStore("game", {
       this.timeoutPendingAt = null;
       this.timeoutPendingPlayer = null;
 
-      // clear selection
-      this.selectedPieceKey = null;
-      this.rotation = 0;
-      this.flipped = false;
-
-      if (this.isPuzzle) {
-        // Puzzle: always stay on P1, no gameover check here
-        // (puzzle end is handled by the watcher in App.vue)
-        return true;
-      }
-
       // next player
       this.currentPlayer = this.currentPlayer === 1 ? 2 : 1;
       this.turnStartedAt = Date.now();
       this.battleClockLastTickAt = Date.now();
+
+      // clear selection
+      this.selectedPieceKey = null;
+      this.rotation = 0;
+      this.flipped = false;
 
       // if next player has no moves => loses
       if (!this.playerHasAnyMove(this.currentPlayer)) {
@@ -635,30 +628,6 @@ export const useGameStore = defineStore("game", {
         this.winner = this.currentPlayer === 1 ? 2 : 1;
       }
 
-      return true;
-    },
-
-    // Puzzle only: pick up an already-placed piece back into the tray
-    liftPiece(x, y) {
-      if (!this.isPuzzle) return false;
-      const cell = this.board[y]?.[x];
-      if (!cell) return false;
-      const { player, pieceKey } = cell;
-      // Clear all cells belonging to this piece
-      for (let row = 0; row < this.boardH; row++) {
-        for (let col = 0; col < this.boardW; col++) {
-          const c = this.board[row][col];
-          if (c && c.pieceKey === pieceKey && c.player === player) {
-            this.board[row][col] = null;
-          }
-        }
-      }
-      this.placedCount = Math.max(0, this.placedCount - 1);
-      this.remaining[player].push(pieceKey);
-      // Auto-select the lifted piece so it follows the cursor immediately
-      this.selectedPieceKey = pieceKey;
-      this.rotation = 0;
-      this.flipped = false;
       return true;
     },
 

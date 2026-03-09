@@ -617,23 +617,8 @@ function onShellPointerMove(e) {
 function onShellPointerDown(e) {
   if (!e.isPrimary) return;
   if (game.phase !== 'place') return;
-  if (game.drag?.active) return; // PiecePicker drag in flight — don't interfere
-
-  // Puzzle: pointerdown on an occupied cell with no piece selected => lift it
-  if (game.isPuzzle && !game.selectedPieceKey) {
-    updateHoverFromClientXY(e.clientX, e.clientY);
-    const t = targetCell.value;
-    if (t && game.board[t.y]?.[t.x]) {
-      game.liftPiece(t.x, t.y);
-      e.currentTarget.setPointerCapture(e.pointerId);
-      boardDragging.value = true;
-      game.beginDrag(game.selectedPieceKey, e.clientX, e.clientY);
-      if (e.pointerType === 'touch') e.preventDefault();
-      return;
-    }
-  }
-
   if (!game.selectedPieceKey) return;
+  if (game.drag?.active) return; // PiecePicker drag in flight — don't interfere
   // Capture pointer so we continue receiving move/up even outside the element
   e.currentTarget.setPointerCapture(e.pointerId);
   boardDragging.value = true;
@@ -715,16 +700,9 @@ function onCellClick(x, y, evt) {
   }
 
   if (game.phase !== "place") return;
-  if (!props.canAct) return;
-
-  // Puzzle: clicking an occupied cell lifts the piece back to the tray
-  if (game.isPuzzle && !game.selectedPieceKey && game.board[y]?.[x]) {
-    game.liftPiece(x, y);
-    return;
-  }
-
   if (!game.ui?.enableClickPlace) return;
   if (!game.selectedPieceKey) return;
+  if (!props.canAct) return;
 
   // While a piece is staged (pendingPlace set), tapping any cell repositions the ghost
   if (game.ui?.requireSubmit && game.pendingPlace) {
