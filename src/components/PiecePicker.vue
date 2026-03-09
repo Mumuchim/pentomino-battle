@@ -119,6 +119,12 @@ function onGlobalPointerDown(e) {
   if (board?.contains(e.target)) return;
   if (picker?.contains(e.target)) return;
 
+  // Allow taps on the mobile action bar (Rotate / Flip / Submit buttons).
+  // These are teleported to <body> so they're outside .boardSizer and .picker,
+  // but tapping them must NOT deselect the piece — their handlers run after this.
+  const mobileBar = document.querySelector('.mobileActionBar');
+  if (mobileBar?.contains(e.target)) return;
+
   game.clearSelection();
 }
 
