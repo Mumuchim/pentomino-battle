@@ -7601,8 +7601,8 @@ async function _handleGameover() {
           ],
     });
 
-    // ✅ Record match result to pb_matches (both clients call; server deduplicates)
-    if (isOnline.value && online.lobbyId) {
+    // ✅ Record match result to pb_matches (HOST ONLY — plain INSERT, no dedup race)
+    if (isOnline.value && online.lobbyId && online.role === "host") {
       (async () => {
         try {
           const lobby  = await sbSelectLobbyById(online.lobbyId);
@@ -7647,20 +7647,18 @@ async function _handleGameover() {
                        : "standard",
           });
 
-          // ── HOST-ONLY: save replay row and back-link to match ────────────
-          if (online.role === "host") {
-            const replayId = await replayLogger.saveReplay({
-              matchId,
-              winnerId,
-              endReason,
-              finalBoard: game.board,
-              finalPicks: game.picks,
-            });
-            if (matchId && replayId) {
-              await replayLogger.linkReplayToMatch(matchId, replayId);
-            }
-            replayLogger.clearReplay();
+          // ── Save replay row and back-link to match ─────────────────────
+          const replayId = await replayLogger.saveReplay({
+            matchId,
+            winnerId,
+            endReason,
+            finalBoard: game.board,
+            finalPicks: game.picks,
+          });
+          if (matchId && replayId) {
+            await replayLogger.linkReplayToMatch(matchId, replayId);
           }
+          replayLogger.clearReplay();
 
           // ── Fetch LP delta for ranked matches and update modal message ────
           if (meta?.mode === "ranked" || lobby?.mode === "ranked") {
