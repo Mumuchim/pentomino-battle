@@ -2999,6 +2999,7 @@ function closeChat(friendId) {
   if (idx === -1) return;
   const chat = openChats.value[idx];
   chat.sub?.unsubscribe?.();
+  if (chat._pollTimer) clearInterval(chat._pollTimer);
   openChats.value.splice(idx, 1);
 }
 
@@ -3034,23 +3035,19 @@ function subscribeChatRealtime(chat) {
       const uid = await ensureMyUserId();
       if (!uid || !supabase) return;
 
+      // Use Broadcast (no RLS/replica-identity config needed) for real-time delivery.
+      // Channel name is deterministic and shared between both participants.
+      const channelName = `pb_chat_${[uid, chat.friendId].sort().join('_')}`;
       const channel = supabase
-        .channel(`pb_chat_${[uid, chat.friendId].sort().join('_')}`)
-        .on('postgres_changes', {
-          event: 'INSERT',
-          schema: 'public',
-          table: 'pb_messages',
-          filter: `to_id=eq.${uid}`,
-        }, (payload) => {
-          const msg = payload.new;
+        .channel(channelName)
+        .on('broadcast', { event: 'new_message' }, ({ payload: msg }) => {
+          if (!msg) return;
           const isOurs = (msg.from_id === uid && msg.to_id === chat.friendId) ||
                          (msg.from_id === chat.friendId && msg.to_id === uid);
           if (!isOurs) return;
-          // Avoid duplicate if we pushed it optimistically
           if (!chat.messages.find(m => m.id === msg.id)) {
             chat.messages.push(msg);
             nextTickScrollChat(chat.friendId);
-            // Mark as read if it's incoming and window is open
             if (msg.to_id === uid && !chat.minimized) {
               supabase.from('pb_messages').update({ read: true }).eq('id', msg.id).then(() => {});
             }
@@ -3059,6 +3056,27 @@ function subscribeChatRealtime(chat) {
         .subscribe();
 
       chat.sub = channel;
+
+      // Polling fallback every 4s: catches messages missed by broadcast
+      chat._pollTimer = setInterval(async () => {
+        try {
+          const latest = chat.messages.at(-1);
+          const since = latest?.created_at ?? new Date(0).toISOString();
+          const { data } = await supabase
+            .from('pb_messages')
+            .select('id, from_id, to_id, content, created_at, read')
+            .or(`and(from_id.eq.${uid},to_id.eq.${chat.friendId}),and(from_id.eq.${chat.friendId},to_id.eq.${uid})`)
+            .gt('created_at', since)
+            .order('created_at', { ascending: true });
+          (data || []).forEach(msg => {
+            if (!chat.messages.find(m => m.id === msg.id)) {
+              chat.messages.push(msg);
+              nextTickScrollChat(chat.friendId);
+            }
+          });
+        } catch {}
+      }, 4000);
+
     } catch (e) { console.warn('subscribeChatRealtime error', e); }
   })();
 }
@@ -3083,6 +3101,13 @@ async function sendMessage(chat) {
     if (!error && data) {
       const idx = chat.messages.findIndex(m => m.id === tempMsg.id);
       if (idx !== -1) chat.messages[idx] = data;
+      // Broadcast the real message to the recipient in real-time
+      const channelName = `pb_chat_${[uid, chat.friendId].sort().join('_')}`;
+      try {
+        await supabase.channel(channelName).send({
+          type: 'broadcast', event: 'new_message', payload: data,
+        });
+      } catch {}
     }
   } catch (e) { console.warn('sendMessage error', e); }
 }
