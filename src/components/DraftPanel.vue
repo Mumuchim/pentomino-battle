@@ -2,26 +2,26 @@
   <section class="panel">
     <h2 class="panelTitle">Picks</h2>
 
-    <!-- Online: show only your own picks -->
+    <!-- Online: standard = active drafter's picks; MW/BD = your picks only -->
     <template v-if="props.isOnline && props.myPlayer">
       <div class="draftCol">
-        <div class="draftHead" :class="props.myPlayer === 1 ? 'p1' : 'p2'">
-          Your Picks
+        <div class="draftHead" :class="draftShowPlayer === 1 ? 'p1' : 'p2'">
+          {{ draftShowPlayer === props.myPlayer ? 'Your Picks' : `P${draftShowPlayer} Picks` }}
           <span
             class="trayAnchor"
-            :data-tray="props.myPlayer"
+            :data-tray="draftShowPlayer"
             data-tray-context="draft"
             aria-hidden="true"
           ></span>
         </div>
         <div class="chips big">
           <PiecePreview
-            v-for="k in game.picks[props.myPlayer]"
+            v-for="k in game.picks[draftShowPlayer]"
             :key="k"
             :pieceKey="k"
             :cell="cell"
           />
-          <div v-if="game.picks[props.myPlayer].length === 0" class="emptyNote">
+          <div v-if="game.picks[draftShowPlayer].length === 0" class="emptyNote">
             None yet
           </div>
         </div>
@@ -106,16 +106,24 @@
 </template>
 
 <script setup>
-import { onBeforeUnmount, onMounted, ref } from "vue";
+import { computed, onBeforeUnmount, onMounted, ref } from "vue";
 import { useGameStore } from "../store/game";
 import PiecePreview from "./PiecePreview.vue";
 
 const props = defineProps({
   isOnline: { type: Boolean, default: false },
   myPlayer: { type: [Number, null], default: null },
+  matchKind: { type: [String, null], default: null },
 });
 
 const game = useGameStore();
+
+// Standard: follow active drafter. MW/BD: show only your own picks.
+const draftShowPlayer = computed(() => {
+  if (!props.isOnline || !props.myPlayer) return null;
+  const isStandard = !props.matchKind || props.matchKind === 'quickmatch';
+  return isStandard ? game.draftTurn : props.myPlayer;
+});
 
 // Fit-to-viewport: shrink preview tiles on shorter screens (no scroll in-game)
 const cell = ref(20);

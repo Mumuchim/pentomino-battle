@@ -35,38 +35,38 @@
       </div>
     </template>
 
-    <!-- ── BATTLE MODE: online = single column (your pieces only); couch/AI = two columns ── -->
+    <!-- ── BATTLE MODE: online = single column (active player's pieces); couch/AI = two columns ── -->
     <template v-else>
 
-    <!-- Online: show only your own pieces -->
+    <!-- Online: standard = active player's pieces (opponent visible but dimmed); MW/BD = your pieces only -->
     <template v-if="props.isOnline && props.myPlayer">
-      <div class="draftCol active">
-        <div class="draftHead" :class="props.myPlayer === 1 ? 'p1' : 'p2'">
-          <span class="headLeft">Your Pieces</span>
-          <span class="count">{{ game.remaining[props.myPlayer].length }}</span>
+      <div class="draftCol" :class="{ active: canSelect(onlineShowPlayer) }">
+        <div class="draftHead" :class="onlineShowPlayer === 1 ? 'p1' : 'p2'">
+          <span class="headLeft">{{ onlineShowPlayer === props.myPlayer ? 'Your Pieces' : `P${onlineShowPlayer} Pieces` }}</span>
+          <span class="count">{{ game.remaining[onlineShowPlayer].length }}</span>
           <span
             class="trayAnchor"
-            :data-tray="props.myPlayer"
+            :data-tray="onlineShowPlayer"
             data-tray-context="battle"
             aria-hidden="true"
           ></span>
         </div>
         <div class="chips big puzzleChips">
           <button
-            v-for="k in game.remaining[props.myPlayer]"
-            :key="'my-' + k"
+            v-for="k in game.remaining[onlineShowPlayer]"
+            :key="'cur-' + k"
             class="chipBtn"
-            :class="[btnClass(props.myPlayer, k), { dragging: activeDragKey === k }]"
-            :disabled="!canSelect(props.myPlayer)"
+            :class="[btnClass(onlineShowPlayer, k), { dragging: activeDragKey === k }]"
+            :disabled="!canSelect(onlineShowPlayer)"
             draggable="false"
             @dragstart.prevent
-            @click="onPick(props.myPlayer, k)"
-            @pointerdown="onPiecePointerDown(props.myPlayer, k, $event)"
-            title="Drag to board or click to select"
+            @click="onPick(onlineShowPlayer, k)"
+            @pointerdown="onPiecePointerDown(onlineShowPlayer, k, $event)"
+            :title="canSelect(onlineShowPlayer) ? 'Drag to board or click to select' : 'Enemy piece (visible only)'"
           >
             <PiecePreview :pieceKey="k" :cell="cell" />
           </button>
-          <div v-if="game.remaining[props.myPlayer].length === 0" class="emptyNote">
+          <div v-if="game.remaining[onlineShowPlayer].length === 0" class="emptyNote">
             No pieces left
           </div>
         </div>
@@ -155,7 +155,7 @@
 </template>
 
 <script setup>
-import { onBeforeUnmount, onMounted, ref } from "vue";
+import { computed, onBeforeUnmount, onMounted, ref } from "vue";
 import { useGameStore } from "../store/game";
 import { playBuzz } from "../lib/sfx";
 import PiecePreview from "./PiecePreview.vue";
@@ -164,6 +164,15 @@ const props = defineProps({
   isOnline: { type: Boolean, default: false },
   myPlayer: { type: [Number, null], default: null },
   canAct: { type: Boolean, default: true },
+  matchKind: { type: [String, null], default: null },
+});
+
+// In standard online, column follows the active player (opponent visible but dimmed).
+// In mirror_war / blind_draft, only show your own pieces.
+const onlineShowPlayer = computed(() => {
+  if (!props.isOnline || !props.myPlayer) return null;
+  const isStandard = !props.matchKind || props.matchKind === 'quickmatch';
+  return isStandard ? game.currentPlayer : props.myPlayer;
 });
 
 const game = useGameStore();
