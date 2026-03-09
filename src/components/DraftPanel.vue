@@ -2,139 +2,65 @@
   <section class="panel">
     <h2 class="panelTitle">Picks</h2>
 
-    <!-- Online: show your picks on top, opponent picks below -->
-    <template v-if="props.isOnline && props.myPlayer">
-      <div class="draftStack">
+    <!-- Unified stacked layout: top player = you / P1, bottom = opponent / P2 -->
+    <div class="draftStack">
 
-        <!-- YOUR picks (always on top) -->
-        <div class="draftCol">
-          <div class="draftHead" :class="props.myPlayer === 1 ? 'p1' : 'p2'">
-            <span class="nameGroup">
-              <span class="draftName">{{ myName }}</span>
-              <span class="youTag">YOU</span>
-            </span>
-            <span
-              class="trayAnchor"
-              :data-tray="props.myPlayer"
-              data-tray-context="draft"
-              aria-hidden="true"
-            ></span>
-          </div>
-          <div class="chips big">
-            <PiecePreview
-              v-for="k in game.picks[props.myPlayer]"
-              :key="k"
-              :pieceKey="k"
-              :cell="cell"
-            />
-            <div v-if="game.picks[props.myPlayer].length === 0" class="emptyNote">
-              None yet
-            </div>
-          </div>
-        </div>
-
-        <div class="stackDivider"></div>
-
-        <!-- OPPONENT picks (always below) -->
-        <div class="draftCol">
-          <div class="draftHead" :class="opponentPlayer === 1 ? 'p1' : 'p2'">
-            <span class="draftName">{{ opponentName }}</span>
-            <span
-              class="trayAnchor"
-              :data-tray="opponentPlayer"
-              data-tray-context="draft"
-              aria-hidden="true"
-            ></span>
-          </div>
-          <div class="chips big">
-            <PiecePreview
-              v-for="k in game.picks[opponentPlayer]"
-              :key="k"
-              :pieceKey="k"
-              :cell="cell"
-            />
-            <div v-if="game.picks[opponentPlayer].length === 0" class="emptyNote">
-              None yet
-            </div>
-          </div>
-        </div>
-
-      </div>
-    </template>
-
-    <!-- Couch / AI: two-column layout (unchanged) -->
-    <template v-else>
-    <div class="draftRow">
-
-      <!-- PLAYER 1 -->
+      <!-- TOP: your player (online/AI) or P1 (couch) -->
       <div class="draftCol">
-        <div class="draftHead p1">
-          Player 1
-
-          <!-- Animation anchor -->
+        <div class="draftHead" :class="topPlayer === 1 ? 'p1' : 'p2'">
+          <span class="nameGroup">
+            <span class="draftName">{{ topName }}</span>
+            <span v-if="showYouTag" class="youTag">YOU</span>
+          </span>
           <span
             class="trayAnchor"
-            data-tray="1"
+            :data-tray="topPlayer"
             data-tray-context="draft"
             aria-hidden="true"
           ></span>
         </div>
-
         <div class="chips big">
           <PiecePreview
-            v-for="k in game.picks[1]"
+            v-for="k in game.picks[topPlayer]"
             :key="k"
             :pieceKey="k"
             :cell="cell"
           />
-
-          <div
-            v-if="game.picks[1].length === 0"
-            class="emptyNote"
-          >
-            None yet
-          </div>
+          <div v-if="game.picks[topPlayer].length === 0" class="emptyNote">None yet</div>
         </div>
       </div>
 
-      <!-- PLAYER 2 -->
-      <div class="draftCol">
-        <div class="draftHead p2">
-          Player 2
+      <div class="stackDivider"></div>
 
+      <!-- BOTTOM: opponent (online/AI) or P2 (couch) -->
+      <div class="draftCol">
+        <div class="draftHead" :class="bottomPlayer === 1 ? 'p1' : 'p2'">
+          <span class="draftName">{{ bottomName }}</span>
           <span
             class="trayAnchor"
-            data-tray="2"
+            :data-tray="bottomPlayer"
             data-tray-context="draft"
             aria-hidden="true"
           ></span>
         </div>
-
         <div class="chips big">
           <PiecePreview
-            v-for="k in game.picks[2]"
+            v-for="k in game.picks[bottomPlayer]"
             :key="k"
             :pieceKey="k"
             :cell="cell"
           />
-
-          <div
-            v-if="game.picks[2].length === 0"
-            class="emptyNote"
-          >
-            None yet
-          </div>
+          <div v-if="game.picks[bottomPlayer].length === 0" class="emptyNote">None yet</div>
         </div>
       </div>
 
     </div>
-    </template>
 
     <div class="divider"></div>
 
     <div class="muted">
       Remaining: <b>{{ game.pool.length }}</b> / 12 ·
-      Next pick: <b>P{{ game.draftTurn }}</b>
+      Next pick: <b>{{ draftTurnName }}</b>
     </div>
   </section>
 </template>
@@ -154,17 +80,27 @@ const props = defineProps({
 
 const game = useGameStore();
 
-// Opponent is whichever player you are not
-const opponentPlayer = computed(() => props.myPlayer === 1 ? 2 : 1);
+// topPlayer: "you" (online/AI have myPlayer set) or P1 (couch: myPlayer is null)
+const topPlayer    = computed(() => props.myPlayer ?? 1);
+const bottomPlayer = computed(() => topPlayer.value === 1 ? 2 : 1);
 
-// Resolved IGN for each slot, falling back to "P1"/"P2"
-const myName = computed(() => {
-  const n = props.myPlayer === 1 ? props.p1Name : props.p2Name;
-  return n || `P${props.myPlayer}`;
+// Show YOU badge only in online/AI modes where we know who the human is
+const showYouTag = computed(() => props.myPlayer !== null);
+
+// Display names
+const topName = computed(() => {
+  const n = topPlayer.value === 1 ? props.p1Name : props.p2Name;
+  return n || (props.myPlayer !== null ? 'Your Picks' : `Player ${topPlayer.value}`);
 });
-const opponentName = computed(() => {
-  const n = opponentPlayer.value === 1 ? props.p1Name : props.p2Name;
-  return n || `P${opponentPlayer.value}`;
+const bottomName = computed(() => {
+  const n = bottomPlayer.value === 1 ? props.p1Name : props.p2Name;
+  return n || `Player ${bottomPlayer.value}`;
+});
+
+// Name of whoever's turn it is in the "Next pick" footer
+const draftTurnName = computed(() => {
+  const n = game.draftTurn === 1 ? props.p1Name : props.p2Name;
+  return n || `P${game.draftTurn}`;
 });
 
 // Fit-to-viewport: shrink preview tiles on shorter screens (no scroll in-game)
@@ -206,12 +142,6 @@ onBeforeUnmount(() => {
   height: 1px;
   background: rgba(255,255,255,0.08);
   margin: 14px 0;
-}
-
-.draftRow {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 14px;
 }
 
 .draftStack {

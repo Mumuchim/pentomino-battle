@@ -4579,7 +4579,6 @@ const resultBigTitle = computed(() => {
 const resultSubTitle = computed(() => {
   if (!isResultModal.value) return "";
   const t = String(modal.title || "").toUpperCase().trim();
-  if (t === "VICTORY") return "YOU WIN";
   if (t === "DEFEAT") return "YOU LOSE";
   return "";
 });
@@ -5944,7 +5943,14 @@ async function startPollingLobby(lobbyId, role, modeHint = null) {
       online.lastHostId = lobby.host_id || null;
 
       const terminateReason = lobby?.state?.meta?.terminateReason || null;
-      if (lobby.status === "closed" || terminateReason === "host_left") {
+      const safeTerminateReasons = ["ended", "gameover_timeout", "auto_dodge"];
+      const isNormalEnd = safeTerminateReasons.includes(terminateReason);
+
+      // Only show "Match Terminated" if the game didn't already end normally.
+      // If phase is "gameover", _handleGameover() will show the correct VICTORY/DEFEAT modal.
+      // Without this guard, a lobby closing during the 3s pre-result delay shows "Match Terminated"
+      // instead of the result, stomping the VICTORY/DEFEAT screen.
+      if ((lobby.status === "closed" || terminateReason === "host_left") && !isNormalEnd && game.phase !== "gameover") {
         stopPolling();
         myPlayer.value = null;
         screen.value = "multiplayer";
@@ -6002,6 +6008,8 @@ async function startPollingLobby(lobbyId, role, modeHint = null) {
 
         if ((staleHard || staleOnGameOver) && oppRole === "host") {
           // Guest detected that the HOST vanished — terminate and leave.
+          // Don't interrupt if we're already showing a game-over result.
+          if (game.phase === "gameover" && modal.open) return;
           try {
             await sbCloseAndNukeLobby(lobbyId, { terminateReason: "host_timeout", reason: "heartbeat" });
           } catch {
@@ -6771,7 +6779,7 @@ function winnerMessage(w) {
       : "Match ended.";
   }
 
-  return w === me ? "You win!\nGG!" : "Opponent wins.\nGG!";
+  return w === me ? "GG!" : `${w === 1 ? panelP1Name.value : panelP2Name.value} wins.\nGG!`;
 }
 
 function stopAndExitToMenu(note = "") {
@@ -10478,20 +10486,19 @@ onBeforeUnmount(() => {
 
 /* Victory variant */
 .resultModal.victory{
-  border-color: rgba(0,229,255,0.25);
+  border-color: rgba(80,201,238,0.28);
   box-shadow:
     0 30px 120px rgba(0,0,0,0.80),
-    0 0 0 1px rgba(0,229,255,0.10) inset,
-    0 0 60px rgba(0,229,255,0.12),
-    0 0 40px rgba(255,43,214,0.08);
+    0 0 0 1px rgba(80,201,238,0.12) inset,
+    0 0 60px rgba(80,201,238,0.15);
 }
 /* Defeat variant */
 .resultModal.defeat{
-  border-color: rgba(255,40,80,0.25);
+  border-color: rgba(238,75,114,0.28);
   box-shadow:
     0 30px 120px rgba(0,0,0,0.80),
-    0 0 0 1px rgba(255,40,80,0.10) inset,
-    0 0 60px rgba(255,40,80,0.12);
+    0 0 0 1px rgba(238,75,114,0.12) inset,
+    0 0 60px rgba(238,75,114,0.15);
 }
 /* Couch P1 */
 .resultModal.couchP1{
@@ -10514,18 +10521,18 @@ onBeforeUnmount(() => {
 .rmAura1{
   width: 500px; height: 200px;
   top: -80px; left: 50%; transform: translateX(-50%);
-  background: radial-gradient(ellipse at 50% 50%, rgba(0,229,255,0.22), transparent 70%);
+  background: radial-gradient(ellipse at 50% 50%, rgba(80,201,238,0.22), transparent 70%);
   filter: blur(28px);
 }
 .rmAura2{
   width: 400px; height: 160px;
   bottom: -60px; left: 50%; transform: translateX(-50%);
-  background: radial-gradient(ellipse at 50% 50%, rgba(255,43,214,0.16), transparent 70%);
+  background: radial-gradient(ellipse at 50% 50%, rgba(80,201,238,0.10), transparent 70%);
   filter: blur(24px);
   animation-delay: -1.5s;
 }
-.resultModal.defeat .rmAura1{ background: radial-gradient(ellipse at 50% 50%, rgba(255,40,80,0.22), transparent 70%); }
-.resultModal.defeat .rmAura2{ background: radial-gradient(ellipse at 50% 50%, rgba(255,120,0,0.12), transparent 70%); }
+.resultModal.defeat .rmAura1{ background: radial-gradient(ellipse at 50% 50%, rgba(238,75,114,0.25), transparent 70%); }
+.resultModal.defeat .rmAura2{ background: radial-gradient(ellipse at 50% 50%, rgba(180,30,60,0.12), transparent 70%); }
 .resultModal.couchP1 .rmAura1{ background: radial-gradient(ellipse at 50% 50%, rgba(0,229,255,0.18), transparent 70%); }
 .resultModal.couchP2 .rmAura1{ background: radial-gradient(ellipse at 50% 50%, rgba(255,64,96,0.18), transparent 70%); }
 @keyframes rmAuraPulse{
@@ -10560,18 +10567,16 @@ onBeforeUnmount(() => {
   letter-spacing: -1px;
   font-family: 'Orbitron', 'Rajdhani', Inter, system-ui, sans-serif;
   text-transform: uppercase;
-  background: linear-gradient(135deg, rgba(0,229,255,1) 0%, rgba(180,80,255,1) 50%, rgba(255,43,214,1) 100%);
-  -webkit-background-clip: text;
-  background-clip: text;
-  color: transparent;
+  color: #50C9EE;
   animation: rmStampIn .5s cubic-bezier(.22,1,.36,1) .1s both;
-  filter: drop-shadow(0 0 30px rgba(0,229,255,0.22));
+  filter: drop-shadow(0 0 30px rgba(80,201,238,0.35));
 }
 .resultModal.defeat .rmStamp{
-  background: linear-gradient(135deg, rgba(255,40,80,1) 0%, rgba(255,120,40,1) 100%);
-  -webkit-background-clip: text;
-  background-clip: text;
-  filter: drop-shadow(0 0 30px rgba(255,40,80,0.22));
+  color: #EE4B72;
+  background: none;
+  -webkit-background-clip: unset;
+  background-clip: unset;
+  filter: drop-shadow(0 0 30px rgba(238,75,114,0.40));
 }
 .resultModal.couchP1 .rmStamp{
   background: linear-gradient(135deg, rgba(0,229,255,1), rgba(80,200,255,1));
@@ -10584,8 +10589,8 @@ onBeforeUnmount(() => {
   background-clip: text;
 }
 @keyframes rmStampIn{
-  from{ transform: scale(1.18) translateY(-10px); opacity: 0; filter: blur(4px) drop-shadow(0 0 60px rgba(0,229,255,0.4)); }
-  to{ transform: scale(1) translateY(0); opacity: 1; filter: drop-shadow(0 0 30px rgba(0,229,255,0.22)); }
+  from{ transform: scale(1.18) translateY(-10px); opacity: 0; filter: blur(4px) drop-shadow(0 0 60px rgba(80,201,238,0.45)); }
+  to{ transform: scale(1) translateY(0); opacity: 1; filter: drop-shadow(0 0 30px rgba(80,201,238,0.35)); }
 }
 .rmStampShadow{
   position: absolute;
