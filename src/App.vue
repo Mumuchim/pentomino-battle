@@ -5597,10 +5597,11 @@ async function sbRecordMatchResult({
       p_player2_picks: Array.isArray(player2Picks) ? player2Picks.map(String) : [],
     });
     if (rpcError) throw rpcError;
+    console.log("[pbMatch] record_match_result success, matchId:", rpcData?.id);
     return rpcData?.id ?? null;
   } catch (e) {
     // Non-fatal — stats can be backfilled later. Never break the UX.
-    console.error("[pbMatch] record_match_result failed:", e?.message ?? e, e);
+    console.error("[pbMatch] record_match_result FAILED:", e?.message ?? e, e);
     return null;
   }
 }
@@ -7601,19 +7602,22 @@ async function _handleGameover() {
           ],
     });
 
-    // ✅ Record match result to pb_matches (HOST ONLY — plain INSERT, no dedup race)
-    if (isOnline.value && online.lobbyId && online.role === "host") {
+    // ✅ Record match result to pb_matches (both clients call; function handles duplicates)
+    console.log("[pbMatch] gameover fired — isOnline:", isOnline.value, "lobbyId:", online.lobbyId, "role:", online.role, "screen:", screen.value);
+    if (isOnline.value && online.lobbyId) {
       (async () => {
         try {
           const lobby  = await sbSelectLobbyById(online.lobbyId);
-          if (!lobby) return;
+          console.log("[pbMatch] lobby fetched:", lobby?.id, "status:", lobby?.status);
+          if (!lobby) { console.warn("[pbMatch] lobby not found — aborting"); return; }
           const meta   = lobby?.state?.meta || {};
           const players = meta?.players || {};
 
           // Resolve player IDs from the meta.players map: { "1": userId, "2": userId }
           const p1Id = String(players["1"] || players[1] || "");
           const p2Id = String(players["2"] || players[2] || "");
-          if (!p1Id || !p2Id) return;
+          console.log("[pbMatch] p1Id:", p1Id, "p2Id:", p2Id, "meta.players:", JSON.stringify(players));
+          if (!p1Id || !p2Id) { console.warn("[pbMatch] missing player IDs — aborting"); return; }
 
           const w       = game.winner;
           const winnerId = w ? (w === 1 ? p1Id : p2Id) : null;
@@ -7627,6 +7631,7 @@ async function _handleGameover() {
           const lm = game.lastMove?.type || "normal";
           const endReason = ["timeout","surrender","dodged","abandoned"].includes(lm) ? lm : "normal";
 
+          console.log("[pbMatch] calling sbRecordMatchResult with lobbyId:", online.lobbyId, "round:", Number(meta?.round || 1), "mode:", meta?.kind, lobby?.mode);
           const matchId = await sbRecordMatchResult({
             lobbyId:     online.lobbyId,
             roundNumber: Number(meta?.round || 1),
