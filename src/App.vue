@@ -123,16 +123,69 @@
         </div>
 
         <div class="tetBarRight" v-if="screen !== 'auth'">
-          <div class="tetBarUser" :class="{ tetBarUserMember: loggedIn }" @click="loggedIn ? screen = 'channel' : openAuthModal('login')">
+
+          <!-- ── Social icons: Friends + Notifications (logged-in only) ── -->
+          <template v-if="loggedIn">
+          <button
+            class="tetBarIconBtn"
+            :class="{ active: friendsSidebarOpen }"
+            @click="toggleFriendsSidebar"
+            title="Friends"
+            aria-label="Friends"
+          >
+            <!-- friends group icon (SVG) -->
+            <svg class="tetBarIconSvg" viewBox="0 0 22 18" fill="none" xmlns="http://www.w3.org/2000/svg">
+              <circle cx="8" cy="5" r="3.5" stroke="currentColor" stroke-width="1.6"/>
+              <path d="M1 17c0-3.866 3.134-7 7-7s7 3.134 7 7" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/>
+              <circle cx="16" cy="5" r="2.5" stroke="currentColor" stroke-width="1.4"/>
+              <path d="M19 17c0-2.761-1.343-5.212-3.4-6.708" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/>
+            </svg>
+            <span class="tetBarIconCount" v-if="friendsOnlineCount > 0">{{ friendsOnlineCount }}</span>
+            <span class="tetBarIconCount zero" v-else>0</span>
+          </button>
+
+          <button
+            class="tetBarIconBtn"
+            :class="{ active: notifSidebarOpen }"
+            @click="toggleNotifSidebar"
+            title="Notifications"
+            aria-label="Notifications"
+          >
+            <!-- bell icon (SVG) -->
+            <svg class="tetBarIconSvg" viewBox="0 0 20 22" fill="none" xmlns="http://www.w3.org/2000/svg">
+              <path d="M10 2a6 6 0 0 0-6 6v4l-2 2v1h16v-1l-2-2V8a6 6 0 0 0-6-6z" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/>
+              <path d="M8 19a2 2 0 0 0 4 0" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/>
+            </svg>
+            <span class="tetBarNotifDot" v-if="unreadNotifCount > 0"></span>
+          </button>
+          </template>
+
+          <!-- ── User block: avatar + name + rank ── -->
+          <div
+            class="tetBarUser"
+            :class="{ tetBarUserMember: loggedIn }"
+            @click="loggedIn ? openProfileModal() : openAuthModal('login')"
+            title="View profile"
+          >
             <div class="tetBarAvatarWrap">
               <img :src="guestAvatarUrl" class="tetBarAvatar" alt="Profile" />
               <span v-if="loggedIn" class="tetBarOnlineDot"></span>
             </div>
             <div class="tetBarIgn">
               <span class="tetBarIgnName">{{ displayName }}</span>
+              <div class="tetBarIgnMeta" v-if="loggedIn">
+                <span class="tetBarLevel">{{ memberStats.wins + memberStats.losses + 1 }}</span>
+                <span class="tetBarLevelSlash">//</span>
+                <span class="tetBarRankBadge" :class="'tetRank-' + (memberStats.ranked_tier || 'unranked')">
+                  {{ (memberStats.ranked_tier || 'NR').slice(0,2).toUpperCase() }}
+                </span>
+              </div>
+              <div class="tetBarIgnMeta" v-else>
+                <span class="tetBarGuestTag">GUEST</span>
+              </div>
             </div>
           </div>
-          <button v-if="loggedIn" class="tetBarSignOutBtn" @click="doSignOut" title="Sign out" style="display:none">⏏</button>
+
         </div>
 </template>
 
@@ -1027,6 +1080,10 @@
                 <span class="vsStyleRowLabel">Landscape Only (Mobile)</span>
                 <input type="checkbox" class="vsStyleCheck" v-model="game.ui.lockLandscape" />
               </label>
+              <label class="vsStyleRow">
+                <span class="vsStyleRowLabel">Confirm Move (Mobile)</span>
+                <input type="checkbox" class="vsStyleCheck" v-model="confirmMove" />
+              </label>
             </div>
 
             <div class="vsStyleCard">
@@ -1391,6 +1448,238 @@
                 allowfullscreen
               ></iframe>
             </div>
+          </div>
+        </div>
+      </Transition>
+    </Teleport>
+
+    <!-- ════════════════════════════════════════════════════════════
+         FRIENDS SIDEBAR  (slides in from the right)
+    ═══════════════════════════════════════════════════════════════ -->
+    <Teleport to="body">
+      <Transition name="pbSidebar">
+        <div v-if="friendsSidebarOpen" class="pbSidebarOverlay" @click.self="friendsSidebarOpen = false" aria-label="Friends panel">
+          <div class="pbSidebar pbFriendsSidebar">
+            <div class="pbSidebarHead">
+              <div class="pbSidebarHeadLeft">
+                <span class="pbSidebarTitle">PEOPLE</span>
+                <span class="pbSidebarStatus">
+                  <span class="pbSidebarStatusDot"></span>
+                  {{ loggedIn ? 'IN MENUS' : 'NOT SIGNED IN' }}
+                </span>
+              </div>
+              <button class="pbSidebarClose" @click="friendsSidebarOpen = false" aria-label="Close">✕</button>
+            </div>
+
+            <div class="pbSidebarSearch">
+              <input
+                class="pbSidebarSearchInput"
+                type="text"
+                placeholder="Find someone..."
+                v-model="friendSearch"
+                @input="onFriendSearchInput"
+                @keydown.enter="runFriendSearch"
+                maxlength="32"
+                autocomplete="off"
+                spellcheck="false"
+              />
+              <button class="pbSidebarSearchBtn" @click="runFriendSearch" :disabled="friendSearchLoading" aria-label="Search">
+                <svg v-if="!friendSearchLoading" viewBox="0 0 18 18" fill="none" class="pbSearchBtnIcon">
+                  <circle cx="7.5" cy="7.5" r="5.5" stroke="currentColor" stroke-width="1.8"/>
+                  <path d="M12 12l3.5 3.5" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/>
+                </svg>
+                <span v-else class="pbSearchBtnSpinner"></span>
+              </button>
+            </div>
+
+            <!-- Search results panel (shown when there's a query) -->
+            <template v-if="friendSearchQuery">
+              <div class="pbSearchResultsHeader">
+                <span class="pbSearchResultsLabel">
+                  {{ friendSearchResults.length > 0 ? `${friendSearchResults.length} result${friendSearchResults.length !== 1 ? 's' : ''}` : 'No results found' }}
+                </span>
+                <button class="pbSearchClear" @click="clearFriendSearch">✕ CLEAR</button>
+              </div>
+              <div class="pbRequestList">
+                <div v-for="result in friendSearchResults" :key="result.id" class="pbSearchResultRow">
+                  <img :src="guestAvatarUrl" class="pbRequestAvatar" alt="Avatar" />
+                  <div class="pbRequestInfo">
+                    <span class="pbRequestName">{{ result.display_name || result.username }}</span>
+                    <span class="pbRequestSub">{{ result.uid ? '#' + result.uid : '' }}</span>
+                  </div>
+                  <button
+                    class="pbAddFriendBtn"
+                    v-if="result.friendStatus === 'none'"
+                    @click="sendFriendRequest(result.id)"
+                    :disabled="result.sending"
+                    title="Send friend request"
+                  >
+                    <svg viewBox="0 0 18 18" fill="none" class="pbAddFriendIcon">
+                      <circle cx="7" cy="6" r="4" stroke="currentColor" stroke-width="1.6"/>
+                      <path d="M1 16c0-4 2.686-7 6-7" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/>
+                      <path d="M13 11v4M11 13h4" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/>
+                    </svg>
+                  </button>
+                  <span class="pbFriendStatusTag" v-else-if="result.friendStatus === 'pending_sent'">SENT</span>
+                  <span class="pbFriendStatusTag pbFriendStatusFriends" v-else-if="result.friendStatus === 'friends'">FRIENDS</span>
+                  <span class="pbFriendStatusTag pbFriendStatusYou" v-else-if="result.friendStatus === 'self'">YOU</span>
+                </div>
+              </div>
+            </template>
+
+            <div class="pbSidebarTabs">
+              <button class="pbSidebarTab" :class="{ active: friendTab === 'online' }" @click="friendTab = 'online'">ONLINE</button>
+              <button class="pbSidebarTab" :class="{ active: friendTab === 'all' }" @click="friendTab = 'all'">ALL</button>
+              <button class="pbSidebarTab" :class="{ active: friendTab === 'requests' }" @click="friendTab = 'requests'">
+                REQUESTS
+                <span class="pbSidebarTabBadge" v-if="friendRequests.length > 0">{{ friendRequests.length }}</span>
+              </button>
+            </div>
+
+            <!-- ONLINE / ALL tab: friend list or empty state -->
+            <template v-if="friendTab === 'online' || friendTab === 'all'">
+              <div v-if="friendsList.length === 0" class="pbSidebarEmpty">
+                <div class="pbSidebarEmptyArt">
+                  <svg viewBox="0 0 80 80" fill="none" xmlns="http://www.w3.org/2000/svg" class="pbSidebarEmptyArtSvg">
+                    <circle cx="32" cy="26" r="14" stroke="rgba(255,255,255,0.12)" stroke-width="3"/>
+                    <path d="M6 68c0-14.912 11.640-27 26-27s26 12.088 26 27" stroke="rgba(255,255,255,0.12)" stroke-width="3" stroke-linecap="round"/>
+                    <circle cx="60" cy="26" r="10" stroke="rgba(255,255,255,0.08)" stroke-width="2.5"/>
+                    <path d="M70 68c0-10.493-5.373-19.845-13.6-25.433" stroke="rgba(255,255,255,0.08)" stroke-width="2.5" stroke-linecap="round"/>
+                  </svg>
+                </div>
+                <p class="pbSidebarEmptyText">You haven't added any friends yet.<br />Click the <b>FRIEND</b> button on a profile<br />to friend them.</p>
+              </div>
+              <div v-else class="pbRequestList">
+                <div v-for="f in friendsList" :key="f.friend_id" class="pbRequestRow">
+                  <img :src="guestAvatarUrl" class="pbRequestAvatar" alt="Avatar" />
+                  <div class="pbRequestInfo">
+                    <span class="pbRequestName">{{ f.name }}</span>
+                    <span class="pbRequestSub pbFriendOnlineTag">● ONLINE</span>
+                  </div>
+                </div>
+              </div>
+            </template>
+
+            <!-- REQUESTS tab -->
+            <template v-else-if="friendTab === 'requests'">
+              <div v-if="friendRequests.length === 0" class="pbSidebarEmpty">
+                <div class="pbSidebarEmptyArt">
+                  <svg viewBox="0 0 80 80" fill="none" xmlns="http://www.w3.org/2000/svg" class="pbSidebarEmptyArtSvg">
+                    <circle cx="36" cy="28" r="14" stroke="rgba(255,255,255,0.12)" stroke-width="3"/>
+                    <path d="M8 70c0-14.912 12.536-27 28-27" stroke="rgba(255,255,255,0.12)" stroke-width="3" stroke-linecap="round"/>
+                    <path d="M58 46v14M51 53h14" stroke="rgba(255,255,255,0.18)" stroke-width="3" stroke-linecap="round"/>
+                  </svg>
+                </div>
+                <p class="pbSidebarEmptyText">No pending friend requests.</p>
+              </div>
+              <div v-else class="pbRequestList">
+                <div
+                  v-for="req in friendRequests"
+                  :key="req.id"
+                  class="pbRequestRow"
+                >
+                  <img :src="guestAvatarUrl" class="pbRequestAvatar" alt="Avatar" />
+                  <div class="pbRequestInfo">
+                    <span class="pbRequestName">{{ req.name }}</span>
+                    <span class="pbRequestSub">sent you a friend request</span>
+                  </div>
+                  <div class="pbRequestActions">
+                    <button class="pbRequestBtn pbRequestAccept" @click="acceptFriendRequest(req.id)" title="Accept">✓</button>
+                    <button class="pbRequestBtn pbRequestDecline" @click="declineFriendRequest(req.id)" title="Decline">✕</button>
+                  </div>
+                </div>
+              </div>
+            </template>
+          </div>
+        </div>
+      </Transition>
+    </Teleport>
+
+    <!-- ════════════════════════════════════════════════════════════
+         NOTIFICATIONS SIDEBAR  (slides in from the right)
+    ═══════════════════════════════════════════════════════════════ -->
+    <Teleport to="body">
+      <Transition name="pbSidebarRight">
+        <div v-if="notifSidebarOpen" class="pbSidebarOverlay pbSidebarOverlayRight" @click.self="notifSidebarOpen = false" aria-label="Notifications panel">
+          <div class="pbSidebar pbNotifSidebar">
+            <div class="pbSidebarHead">
+              <div class="pbSidebarHeadLeft">
+                <span class="pbSidebarTitle">NOTIFICATIONS</span>
+              </div>
+              <button class="pbSidebarClose" @click="notifSidebarOpen = false" aria-label="Close">✕</button>
+            </div>
+
+            <div class="pbSidebarEmpty">
+              <div class="pbSidebarEmptyArt">
+                <svg viewBox="0 0 80 80" fill="none" xmlns="http://www.w3.org/2000/svg" class="pbSidebarEmptyArtSvg">
+                  <path d="M40 8a24 24 0 0 0-24 24v16l-8 8v4h64v-4l-8-8V32A24 24 0 0 0 40 8z" stroke="rgba(255,255,255,0.12)" stroke-width="3" stroke-linejoin="round"/>
+                  <path d="M32 72a8 8 0 0 0 16 0" stroke="rgba(255,255,255,0.12)" stroke-width="3" stroke-linecap="round"/>
+                </svg>
+              </div>
+              <p class="pbSidebarEmptyText">Notifications will appear here.</p>
+            </div>
+          </div>
+        </div>
+      </Transition>
+    </Teleport>
+
+    <!-- ════════════════════════════════════════════════════════════
+         PROFILE MODAL  (TETR.IO quick-profile style)
+    ═══════════════════════════════════════════════════════════════ -->
+    <Teleport to="body">
+      <Transition name="pbProfileModal">
+        <div v-if="profileModalOpen" class="pbProfileOverlay" @click.self="profileModalOpen = false" role="dialog" aria-modal="true" aria-label="Profile">
+          <div class="pbProfileCard">
+
+            <!-- Accent bar -->
+            <div class="pbProfileAccentBar"></div>
+
+            <!-- Header row -->
+            <div class="pbProfileHead">
+              <div class="pbProfileAvatarBlock">
+                <img :src="guestAvatarUrl" class="pbProfileAvatar" alt="Avatar" />
+              </div>
+              <div class="pbProfileMeta">
+                <div class="pbProfileName">
+                  {{ displayName }}
+                  <span class="pbProfileFlag">🇵🇭</span>
+                </div>
+                <div class="pbProfileJoined">JOINED RECENTLY</div>
+                <button
+                  v-if="memberStats.uid"
+                  class="pbProfileUid"
+                  @click="copyUid"
+                  :title="uidCopied ? 'Copied!' : 'Click to copy UID'"
+                >
+                  <span class="pbProfileUidHash">#</span>{{ memberStats.uid }}
+                  <span class="pbProfileUidCopyIcon">{{ uidCopied ? '✓' : '⎘' }}</span>
+                </button>
+              </div>
+              <button class="pbProfileClose" @click="profileModalOpen = false" aria-label="Close">CLOSE</button>
+            </div>
+
+            <!-- Mode ranks -->
+            <div class="pbProfileModes">
+              <div
+                v-for="mode in profileModes"
+                :key="mode.key"
+                class="pbProfileModeRow"
+              >
+                <span class="pbProfileModeName">{{ mode.label }}</span>
+                <span
+                  class="pbProfileModeTier"
+                  :class="'pbModeTier-' + (memberStats[mode.tierKey] || 'unranked')"
+                >
+                  {{ tierDisplayName(memberStats[mode.tierKey]) }}
+                </span>
+              </div>
+            </div>
+
+            <!-- View profile button -->
+            <button class="pbProfileViewBtn" @click="onViewFullProfile">
+              ↗ VIEW FULL PROFILE
+            </button>
+
           </div>
         </div>
       </Transition>
@@ -2040,6 +2329,32 @@ import { useDevMode, checkDevStatus } from "./lib/devMode.js";
 
 const game = useGameStore();
 
+// FIX: stagePlacement() never clears an existing pendingPlace when called on an
+// invalid cell — so the Submit button stays green on bad taps. Intercept and
+// force-clear on failure.
+game.$onAction(({ name, after }) => {
+  if (name === "stagePlacement") {
+    after((result) => {
+      if (!result) game.$patch({ pendingPlace: null });
+    });
+  }
+});
+
+// FIX: clearSelection() resets rotation/flipped to 0/false, losing the user's
+// orientation when a dragged piece is dropped outside the board on mobile.
+// Save and restore rotation+flip so the piece re-appears in the tray unchanged.
+game.$onAction(({ name, after }) => {
+  if (name === "clearSelection") {
+    const savedRotation = game.rotation;
+    const savedFlipped  = game.flipped;
+    after(() => {
+      if (savedRotation !== 0 || savedFlipped) {
+        game.$patch({ rotation: savedRotation, flipped: savedFlipped });
+      }
+    });
+  }
+});
+
 const screen = ref("landing");
 const loggedIn = ref(false);
 
@@ -2054,6 +2369,7 @@ import("./lib/auth.js").then(async ({ isLoggedIn, getCurrentPlayerName, onAuthCh
   if (loggedIn.value) {
     guestName.value = await getCurrentPlayerName();
     await checkDevStatus(); // check dev role on startup
+    loadFriendData();       // load friends/requests for existing session
   }
 
   // React to future sign-in / sign-out events
@@ -2165,6 +2481,262 @@ const allowFlip = computed({
   get: () => game.allowFlip,
   set: (v) => game.setAllowFlip(v),
 });
+
+/* ══════════════════════════════════════════════════════
+   TOPBAR SOCIAL PANEL STATE
+   Friends sidebar, Notifications sidebar, Profile modal
+══════════════════════════════════════════════════════ */
+const friendsSidebarOpen = ref(false);
+const notifSidebarOpen   = ref(false);
+const profileModalOpen   = ref(false);
+const friendTab          = ref('all');
+const friendSearch       = ref('');
+const friendsOnlineCount = ref(0);
+const unreadNotifCount   = ref(0);
+
+// Friend requests from Supabase
+const friendRequests = ref([]);  // [{ id, from_id, name }]
+const friendsList    = ref([]);  // [{ id, friend_id, name }] — accepted friends
+let _friendsSubscription = null;
+
+async function loadFriendData() {
+  try {
+    const { supabase } = await import('./lib/supabase.js');
+    const { getUser }  = await import('./lib/auth.js');
+    const user = await getUser();
+    if (!user || !supabase) return;
+
+    // Load pending incoming requests (to_id = me, status = pending)
+    const { data: reqData } = await supabase
+      .from('pb_friend_requests')
+      .select('id, from_id, status')
+      .eq('to_id', user.id)
+      .eq('status', 'pending');
+
+    if (reqData && reqData.length > 0) {
+      // Resolve usernames from pb_profiles
+      const fromIds = reqData.map(r => r.from_id);
+      const { data: profiles } = await supabase
+        .from('pb_profiles')
+        .select('id, username, display_name')
+        .in('id', fromIds);
+      const profileMap = Object.fromEntries((profiles || []).map(p => [p.id, p.display_name || p.username || 'Unknown']));
+      friendRequests.value = reqData.map(r => ({ id: r.id, from_id: r.from_id, name: profileMap[r.from_id] || 'Unknown' }));
+    } else {
+      friendRequests.value = [];
+    }
+
+    // Load accepted friendships
+    const { data: accepted } = await supabase
+      .from('pb_friend_requests')
+      .select('id, from_id, to_id')
+      .or(`from_id.eq.${user.id},to_id.eq.${user.id}`)
+      .eq('status', 'accepted');
+
+    if (accepted && accepted.length > 0) {
+      const friendIds = accepted.map(r => r.from_id === user.id ? r.to_id : r.from_id);
+      const { data: fProfiles } = await supabase
+        .from('pb_profiles')
+        .select('id, username, display_name')
+        .in('id', friendIds);
+      const fpMap = Object.fromEntries((fProfiles || []).map(p => [p.id, p.display_name || p.username || 'Unknown']));
+      friendsList.value = accepted.map(r => {
+        const fid = r.from_id === user.id ? r.to_id : r.from_id;
+        return { id: r.id, friend_id: fid, name: fpMap[fid] || 'Unknown' };
+      });
+      friendsOnlineCount.value = friendsList.value.length; // future: track real online status
+    } else {
+      friendsList.value = [];
+      friendsOnlineCount.value = 0;
+    }
+
+    // Realtime: subscribe to new incoming requests
+    if (_friendsSubscription) supabase.removeChannel(_friendsSubscription);
+    _friendsSubscription = supabase
+      .channel('pb_friend_requests_incoming')
+      .on('postgres_changes', {
+        event: '*',
+        schema: 'public',
+        table: 'pb_friend_requests',
+        filter: `to_id=eq.${user.id}`,
+      }, () => { loadFriendData(); })
+      .subscribe();
+
+  } catch (e) { console.warn('loadFriendData error', e); }
+}
+
+async function acceptFriendRequest(id) {
+  try {
+    const { supabase } = await import('./lib/supabase.js');
+    await supabase.from('pb_friend_requests').update({ status: 'accepted' }).eq('id', id);
+    await loadFriendData();
+    showModal({ title: 'Friend Added!', message: 'You are now friends.', tone: 'good' });
+  } catch {
+    friendRequests.value = friendRequests.value.filter(r => r.id !== id);
+  }
+}
+
+async function declineFriendRequest(id) {
+  try {
+    const { supabase } = await import('./lib/supabase.js');
+    await supabase.from('pb_friend_requests').update({ status: 'declined' }).eq('id', id);
+    friendRequests.value = friendRequests.value.filter(r => r.id !== id);
+  } catch {
+    friendRequests.value = friendRequests.value.filter(r => r.id !== id);
+  }
+}
+
+// Load when user logs in, clear when they log out
+watch(loggedIn, async (isIn) => {
+  if (isIn) {
+    await loadFriendData();
+  } else {
+    friendRequests.value = [];
+    friendsList.value = [];
+    friendsOnlineCount.value = 0;
+    friendsSidebarOpen.value = false;
+    notifSidebarOpen.value = false;
+    try {
+      const { supabase } = await import('./lib/supabase.js');
+      if (_friendsSubscription) { supabase.removeChannel(_friendsSubscription); _friendsSubscription = null; }
+    } catch {}
+  }
+}, { immediate: false });
+
+/* ─── Friend search ──────────────────────────────────────── */
+const friendSearchQuery   = ref('');   // committed query (after pressing search)
+const friendSearchResults = ref([]);
+const friendSearchLoading = ref(false);
+let _searchDebounce = null;
+
+function onFriendSearchInput() {
+  // Live-clear results if the input is emptied
+  if (!friendSearch.value.trim()) { clearFriendSearch(); }
+}
+
+function clearFriendSearch() {
+  friendSearch.value      = '';
+  friendSearchQuery.value = '';
+  friendSearchResults.value = [];
+}
+
+async function runFriendSearch() {
+  const q = (friendSearch.value || '').trim();
+  if (!q) return;
+  friendSearchQuery.value = q;
+  friendSearchLoading.value = true;
+  friendSearchResults.value = [];
+  try {
+    const { supabase } = await import('./lib/supabase.js');
+    const { getUser }  = await import('./lib/auth.js');
+    const user = await getUser();
+
+    // Names: partial case-insensitive match; UID: exact case-insensitive match
+    const cleanUid = q.replace(/^#/, '');
+    const { data, error } = await supabase
+      .from('pb_profiles')
+      .select('id, username, display_name, uid')
+      .or(`username.ilike.%${q}%,display_name.ilike.%${q}%,uid.ilike.${cleanUid}`)
+      .limit(20);
+
+    if (error || !data) { friendSearchResults.value = []; return; }
+
+    // Get current friend relationships to tag each result
+    const { data: rels } = await supabase
+      .from('pb_friend_requests')
+      .select('id, from_id, to_id, status')
+      .or(user ? `from_id.eq.${user.id},to_id.eq.${user.id}` : 'id.is.null');
+
+    const relMap = {};
+    (rels || []).forEach(r => {
+      const other = r.from_id === user?.id ? r.to_id : r.from_id;
+      if (r.status === 'accepted') relMap[other] = 'friends';
+      else if (r.status === 'pending' && r.from_id === user?.id) relMap[other] = 'pending_sent';
+      else if (r.status === 'pending' && r.to_id === user?.id) relMap[other] = 'pending_recv';
+    });
+
+    friendSearchResults.value = data.map(p => ({
+      ...p,
+      friendStatus: p.id === user?.id ? 'self' : (relMap[p.id] || 'none'),
+      sending: false,
+    }));
+  } catch (e) {
+    console.warn('friend search error', e);
+  } finally {
+    friendSearchLoading.value = false;
+  }
+}
+
+async function sendFriendRequest(targetId) {
+  const result = friendSearchResults.value.find(r => r.id === targetId);
+  if (result) result.sending = true;
+  try {
+    const { supabase } = await import('./lib/supabase.js');
+    const { getUser }  = await import('./lib/auth.js');
+    const user = await getUser();
+    if (!user) return;
+    const { error } = await supabase
+      .from('pb_friend_requests')
+      .insert({ from_id: user.id, to_id: targetId, status: 'pending' });
+    if (!error && result) result.friendStatus = 'pending_sent';
+  } catch (e) {
+    console.warn('sendFriendRequest error', e);
+  } finally {
+    if (result) result.sending = false;
+  }
+}
+
+/* ─── UID copy ───────────────────────────────────────────── */
+const uidCopied = ref(false);
+let _uidCopyTimer = null;
+function copyUid() {
+  const uid = memberStats.uid;
+  if (!uid) return;
+  try {
+    navigator.clipboard.writeText('#' + uid);
+    uidCopied.value = true;
+    clearTimeout(_uidCopyTimer);
+    _uidCopyTimer = setTimeout(() => { uidCopied.value = false; }, 2000);
+  } catch {
+    uidCopied.value = false;
+  }
+}
+
+function toggleFriendsSidebar() {
+  notifSidebarOpen.value = false;
+  friendsSidebarOpen.value = !friendsSidebarOpen.value;
+}
+function toggleNotifSidebar() {
+  friendsSidebarOpen.value = false;
+  notifSidebarOpen.value = !notifSidebarOpen.value;
+}
+function openProfileModal() {
+  friendsSidebarOpen.value = false;
+  notifSidebarOpen.value   = false;
+  profileModalOpen.value   = true;
+}
+function onViewFullProfile() {
+  profileModalOpen.value = false;
+  showModal({ title: 'Profile Page', message: 'Full profile page is not available yet.', tone: 'info' });
+}
+
+const profileModes = [
+  { key: 'standard',   label: 'STANDARD',   tierKey: 'standard_tier'    },
+  { key: 'mirrorwar',  label: 'MIRROR WAR', tierKey: 'mirror_war_tier'  },
+  { key: 'blinddraft', label: 'BLIND DRAFT', tierKey: 'blind_draft_tier' },
+];
+
+function tierDisplayName(tier) {
+  if (!tier) return 'UNRANKED';
+  return tier.toUpperCase();
+}
+// Close panels on Escape
+const _pbPanelEscHandler = (e) => {
+  if (e.key !== 'Escape') return;
+  if (profileModalOpen.value)   { profileModalOpen.value = false;   return; }
+  if (friendsSidebarOpen.value) { friendsSidebarOpen.value = false; return; }
+  if (notifSidebarOpen.value)   { notifSidebarOpen.value = false;   return; }
+};
 
 
 const guestName = ref("GUEST");
@@ -2651,6 +3223,17 @@ function saveAudioPrefs() {
   } catch {}
 }
 
+// FIX: confirmMove was referenced in applySettings and game-start functions but
+// the ref was never declared in App.vue (it only existed in app_script.js which
+// is never imported). Declaring it here wires up the full stage→submit flow.
+const confirmMove = ref(false);
+function loadConfirmMovePref() {
+  try { confirmMove.value = localStorage.getItem("pb_confirm_move") === "1"; } catch {}
+}
+function saveConfirmMovePref() {
+  try { localStorage.setItem("pb_confirm_move", confirmMove.value ? "1" : "0"); } catch {}
+}
+
 let _menuBgm = null;
 let _couchBgm = null;
 let _onlineBgm = null;
@@ -2863,6 +3446,8 @@ const memberStats = reactive({
   ranked_lp: 0, ranked_tier: "unranked",
   ranked_wins: 0, ranked_losses: 0, ranked_peak_lp: 0,
   placement_games: 0, win_streak: 0, demotion_shield: 0,
+  standard_tier: null, mirror_war_tier: null, blind_draft_tier: null,
+  uid: null,
 });
 watch(loggedIn, async (isIn) => {
   if (!isIn) {
@@ -2871,6 +3456,8 @@ watch(loggedIn, async (isIn) => {
       ranked_lp: 0, ranked_tier: "unranked",
       ranked_wins: 0, ranked_losses: 0, ranked_peak_lp: 0,
       placement_games: 0, win_streak: 0, demotion_shield: 0,
+      standard_tier: null, mirror_war_tier: null, blind_draft_tier: null,
+      uid: null,
     });
     return;
   }
@@ -2881,7 +3468,7 @@ watch(loggedIn, async (isIn) => {
     if (!user || !supabase) return;
     const { data } = await supabase
       .from("pb_profiles")
-      .select("wins,losses,draws,ranked_lp,ranked_tier,ranked_wins,ranked_losses,ranked_peak_lp,placement_games,win_streak,demotion_shield")
+      .select("wins,losses,draws,ranked_lp,ranked_tier,ranked_wins,ranked_losses,ranked_peak_lp,placement_games,win_streak,demotion_shield,uid")
       .eq("id", user.id)
       .single();
     if (data) {
@@ -2896,6 +3483,11 @@ watch(loggedIn, async (isIn) => {
       memberStats.placement_games = data.placement_games  ?? 0;
       memberStats.win_streak      = data.win_streak       ?? 0;
       memberStats.demotion_shield = data.demotion_shield  ?? 0;
+      // Per-mode tiers (columns may not exist yet — null means unranked)
+      memberStats.standard_tier    = data.standard_tier    ?? null;
+      memberStats.mirror_war_tier  = data.mirror_war_tier  ?? null;
+      memberStats.blind_draft_tier = data.blind_draft_tier ?? null;
+      memberStats.uid              = data.uid              ?? null;
     }
   } catch {}
 }, { immediate: true });
@@ -3573,6 +4165,8 @@ function onModalAction(a) {
 let originalAlert = null;
 let tickTimer = null;
 let escHandler = null;
+let _bgmVisibilityHandler = null;
+let _bgmPointerHandler = null;
 
 // Layout changes handled by normal responsive CSS.
 
@@ -4705,6 +5299,7 @@ async function startPollingLobby(lobbyId, role, modeHint = null) {
     game.boardH = 6;
   }
   game.allowFlip = allowFlip.value;
+  try { game.$patch(s => { s.ui.confirmMove = confirmMove.value; }); } catch {}
   game.resetGame();
 
   // User gesture initiated -> safe to try starting match BGM.
@@ -7311,6 +7906,7 @@ function startCouchPlay() {
   game.boardW = 10;
   game.boardH = 6;
   game.allowFlip = allowFlip.value;
+  try { game.$patch(s => { s.ui.confirmMove = confirmMove.value; }); } catch {}
   game.resetGame();
 
   tryPlayGameBgm();
@@ -7323,6 +7919,7 @@ function startCouchMirrorWar() {
   game.boardW = 15;
   game.boardH = 8;
   game.allowFlip = true;
+  try { game.$patch(s => { s.ui.confirmMove = confirmMove.value; }); } catch {}
   game.startPlacementDirect(ALL_PIECE_KEYS, ALL_PIECE_KEYS, 15, 8);
   game.battleClockInitSec = 480;
   game.battleClockSec = { 1: 480, 2: 480 };
@@ -7340,6 +7937,7 @@ function startCouchBlindDraft() {
   game.boardW = 10;
   game.boardH = 6;
   game.allowFlip = true;
+  try { game.$patch(s => { s.ui.confirmMove = confirmMove.value; }); } catch {}
   game.startPlacementDirect(picks1, picks2, 10, 6);
   couchPickerOpen.value = false;
   // Show piece split BEFORE entering the game screen so both players can read their pieces
@@ -7364,6 +7962,7 @@ function startPuzzleMode() {
   game.boardW = 10;
   game.boardH = 6;
   game.allowFlip = true;
+  try { game.$patch(s => { s.ui.confirmMove = confirmMove.value; }); } catch {}
   // Give P2 a single dummy piece so the store's playerHasAnyMove(2) check
   // after each P1 placement never triggers an immediate gameover.
   // Puzzle exit is handled exclusively by the watcher and Finish button.
@@ -7661,6 +8260,7 @@ function _startStoryBlindDraft() {
   game.boardW = 10;
   game.boardH = 6;
   game.allowFlip = allowFlip.value;
+  try { game.$patch(s => { s.ui.confirmMove = confirmMove.value; }); } catch {}
   game.startPlacementDirect(picks1, picks2, 10, 6);
   tryPlayGameBgm();
 }
@@ -7670,6 +8270,7 @@ function _startStoryMirrorWar() {
   game.boardW = 15;
   game.boardH = 8;
   game.allowFlip = allowFlip.value;
+  try { game.$patch(s => { s.ui.confirmMove = confirmMove.value; }); } catch {}
   game.startPlacementDirect(ALL_PIECE_KEYS, ALL_PIECE_KEYS, 15, 8);
   game.battleClockInitSec = 480;
   game.battleClockSec = { 1: 480, 2: 480 };
@@ -7951,6 +8552,7 @@ function _startAiGame() {
   game.boardW = 10;
   game.boardH = 6;
   game.allowFlip = allowFlip.value;
+  try { game.$patch(s => { s.ui.confirmMove = confirmMove.value; }); } catch {}
   game.resetGame();
   tryPlayGameBgm();
 }
@@ -8151,6 +8753,7 @@ watch(
 
 function applySettings() {
   saveAudioPrefs();
+  saveConfirmMovePref();
   // Apply volumes immediately
   try {
     if (_menuBgm) _menuBgm.volume = bgmVolume.value;
@@ -8240,6 +8843,7 @@ onMounted(() => {
   startUiLock({ label: 'Booting…', hint: 'Loading UI, sounds, and neon vibes…', minMs: 750 });
 
   loadAudioPrefs();
+  loadConfirmMovePref();
 
   // ── PC default: disable Verify Move (requireSubmit) on desktop pointer devices.
   // Mobile/touch devices keep it enabled for the "stage → Submit" flow.
@@ -8252,13 +8856,27 @@ onMounted(() => {
   // Note: some browsers may block autoplay until a user gesture.
   ensureMenuBgm();
   tryPlayMenuBgm();
-  // Also retry on the first user interaction anywhere.
+  // FIX: resume BGM whenever the tab becomes visible again (handles mobile
+  // app-switch, screen lock, phone calls, notification overlays, etc.).
+  // Also keep a persistent (non-once) pointerdown listener so any future
+  // interruption during a match can be recovered by the next tap.
   try {
-    const resumeBgm = () => {
-      tryPlayMenuBgm();
+    _bgmVisibilityHandler = () => {
+      try {
+        if (document.visibilityState !== 'visible') return;
+        if (isInGame.value) tryPlayGameBgm();
+        else tryPlayMenuBgm();
+      } catch {}
     };
-    window.addEventListener("pointerdown", resumeBgm, { once: true, passive: true });
-    window.addEventListener("keydown", resumeBgm, { once: true });
+    document.addEventListener('visibilitychange', _bgmVisibilityHandler, { passive: true });
+
+    _bgmPointerHandler = () => {
+      try {
+        if (isInGame.value) tryPlayGameBgm();
+        else tryPlayMenuBgm();
+      } catch {}
+    };
+    window.addEventListener('pointerdown', _bgmPointerHandler, { passive: true });
   } catch {}
 
   onViewportChange();
@@ -8281,6 +8899,7 @@ onMounted(() => {
     } catch {}
   };
   window.addEventListener("keydown", escHandler, { passive: false });
+  window.addEventListener("keydown", _pbPanelEscHandler, { passive: true });
   stopUiLockAfterPaint(750);
 
   originalAlert = window.alert;
@@ -8370,6 +8989,9 @@ onBeforeUnmount(() => {
   try { window.removeEventListener("orientationchange", onViewportChange); } catch {}
   try { window.removeEventListener("pointermove", onGlobalMouseMove); } catch {}
   try { if (escHandler) window.removeEventListener("keydown", escHandler); } catch {}
+  try { window.removeEventListener("keydown", _pbPanelEscHandler); } catch {}
+  try { if (_bgmVisibilityHandler) document.removeEventListener("visibilitychange", _bgmVisibilityHandler); } catch {}
+  try { if (_bgmPointerHandler) window.removeEventListener("pointerdown", _bgmPointerHandler); } catch {}
   try { if (_fitRaf) cancelAnimationFrame(_fitRaf); } catch {}
   stopPolling();
 });
@@ -13312,6 +13934,756 @@ onBeforeUnmount(() => {
   background: rgba(255,64,96,0.12);
   border-color: rgba(255,64,96,0.3);
   color: rgba(255,80,100,0.9);
+}
+
+/* ══════════════════════════════════════════════════════
+   REDESIGNED TOPBAR — social icons + enhanced user block
+══════════════════════════════════════════════════════ */
+
+/* Social icon buttons (friends + bell) */
+.tetBarIconBtn {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  background: none;
+  border: 1px solid rgba(255,255,255,0.09);
+  border-radius: 8px;
+  padding: 5px 9px;
+  color: rgba(255,255,255,0.45);
+  cursor: pointer;
+  transition: background .14s, color .14s, border-color .14s;
+  font-family: 'Orbitron', system-ui, sans-serif;
+}
+.tetBarIconBtn:hover {
+  background: rgba(255,255,255,0.07);
+  color: rgba(255,255,255,0.85);
+  border-color: rgba(255,255,255,0.2);
+}
+.tetBarIconBtn.active {
+  background: rgba(220,80,255,0.12);
+  border-color: rgba(220,80,255,0.35);
+  color: #dc50ff;
+}
+.tetBarIconSvg {
+  width: 17px;
+  height: 17px;
+  flex-shrink: 0;
+}
+.tetBarIconCount {
+  font-size: 10px;
+  font-weight: 900;
+  letter-spacing: 0.5px;
+  line-height: 1;
+}
+.tetBarIconCount.zero { opacity: 0.38; }
+.tetBarNotifDot {
+  position: absolute;
+  top: 5px; right: 5px;
+  width: 7px; height: 7px;
+  border-radius: 50%;
+  background: #ff4060;
+  border: 2px solid rgba(8,8,16,0.92);
+  box-shadow: 0 0 6px rgba(255,64,96,0.8);
+}
+
+/* Enhanced user block in topbar */
+.tetBarIgn {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 1px;
+}
+.tetBarIgnMeta {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  line-height: 1;
+}
+.tetBarLevel {
+  font-size: 10px;
+  font-weight: 900;
+  color: rgba(255,255,255,0.75);
+  font-family: 'Orbitron', system-ui, sans-serif;
+  letter-spacing: 0.5px;
+}
+.tetBarLevelSlash {
+  font-size: 10px;
+  font-weight: 700;
+  color: rgba(255,255,255,0.35);
+  letter-spacing: -1px;
+}
+.tetBarRankBadge {
+  font-size: 9px;
+  font-weight: 900;
+  letter-spacing: 0.5px;
+  padding: 1px 5px;
+  border-radius: 4px;
+  background: rgba(255,255,255,0.08);
+  color: rgba(255,255,255,0.5);
+  text-transform: uppercase;
+  font-family: 'Orbitron', system-ui, sans-serif;
+}
+.tetRank-plastic    .tetBarRankBadge, .tetBarRankBadge.tetRank-plastic    { background: rgba(170,170,185,0.15); color: #aab; }
+.tetRank-bronze     .tetBarRankBadge, .tetBarRankBadge.tetRank-bronze     { background: rgba(205,127,50,0.18);  color: #cd7f32; }
+.tetRank-silver     .tetBarRankBadge, .tetBarRankBadge.tetRank-silver     { background: rgba(192,192,192,0.15); color: #c0c0c0; }
+.tetRank-gold       .tetBarRankBadge, .tetBarRankBadge.tetRank-gold       { background: rgba(255,215,0,0.15);   color: #ffd700; }
+.tetRank-platinum   .tetBarRankBadge, .tetBarRankBadge.tetRank-platinum   { background: rgba(100,220,255,0.15); color: #64dcff; }
+.tetRank-diamond    .tetBarRankBadge, .tetBarRankBadge.tetRank-diamond    { background: rgba(100,160,255,0.18); color: #64a0ff; }
+.tetRank-master     .tetBarRankBadge, .tetBarRankBadge.tetRank-master     { background: rgba(170,80,255,0.18);  color: #aa50ff; }
+.tetRank-champion   .tetBarRankBadge, .tetBarRankBadge.tetRank-champion   { background: rgba(255,210,0,0.2);    color: #ffd200; }
+.tetRank-unranked   .tetBarRankBadge, .tetBarRankBadge.tetRank-unranked   { background: rgba(255,255,255,0.07); color: rgba(255,255,255,0.35); }
+.tetBarGuestTag {
+  font-size: 9px;
+  font-weight: 900;
+  letter-spacing: 1px;
+  color: rgba(255,255,255,0.28);
+  font-family: 'Orbitron', system-ui, sans-serif;
+  text-transform: uppercase;
+}
+
+/* ══════════════════════════════════════════════════════
+   FRIENDS / NOTIF SIDEBARS
+══════════════════════════════════════════════════════ */
+.pbSidebarOverlay {
+  position: fixed;
+  inset: 0;
+  z-index: 600;
+  pointer-events: none;
+}
+.pbSidebarOverlay > .pbSidebar { pointer-events: auto; }
+
+.pbSidebar {
+  position: fixed;
+  top: 0;
+  bottom: 0;
+  width: 340px;
+  max-width: 92vw;
+  background: rgba(10,10,18,0.97);
+  border-right: 1px solid rgba(255,255,255,0.08);
+  backdrop-filter: blur(20px);
+  display: flex;
+  flex-direction: column;
+  z-index: 601;
+  overflow: hidden;
+}
+.pbFriendsSidebar { left: 0; border-right: 1px solid rgba(255,255,255,0.09); }
+.pbNotifSidebar   { right: 0; border-left: 1px solid rgba(255,255,255,0.09); border-right: none; }
+
+.pbSidebarHead {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 18px 18px 14px;
+  border-bottom: 1px solid rgba(255,255,255,0.07);
+  flex-shrink: 0;
+}
+.pbSidebarHeadLeft {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+.pbSidebarTitle {
+  font-family: 'Orbitron', system-ui, sans-serif;
+  font-size: 14px;
+  font-weight: 900;
+  letter-spacing: 3px;
+  color: #fff;
+  text-transform: uppercase;
+}
+.pbSidebarStatus {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 1.5px;
+  color: rgba(255,255,255,0.42);
+  text-transform: uppercase;
+}
+.pbSidebarStatusDot {
+  width: 7px; height: 7px;
+  border-radius: 50%;
+  background: #4dff90;
+  box-shadow: 0 0 6px rgba(77,255,144,0.6);
+  flex-shrink: 0;
+}
+.pbSidebarClose {
+  background: none;
+  border: 1px solid rgba(255,255,255,0.10);
+  border-radius: 7px;
+  color: rgba(255,255,255,0.38);
+  font-size: 13px;
+  width: 30px; height: 30px;
+  display: flex; align-items: center; justify-content: center;
+  cursor: pointer;
+  transition: background .12s, color .12s;
+}
+.pbSidebarClose:hover { background: rgba(255,255,255,0.07); color: #fff; }
+
+.pbSidebarSearch {
+  display: flex;
+  align-items: center;
+  gap: 0;
+  margin: 12px 16px;
+  background: rgba(255,255,255,0.05);
+  border: 1px solid rgba(255,255,255,0.12);
+  border-radius: 10px;
+  overflow: hidden;
+  flex-shrink: 0;
+  transition: border-color .15s;
+}
+.pbSidebarSearch:focus-within {
+  border-color: rgba(220,80,255,0.45);
+  box-shadow: 0 0 0 2px rgba(220,80,255,0.08);
+}
+.pbSidebarSearchInput {
+  background: none;
+  border: none;
+  outline: none;
+  color: #fff;
+  font-size: 13px;
+  font-weight: 500;
+  letter-spacing: 0.3px;
+  font-family: 'Rajdhani', system-ui, sans-serif;
+  width: 100%;
+  padding: 9px 12px;
+}
+.pbSidebarSearchInput::placeholder { color: rgba(255,255,255,0.28); }
+.pbSidebarSearchBtn {
+  flex-shrink: 0;
+  width: 38px; height: 38px;
+  background: rgba(220,80,255,0.12);
+  border: none;
+  border-left: 1px solid rgba(255,255,255,0.08);
+  color: #dc50ff;
+  cursor: pointer;
+  display: flex; align-items: center; justify-content: center;
+  transition: background .13s, color .13s;
+}
+.pbSidebarSearchBtn:hover:not(:disabled) { background: rgba(220,80,255,0.22); }
+.pbSidebarSearchBtn:disabled { opacity: 0.5; cursor: default; }
+.pbSearchBtnIcon { width: 16px; height: 16px; }
+.pbSearchBtnSpinner {
+  width: 14px; height: 14px;
+  border: 2px solid rgba(220,80,255,0.3);
+  border-top-color: #dc50ff;
+  border-radius: 50%;
+  animation: pbSpin .6s linear infinite;
+  display: inline-block;
+}
+@keyframes pbSpin { to { transform: rotate(360deg); } }
+
+/* Search results */
+.pbSearchResultsHeader {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 6px 18px 4px;
+  flex-shrink: 0;
+}
+.pbSearchResultsLabel {
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 1.5px;
+  color: rgba(255,255,255,0.35);
+  text-transform: uppercase;
+}
+.pbSearchClear {
+  background: none;
+  border: none;
+  color: rgba(255,255,255,0.28);
+  font-size: 9px;
+  font-weight: 900;
+  letter-spacing: 1.5px;
+  text-transform: uppercase;
+  cursor: pointer;
+  font-family: 'Orbitron', system-ui, sans-serif;
+  padding: 4px 0;
+  transition: color .12s;
+}
+.pbSearchClear:hover { color: rgba(255,255,255,0.7); }
+
+.pbSearchResultRow {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 18px;
+  border-bottom: 1px solid rgba(255,255,255,0.05);
+  transition: background .12s;
+}
+.pbSearchResultRow:hover { background: rgba(255,255,255,0.03); }
+
+.pbAddFriendBtn {
+  flex-shrink: 0;
+  width: 32px; height: 32px;
+  background: rgba(220,80,255,0.10);
+  border: 1px solid rgba(220,80,255,0.28);
+  border-radius: 8px;
+  color: #dc50ff;
+  cursor: pointer;
+  display: flex; align-items: center; justify-content: center;
+  transition: background .13s, border-color .13s, transform .1s;
+}
+.pbAddFriendBtn:hover:not(:disabled) {
+  background: rgba(220,80,255,0.22);
+  border-color: rgba(220,80,255,0.5);
+}
+.pbAddFriendBtn:active { transform: scale(0.9); }
+.pbAddFriendBtn:disabled { opacity: 0.4; cursor: default; }
+.pbAddFriendIcon { width: 16px; height: 16px; }
+
+.pbFriendStatusTag {
+  font-size: 9px;
+  font-weight: 900;
+  letter-spacing: 1.5px;
+  text-transform: uppercase;
+  color: rgba(255,255,255,0.3);
+  background: rgba(255,255,255,0.06);
+  border: 1px solid rgba(255,255,255,0.10);
+  border-radius: 5px;
+  padding: 3px 8px;
+  font-family: 'Orbitron', system-ui, sans-serif;
+  flex-shrink: 0;
+}
+.pbFriendStatusFriends { color: #4dff90; background: rgba(77,255,144,0.08); border-color: rgba(77,255,144,0.22); }
+.pbFriendStatusYou     { color: #dc50ff; background: rgba(220,80,255,0.08); border-color: rgba(220,80,255,0.22); }
+
+.pbSidebarTabs {
+  display: flex;
+  padding: 0 14px;
+  gap: 2px;
+  flex-shrink: 0;
+  border-bottom: 1px solid rgba(255,255,255,0.06);
+}
+.pbSidebarTab {
+  background: none;
+  border: none;
+  border-bottom: 2px solid transparent;
+  color: rgba(255,255,255,0.35);
+  font-size: 10px;
+  font-weight: 900;
+  letter-spacing: 1.5px;
+  text-transform: uppercase;
+  padding: 10px 12px 8px;
+  cursor: pointer;
+  font-family: 'Orbitron', system-ui, sans-serif;
+  transition: color .12s, border-color .12s;
+}
+.pbSidebarTab:hover   { color: rgba(255,255,255,0.7); }
+.pbSidebarTab.active  { color: #fff; border-bottom-color: #fff; }
+
+/* Badge on the Requests tab */
+.pbSidebarTabBadge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 16px; height: 16px;
+  border-radius: 50%;
+  background: #ff4060;
+  color: #fff;
+  font-size: 9px;
+  font-weight: 900;
+  margin-left: 5px;
+  vertical-align: middle;
+  line-height: 1;
+}
+
+/* Request list */
+.pbRequestList {
+  flex: 1;
+  overflow-y: auto;
+  padding: 8px 0;
+}
+.pbRequestRow {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 11px 18px;
+  border-bottom: 1px solid rgba(255,255,255,0.05);
+  transition: background .12s;
+}
+.pbRequestRow:hover { background: rgba(255,255,255,0.03); }
+.pbRequestAvatar {
+  width: 38px; height: 38px;
+  border-radius: 8px;
+  object-fit: cover;
+  border: 1px solid rgba(255,255,255,0.12);
+  flex-shrink: 0;
+}
+.pbRequestInfo {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.pbRequestName {
+  font-size: 12px;
+  font-weight: 900;
+  letter-spacing: 1px;
+  text-transform: uppercase;
+  color: #fff;
+  font-family: 'Orbitron', system-ui, sans-serif;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.pbRequestSub {
+  font-size: 10px;
+  color: rgba(255,255,255,0.35);
+  letter-spacing: 0.3px;
+}
+.pbFriendOnlineTag { color: #4dff90; }
+.pbRequestActions {
+  display: flex;
+  gap: 6px;
+  flex-shrink: 0;
+}
+.pbRequestBtn {
+  width: 32px; height: 32px;
+  border-radius: 8px;
+  border: 1px solid transparent;
+  font-size: 14px;
+  font-weight: 900;
+  cursor: pointer;
+  display: flex; align-items: center; justify-content: center;
+  transition: background .13s, border-color .13s, transform .1s;
+}
+.pbRequestBtn:active { transform: scale(0.92); }
+.pbRequestAccept {
+  background: rgba(77,255,144,0.10);
+  border-color: rgba(77,255,144,0.28);
+  color: #4dff90;
+}
+.pbRequestAccept:hover {
+  background: rgba(77,255,144,0.20);
+  border-color: rgba(77,255,144,0.5);
+}
+.pbRequestDecline {
+  background: rgba(255,64,96,0.10);
+  border-color: rgba(255,64,96,0.28);
+  color: #ff4060;
+}
+.pbRequestDecline:hover {
+  background: rgba(255,64,96,0.20);
+  border-color: rgba(255,64,96,0.5);
+}
+
+.pbSidebarEmpty {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 18px;
+  padding: 40px 28px;
+}
+.pbSidebarEmptyArtSvg { width: 90px; height: 90px; opacity: 0.55; }
+.pbSidebarEmptyText {
+  font-size: 12px;
+  color: rgba(255,255,255,0.38);
+  text-align: center;
+  line-height: 1.65;
+  letter-spacing: 0.3px;
+}
+.pbSidebarEmptyText b { color: rgba(255,255,255,0.6); }
+.pbSidebarEmptyAction {
+  background: rgba(220,80,255,0.10);
+  border: 1px solid rgba(220,80,255,0.3);
+  border-radius: 8px;
+  color: #dc50ff;
+  font-size: 10px;
+  font-weight: 900;
+  letter-spacing: 2px;
+  text-transform: uppercase;
+  padding: 9px 18px;
+  cursor: pointer;
+  font-family: 'Orbitron', system-ui, sans-serif;
+  transition: background .14s, border-color .14s;
+}
+.pbSidebarEmptyAction:hover { background: rgba(220,80,255,0.18); border-color: rgba(220,80,255,0.5); }
+
+/* Sidebar slide transitions */
+.pbSidebar-enter-active, .pbSidebar-leave-active,
+.pbSidebarRight-enter-active, .pbSidebarRight-leave-active {
+  transition: transform .22s cubic-bezier(0.22, 1, 0.36, 1);
+}
+.pbSidebar-enter-from .pbFriendsSidebar,
+.pbSidebar-leave-to   .pbFriendsSidebar  { transform: translateX(-100%); }
+.pbSidebar-enter-from .pbNotifSidebar,
+.pbSidebar-leave-to   .pbNotifSidebar    { transform: translateX(100%); }
+
+/* Vue Transition on the outer overlay div — we animate the sidebar child directly */
+.pbSidebar-enter-from .pbSidebar { transform: translateX(-100%); }
+.pbSidebar-leave-to   .pbSidebar { transform: translateX(-100%); }
+.pbSidebarRight-enter-from .pbSidebar { transform: translateX(100%); }
+.pbSidebarRight-leave-to   .pbSidebar { transform: translateX(100%); }
+.pbSidebar-enter-active .pbSidebar,
+.pbSidebar-leave-active .pbSidebar,
+.pbSidebarRight-enter-active .pbSidebar,
+.pbSidebarRight-leave-active .pbSidebar {
+  transition: transform .22s cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+/* ══════════════════════════════════════════════════════
+   PROFILE MODAL
+══════════════════════════════════════════════════════ */
+.pbProfileOverlay {
+  position: fixed;
+  inset: 0;
+  z-index: 700;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(0,0,0,0.55);
+  backdrop-filter: blur(4px);
+}
+.pbProfileCard {
+  background: rgba(14,18,14,0.98);
+  border: 1px solid rgba(255,255,255,0.10);
+  border-radius: 14px;
+  width: min(480px, 92vw);
+  overflow: hidden;
+  box-shadow: 0 24px 80px rgba(0,0,0,0.7), 0 0 0 1px rgba(255,255,255,0.05);
+  position: relative;
+}
+.pbProfileAccentBar {
+  height: 3px;
+  background: linear-gradient(90deg, #dc50ff 0%, #6060ff 50%, #00d4ff 100%);
+}
+.pbProfileHead {
+  display: flex;
+  align-items: flex-start;
+  gap: 16px;
+  padding: 20px 20px 16px;
+}
+.pbProfileAvatarBlock {
+  position: relative;
+  flex-shrink: 0;
+}
+.pbProfileAvatar {
+  width: 64px; height: 64px;
+  border-radius: 10px;
+  object-fit: cover;
+  border: 2px solid rgba(255,255,255,0.14);
+  background: rgba(40,40,60,0.8);
+  display: block;
+}
+.pbProfileRankIcon {
+  position: absolute;
+  bottom: -6px; right: -6px;
+  font-size: 8px;
+  font-weight: 900;
+  letter-spacing: 0.5px;
+  padding: 3px 6px;
+  border-radius: 5px;
+  background: rgba(10,14,10,0.95);
+  border: 1px solid rgba(255,255,255,0.14);
+  font-family: 'Orbitron', system-ui, sans-serif;
+  color: rgba(255,255,255,0.6);
+}
+.pbProfileMeta {
+  flex: 1;
+  min-width: 0;
+}
+.pbProfileName {
+  font-size: 20px;
+  font-weight: 900;
+  letter-spacing: 2px;
+  text-transform: uppercase;
+  font-family: 'Orbitron', system-ui, sans-serif;
+  color: #fff;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  line-height: 1.1;
+}
+.pbProfileFlag { font-size: 16px; }
+.pbProfileJoined {
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 1.5px;
+  color: rgba(255,255,255,0.32);
+  margin-top: 4px;
+  text-transform: uppercase;
+}
+.pbProfileUid {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  margin-top: 6px;
+  background: rgba(255,255,255,0.05);
+  border: 1px solid rgba(255,255,255,0.10);
+  border-radius: 6px;
+  padding: 3px 9px 3px 7px;
+  cursor: pointer;
+  font-family: 'Orbitron', system-ui, sans-serif;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 1.5px;
+  color: rgba(255,255,255,0.45);
+  transition: background .12s, border-color .12s, color .12s;
+}
+.pbProfileUid:hover {
+  background: rgba(255,255,255,0.09);
+  border-color: rgba(255,255,255,0.2);
+  color: rgba(255,255,255,0.75);
+}
+.pbProfileUidHash { color: rgba(255,255,255,0.25); margin-right: 1px; }
+.pbProfileUidCopyIcon {
+  margin-left: 5px;
+  font-size: 11px;
+  opacity: 0.55;
+}
+.pbProfileLevelRow {
+  display: flex;
+  align-items: baseline;
+  gap: 3px;
+  margin-top: 6px;
+}
+.pbProfileLevel {
+  font-size: 20px;
+  font-weight: 900;
+  color: rgba(255,255,255,0.9);
+  font-family: 'Orbitron', system-ui, sans-serif;
+}
+.pbProfileLevelSlash {
+  font-size: 16px;
+  font-weight: 700;
+  color: rgba(255,255,255,0.35);
+  letter-spacing: -2px;
+}
+.pbProfileClose {
+  background: none;
+  border: none;
+  color: rgba(255,255,255,0.35);
+  font-size: 11px;
+  font-weight: 900;
+  letter-spacing: 2px;
+  text-transform: uppercase;
+  cursor: pointer;
+  padding: 6px 0;
+  font-family: 'Orbitron', system-ui, sans-serif;
+  transition: color .12s;
+  flex-shrink: 0;
+}
+.pbProfileClose:hover { color: #fff; }
+
+/* Stats row */
+.pbProfileStats {
+  display: flex;
+  align-items: center;
+  border-top: 1px solid rgba(255,255,255,0.07);
+  border-bottom: 1px solid rgba(255,255,255,0.07);
+  padding: 14px 20px;
+  gap: 0;
+}
+.pbProfileStat {
+  flex: 1;
+  display: flex;
+  align-items: baseline;
+  justify-content: center;
+  gap: 5px;
+}
+.pbProfileStatVal {
+  font-size: 22px;
+  font-weight: 900;
+  font-family: 'Orbitron', system-ui, sans-serif;
+  color: #fff;
+}
+.pbProfileStatW  { color: #4dff90; }
+.pbProfileStatL  { color: #ff4060; }
+.pbProfileStatLbl {
+  font-size: 12px;
+  font-weight: 700;
+  color: rgba(255,255,255,0.38);
+  letter-spacing: 1px;
+}
+.pbProfileStatDiv {
+  width: 1px;
+  height: 32px;
+  background: rgba(255,255,255,0.08);
+  flex-shrink: 0;
+}
+
+/* Mode rank rows */
+.pbProfileModes {
+  border-bottom: 1px solid rgba(255,255,255,0.07);
+}
+.pbProfileModeRow {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 11px 22px;
+  border-bottom: 1px solid rgba(255,255,255,0.045);
+  transition: background .12s;
+}
+.pbProfileModeRow:last-child { border-bottom: none; }
+.pbProfileModeRow:hover { background: rgba(255,255,255,0.03); }
+.pbProfileModeName {
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 2px;
+  color: rgba(255,255,255,0.4);
+  text-transform: uppercase;
+  font-family: 'Orbitron', system-ui, sans-serif;
+}
+.pbProfileModeTier {
+  font-size: 11px;
+  font-weight: 900;
+  letter-spacing: 1.5px;
+  text-transform: uppercase;
+  font-family: 'Orbitron', system-ui, sans-serif;
+  padding: 3px 10px;
+  border-radius: 5px;
+  border: 1px solid transparent;
+}
+/* Tier colour mappings */
+.pbModeTier-unranked  { color: rgba(255,255,255,0.28); background: rgba(255,255,255,0.05);  border-color: rgba(255,255,255,0.08); }
+.pbModeTier-plastic   { color: #aab;     background: rgba(170,170,185,0.10); border-color: rgba(170,170,185,0.2); }
+.pbModeTier-bronze    { color: #cd7f32;  background: rgba(205,127,50,0.12);  border-color: rgba(205,127,50,0.25); }
+.pbModeTier-silver    { color: #c0c0c0;  background: rgba(192,192,192,0.10); border-color: rgba(192,192,192,0.22); }
+.pbModeTier-gold      { color: #ffd700;  background: rgba(255,215,0,0.10);   border-color: rgba(255,215,0,0.25); }
+.pbModeTier-platinum  { color: #64dcff;  background: rgba(100,220,255,0.10); border-color: rgba(100,220,255,0.22); }
+.pbModeTier-diamond   { color: #64a0ff;  background: rgba(100,160,255,0.12); border-color: rgba(100,160,255,0.25); }
+.pbModeTier-master    { color: #aa50ff;  background: rgba(170,80,255,0.12);  border-color: rgba(170,80,255,0.28); }
+.pbModeTier-champion  { color: #ffd200;  background: rgba(255,210,0,0.14);   border-color: rgba(255,210,0,0.3);  box-shadow: 0 0 8px rgba(255,210,0,0.18); }
+
+/* View profile button */
+.pbProfileViewBtn {
+  width: 100%;
+  background: rgba(255,255,255,0.04);
+  border: none;
+  border-top: 1px solid rgba(255,255,255,0.06);
+  color: rgba(255,255,255,0.75);
+  font-size: 13px;
+  font-weight: 900;
+  letter-spacing: 2.5px;
+  text-transform: uppercase;
+  padding: 18px 20px;
+  cursor: pointer;
+  font-family: 'Orbitron', system-ui, sans-serif;
+  transition: background .14s, color .14s;
+  text-align: center;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+}
+.pbProfileViewBtn:hover {
+  background: rgba(255,255,255,0.08);
+  color: #fff;
+}
+
+/* Profile modal transition */
+.pbProfileModal-enter-active, .pbProfileModal-leave-active {
+  transition: opacity .18s ease, transform .18s cubic-bezier(0.34, 1.56, 0.64, 1);
+}
+.pbProfileModal-enter-from, .pbProfileModal-leave-to {
+  opacity: 0;
+  transform: scale(0.93);
 }
 
 
