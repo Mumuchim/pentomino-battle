@@ -935,29 +935,30 @@
                   <!-- Divider -->
                   <div class="mhCardDivider"></div>
 
-                  <!-- Right: opponent + pieces (LoL style) + date -->
+                  <!-- Right: opponent + pieces on same row (LoL style) + meta below -->
                   <div class="mhCardRight">
-                    <div class="mhVsRow">vs <span class="mhOppName">{{ m.opponentName }}</span></div>
-
-                    <!-- Pieces inline — LoL item row style -->
-                    <div class="mhPicksList" v-if="!mhIsMirror(m.mode) && m.myPicks && m.myPicks.length > 0">
-                      <div
-                        v-for="piece in m.myPicks" :key="piece"
-                        class="mhPieceChip"
-                        :title="piece"
-                      >
-                        <svg class="mhPieceSvg" viewBox="0 0 15 15">
-                          <rect
-                            v-for="(cell, ci) in mhPieceCells(piece)" :key="ci"
-                            :x="cell[1] * 3 + 0.2" :y="cell[0] * 3 + 0.2"
-                            width="2.6" height="2.6" rx="0.3"
-                            :fill="mhPieceColor(piece)"
-                          />
-                        </svg>
+                    <!-- Top row: opponent name + pieces inline -->
+                    <div class="mhTopRow">
+                      <span class="mhVsLabel">vs</span>
+                      <span class="mhOppName">{{ m.opponentName }}</span>
+                      <div class="mhPicksList" v-if="!mhIsMirror(m.mode) && m.myPicks && m.myPicks.length > 0">
+                        <div
+                          v-for="piece in m.myPicks" :key="piece"
+                          class="mhPieceChip"
+                          :title="piece"
+                        >
+                          <svg class="mhPieceSvg" viewBox="0 0 15 15">
+                            <rect
+                              v-for="(cell, ci) in mhPieceCells(piece)" :key="ci"
+                              :x="cell[1] * 3 + 0.2" :y="cell[0] * 3 + 0.2"
+                              width="2.6" height="2.6" rx="0.3"
+                              :fill="mhPieceColor(piece)"
+                            />
+                          </svg>
+                        </div>
                       </div>
                     </div>
-                    <div class="mhMirrorNote" v-else-if="mhIsMirror(m.mode)">Mirror match</div>
-
+                    <!-- Bottom row: mode tag + date -->
                     <div class="mhBottomRow">
                       <span class="mhMetaTag" :class="'er-' + m.end_reason">{{ mhEndReasonLabel(m.end_reason) }}</span>
                       <span class="mhDateLabel">{{ mhFormatDate(m.created_at) }}</span>
@@ -18151,15 +18152,23 @@ onBeforeUnmount(() => {
   padding: 10px 16px;
   min-width: 0;
 }
-.mhVsRow {
+.mhTopRow {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  flex-wrap: nowrap;
+}
+.mhVsLabel {
   font-size: 11px;
   color: rgba(255,255,255,0.4);
-  white-space: nowrap;
+  flex-shrink: 0;
 }
 .mhOppName {
   color: #fff;
   font-weight: 700;
   font-size: 13px;
+  white-space: nowrap;
+  flex-shrink: 0;
 }
 .mhBottomRow {
   display: flex;
