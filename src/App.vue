@@ -1230,7 +1230,10 @@
                       <div class="tbActionLine">is PICKING</div>
                     </template>
                     <template v-else>
-                      <span class="tbPlayerNum">P{{ game.draftTurn }}</span> PICKING
+                      <div class="tbNameLine">
+                        <span class="tbPlayerNum tbHumanName">{{ draftTurnName }}</span>
+                      </div>
+                      <div class="tbActionLine">is PICKING</div>
                     </template>
                   </span>
                   <span v-else-if="game.phase === 'place'">
@@ -1248,7 +1251,10 @@
                       <div class="tbActionLine">is THINKING</div>
                     </template>
                     <template v-else>
-                      <span class="tbPlayerNum">{{ 'P' + game.currentPlayer }}</span> TURN
+                      <div class="tbNameLine">
+                        <span class="tbPlayerNum tbHumanName">{{ placeTurnName }}</span>
+                      </div>
+                      <div class="tbActionLine">is PLACING</div>
                     </template>
                   </span>
                   <span v-else>GAME OVER</span>
@@ -4200,6 +4206,10 @@ const panelP2Name = computed(() => {
   if (screen.value === 'ai')     return humanPlayer.value === 2 ? (displayName.value || 'YOU') : storyAiName.value;
   return 'Player 2';
 });
+
+// IGN of whoever is currently picking/placing — used in the turn banner
+const draftTurnName = computed(() => game.draftTurn === 1 ? panelP1Name.value : panelP2Name.value);
+const placeTurnName = computed(() => game.currentPlayer === 1 ? panelP1Name.value : panelP2Name.value);
 
 const phaseTitle = computed(() => {
   if (game.phase === "draft") return "Drafting";

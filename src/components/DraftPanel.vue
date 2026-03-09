@@ -9,8 +9,10 @@
         <!-- YOUR picks (always on top) -->
         <div class="draftCol">
           <div class="draftHead" :class="props.myPlayer === 1 ? 'p1' : 'p2'">
-            <span class="draftName">{{ myName }}</span>
-            <span class="youTag">YOU</span>
+            <span class="nameGroup">
+              <span class="draftName">{{ myName }}</span>
+              <span class="youTag">YOU</span>
+            </span>
             <span
               class="trayAnchor"
               :data-tray="props.myPlayer"
@@ -238,6 +240,13 @@ onBeforeUnmount(() => {
 
 .draftHead.p1 { color: rgba(78, 201, 255, 0.98); }
 .draftHead.p2 { color: rgba(255, 107, 107, 0.98); }
+
+.nameGroup {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
 
 .draftName {
   font-weight: 1000;

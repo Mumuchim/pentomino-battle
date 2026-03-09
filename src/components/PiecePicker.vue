@@ -42,8 +42,10 @@
       <!-- TOP player: "you" in online/AI, P1 in couch -->
       <div class="draftCol" :class="{ active: canSelect(topPlayer), inactive: !canSelect(topPlayer) }">
         <div class="draftHead" :class="topPlayer === 1 ? 'p1' : 'p2'">
-          <span class="headLeft">{{ topName }}</span>
-          <span v-if="showYouTag" class="youTag">YOU</span>
+          <span class="nameGroup">
+            <span class="headLeft">{{ topName }}</span>
+            <span v-if="showYouTag" class="youTag">YOU</span>
+          </span>
           <span class="count">{{ game.remaining[topPlayer].length }}</span>
           <span
             class="trayAnchor"
@@ -479,6 +481,13 @@ onBeforeUnmount(() => {
 }
 
 .headLeft { min-width: 0; }
+
+.nameGroup {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
 
 .draftHead.p1 { color: rgba(78, 201, 255, 0.98); }
 .draftHead.p2 { color: rgba(255, 107, 107, 0.98); }
