@@ -935,13 +935,12 @@
                   <!-- Divider -->
                   <div class="mhCardDivider"></div>
 
-                  <!-- Right: opponent + pieces on same row (LoL style) + meta below -->
+                  <!-- Right: LoL-style — name + pieces + date ALL on one row -->
                   <div class="mhCardRight">
-                    <!-- Top row: opponent name + pieces inline -->
-                    <div class="mhTopRow">
+                    <div class="mhMainRow">
                       <span class="mhVsLabel">vs</span>
                       <span class="mhOppName">{{ m.opponentName }}</span>
-                      <div class="mhPicksList" v-if="!mhIsMirror(m.mode) && m.myPicks && m.myPicks.length > 0">
+                      <template v-if="!mhIsMirror(m.mode) && m.myPicks && m.myPicks.length > 0">
                         <div
                           v-for="piece in m.myPicks" :key="piece"
                           class="mhPieceChip"
@@ -956,12 +955,12 @@
                             />
                           </svg>
                         </div>
-                      </div>
-                    </div>
-                    <!-- Bottom row: mode tag + date -->
-                    <div class="mhBottomRow">
-                      <span class="mhMetaTag" :class="'er-' + m.end_reason">{{ mhEndReasonLabel(m.end_reason) }}</span>
+                      </template>
                       <span class="mhDateLabel">{{ mhFormatDate(m.created_at) }}</span>
+                    </div>
+                    <div class="mhSubRow">
+                      <span class="mhDurationLabel">{{ mhFormatDuration(m.duration_sec) }}</span>
+                      <span class="mhMetaTag" :class="'er-' + m.end_reason">{{ mhEndReasonLabel(m.end_reason) }}</span>
                     </div>
                   </div>
 
@@ -18141,22 +18140,29 @@ onBeforeUnmount(() => {
   font-family: 'Rajdhani', system-ui, sans-serif;
 }
 
-/* Right column: opponent + pieces + date (LoL style) */
+/* Right column: LoL-style */
 .mhCardRight {
   flex: 1;
   display: flex;
   flex-direction: column;
   justify-content: center;
-  align-items: flex-start;
-  gap: 5px;
+  gap: 4px;
   padding: 10px 16px;
   min-width: 0;
 }
-.mhTopRow {
+.mhMainRow {
   display: flex;
+  flex-direction: row;
   align-items: center;
-  gap: 7px;
+  gap: 6px;
   flex-wrap: nowrap;
+  white-space: nowrap;
+}
+.mhSubRow {
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  gap: 6px;
 }
 .mhVsLabel {
   font-size: 11px;
@@ -18169,11 +18175,7 @@ onBeforeUnmount(() => {
   font-size: 13px;
   white-space: nowrap;
   flex-shrink: 0;
-}
-.mhBottomRow {
-  display: flex;
-  align-items: center;
-  gap: 8px;
+  margin-right: 2px;
 }
 .mhDateLabel {
   font-size: 10px;
