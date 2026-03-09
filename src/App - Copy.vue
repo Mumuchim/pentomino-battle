@@ -715,71 +715,48 @@
                   <span class="pbNPSectionCount">({{ mh.total }})</span>
                 </div>
 
-                <!-- Loading skeleton -->
-                <div v-if="mh.loading" class="pbNPMatchSkeletons">
-                  <div v-for="n in 4" :key="n" class="pbNPMatchSkeleton"></div>
-                </div>
-
-                <!-- Empty state -->
-                <div v-else-if="mh.items.length === 0" class="pbNPMatchEmpty">
-                  <div class="pbNPMatchEmptyIcon">🎮</div>
-                  <div class="pbNPMatchEmptyText">No matches yet — play an online game!</div>
-                </div>
-
-                <!-- Match cards -->
-                <div v-else class="pbNPMatchList">
-                  <div
-                    v-for="m in mh.items" :key="m.id"
-                    class="pbNPMatchCard"
-                    :class="m.result === 'W' ? 'npMCWin' : m.result === 'L' ? 'npMCLoss' : 'npMCDraw'"
-                  >
-                    <!-- Left accent bar + result -->
-                    <div class="pbNPMCResult">
-                      <div class="pbNPMCResultLabel">{{ m.result === 'W' ? 'WIN' : m.result === 'L' ? 'LOSS' : 'DRAW' }}</div>
-                      <div class="pbNPMCDuration">{{ mhFormatDuration(m.duration_sec) }}</div>
-                    </div>
-
-                    <!-- Center: opponent + mode + picks -->
-                    <div class="pbNPMCCenter">
-                      <div class="pbNPMCOpponent">
-                        <span class="pbNPMCVs">vs</span>
-                        <span class="pbNPMCOppName">{{ m.opponentName }}</span>
-                        <span class="pbNPMCModeChip">{{ mhModeLabel(m.mode) }}</span>
-                      </div>
-                      <div class="pbNPMCPicks" v-if="!mhIsMirror(m.mode) && m.myPicks && m.myPicks.length > 0">
-                        <div
-                          v-for="piece in m.myPicks.slice(0, 6)" :key="piece"
-                          class="pbNPMCPiece"
-                          :title="piece"
-                        >
-                          <svg class="pbNPMCPieceSvg" viewBox="0 0 15 15">
-                            <rect
-                              v-for="(cell, ci) in mhPieceCells(piece)" :key="ci"
-                              :x="cell[1] * 3 + 0.2" :y="cell[0] * 3 + 0.2"
-                              width="2.6" height="2.6" rx="0.3"
-                              :fill="mhPieceColor(piece)"
-                            />
-                          </svg>
-                        </div>
-                        <span v-if="m.myPicks.length > 6" class="pbNPMCPickMore">+{{ m.myPicks.length - 6 }}</span>
-                      </div>
-                      <div class="pbNPMCPicks pbNPMCMirrorNote" v-else-if="mhIsMirror(m.mode)">mirror — same pieces for both players</div>
-                    </div>
-
-                    <!-- Right: date + end reason -->
-                    <div class="pbNPMCMeta">
-                      <div class="pbNPMCDate">{{ mhFormatDate(m.created_at) }}</div>
-                      <span v-if="m.end_reason && m.end_reason !== 'normal'" class="pbNPMCEndReason" :class="'er-' + m.end_reason">{{ mhEndReasonLabel(m.end_reason) }}</span>
-                    </div>
+                <div v-if="mh.loading" class="pbNPLoading">Loading…</div>
+                <div v-else-if="mh.items.length === 0" class="pbNPEmpty">No matches yet. Play an online game!</div>
+                <template v-else>
+                  <table class="pbNPTable">
+                    <thead>
+                      <tr>
+                        <th>Players</th>
+                        <th>Result</th>
+                        <th>Mode</th>
+                        <th>Duration</th>
+                        <th>Date</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      <tr
+                        v-for="m in mh.items" :key="m.id"
+                        class="pbNPTableRow"
+                        :class="m.result === 'W' ? 'npWin' : m.result === 'L' ? 'npLoss' : 'npDraw'"
+                      >
+                        <td class="pbNPTdPlayers">
+                          <span class="pbNPPlayer pbNPPlayerMe">{{ displayName }}</span>
+                          <span class="pbNPVs">vs</span>
+                          <span class="pbNPPlayer">{{ m.opponentName }}</span>
+                        </td>
+                        <td>
+                          <span class="pbNPResultBadge" :class="m.result.toLowerCase()">
+                            {{ m.result === 'W' ? 'WIN' : m.result === 'L' ? 'LOSS' : 'DRAW' }}
+                          </span>
+                        </td>
+                        <td class="pbNPTdMode">{{ (m.mode || 'online').toUpperCase() }}</td>
+                        <td>{{ mhFormatDuration(m.duration_sec) }}</td>
+                        <td class="pbNPTdDate">{{ mhFormatDate(m.created_at) }}</td>
+                      </tr>
+                    </tbody>
+                  </table>
+                  <!-- Pagination -->
+                  <div v-if="mh.total > mhPageSize" class="pbNPPagination">
+                    <button class="pbNPPageBtn" :disabled="mh.page === 0" @click="mhChangePage(mh.page - 1)">‹</button>
+                    <span class="pbNPPageInfo">{{ mh.page + 1 }} / {{ mhPageCount }}</span>
+                    <button class="pbNPPageBtn" :disabled="mh.page >= mhPageCount - 1" @click="mhChangePage(mh.page + 1)">›</button>
                   </div>
-                </div>
-
-                <!-- Pagination -->
-                <div v-if="mh.total > mhPageSize" class="pbNPPagination">
-                  <button class="pbNPPageBtn" :disabled="mh.page === 0" @click="mhChangePage(mh.page - 1)">‹</button>
-                  <span class="pbNPPageInfo">{{ mh.page + 1 }} / {{ mhPageCount }}</span>
-                  <button class="pbNPPageBtn" :disabled="mh.page >= mhPageCount - 1" @click="mhChangePage(mh.page + 1)">›</button>
-                </div>
+                </template>
               </div>
             </div>
 
@@ -2446,7 +2423,6 @@ import {
   isLoggedIn as _authIsLoggedIn,
 } from "./lib/auth.js";
 import { createLobby as _onlineMatchCreateLobby } from "./lib/onlineMatch.js";
-import * as replayLogger from "./lib/replayLogger.js";
 
 // ── Floating pentomino pieces: DVD-bounce physics ──────────────────────────
 const LANDING_CELL = 42;
@@ -5583,7 +5559,7 @@ async function sbRecordMatchResult({
   try {
     // requireSupabase already statically imported
     const sb = requireSupabase();
-    const { data: rpcData } = await sb.rpc("record_match_result", {
+    await sb.rpc("record_match_result", {
       p_lobby_id:      lobbyId,
       p_round:         roundNumber,
       p_player1_id:    player1Id,
@@ -5596,11 +5572,9 @@ async function sbRecordMatchResult({
       p_player1_picks: player1Picks,
       p_player2_picks: player2Picks,
     });
-    return rpcData?.id ?? null;
   } catch (e) {
     // Non-fatal — stats can be backfilled later. Never break the UX.
     console.warn("[pbMatch] record_match_result failed:", e?.message ?? e);
-    return null;
   }
 }
 
@@ -6777,41 +6751,6 @@ watch(
   }
 );
 
-// ── Replay: start recording when both players are confirmed ──────────────────
-watch(
-  () => [online.waitingForOpponent, online.lobbyId, isOnline.value],
-  async ([waiting, lobbyId, online_]) => {
-    if (!online_ || waiting || !lobbyId) return;
-    try {
-      const lobby = await sbSelectLobbyById(lobbyId);
-      if (!lobby) return;
-      const meta    = lobby?.state?.meta || {};
-      const players = meta?.players || {};
-      const p1Id = String(players["1"] || players[1] || "");
-      const p2Id = String(players["2"] || players[2] || "");
-      if (!p1Id || !p2Id) return;
-      replayLogger.startReplay({
-        lobbyId,
-        player1Id:  p1Id,
-        player2Id:  p2Id,
-        boardW:     meta?.boardW  ?? 10,
-        boardH:     meta?.boardH  ?? 6,
-        mode:       meta?.mode    || "online",
-        round:      meta?.round   ?? 1,
-        allowFlip:  meta?.allowFlip ?? true,
-      });
-    } catch { /* non-fatal */ }
-  }
-);
-
-// ── Replay: record every authoritative move ──────────────────────────────────
-watch(
-  () => game.lastMove,
-  (mv) => {
-    if (mv && isOnline.value) replayLogger.recordEvent(mv);
-  }
-);
-
 // ── Surrender sound ────────────────────────────────────────────────────────
 // Fires on both clients when a surrender lastMove is recorded
 let _lastSfxMoveSeq = 0;
@@ -7235,7 +7174,6 @@ function winnerMessage(w) {
 function stopAndExitToMenu(note = "") {
   leaveOnlineLobby("exit").finally(() => {
     stopPolling();
-    replayLogger.clearReplay();
     myPlayer.value = null;
     screen.value = "multiplayer";
     if (note) showModal({ title: "Returned", tone: "info", message: note });
@@ -7626,7 +7564,7 @@ async function _handleGameover() {
           const lm = game.lastMove?.type || "normal";
           const endReason = ["timeout","surrender","dodged","abandoned"].includes(lm) ? lm : "normal";
 
-          const matchId = await sbRecordMatchResult({
+          await sbRecordMatchResult({
             lobbyId:     online.lobbyId,
             roundNumber: Number(meta?.round || 1),
             player1Id:   p1Id,
@@ -7645,21 +7583,6 @@ async function _handleGameover() {
                        : lobby?.source === "custom"   ? "custom"
                        : "standard",
           });
-
-          // ── HOST-ONLY: save replay row and back-link to match ────────────
-          if (online.role === "host") {
-            const replayId = await replayLogger.saveReplay({
-              matchId,
-              winnerId,
-              endReason,
-              finalBoard: game.board,
-              finalPicks: game.picks,
-            });
-            if (matchId && replayId) {
-              await replayLogger.linkReplayToMatch(matchId, replayId);
-            }
-            replayLogger.clearReplay();
-          }
 
           // ── Fetch LP delta for ranked matches and update modal message ────
           if (meta?.mode === "ranked" || lobby?.mode === "ranked") {
@@ -13395,113 +13318,31 @@ onBeforeUnmount(() => {
   border-bottom: 1px solid rgba(255,255,255,0.07);
 }
 .pbNPSectionCount { color: rgba(255,255,255,0.35); font-weight: 400; font-size: 13px; margin-left: 4px; }
-/* (old table styles removed — replaced by pbNPMatchCard layout) */
+.pbNPLoading, .pbNPEmpty { padding: 32px; text-align: center; color: rgba(255,255,255,0.3); font-size: 13px; }
 
 /* Table */
-/* ── Profile match history — card layout ─────────────────────────────── */
-.pbNPMatchSkeletons { display: flex; flex-direction: column; gap: 6px; padding: 10px; }
-.pbNPMatchSkeleton {
-  height: 58px; border-radius: 8px;
-  background: linear-gradient(90deg, rgba(255,255,255,0.04) 0%, rgba(255,255,255,0.07) 50%, rgba(255,255,255,0.04) 100%);
-  background-size: 200% 100%;
-  animation: pbNPSkeletonShimmer 1.4s infinite;
+.pbNPTable { width: 100%; border-collapse: collapse; font-size: 12px; }
+.pbNPTable thead tr { border-bottom: 1px solid rgba(255,255,255,0.07); }
+.pbNPTable th { padding: 10px 14px; color: rgba(255,255,255,0.35); font-weight: 600; text-align: left; letter-spacing: 0.5px; font-size: 11px; text-transform: uppercase; }
+.pbNPTableRow { border-bottom: 1px solid rgba(255,255,255,0.05); transition: background .1s; cursor: default; }
+.pbNPTableRow:hover { background: rgba(255,255,255,0.04); }
+.pbNPTableRow td { padding: 10px 14px; color: rgba(255,255,255,0.7); vertical-align: middle; }
+.pbNPTableRow.npWin { border-left: 2px solid rgba(77,255,144,0.5); }
+.pbNPTableRow.npLoss { border-left: 2px solid rgba(255,64,96,0.5); }
+.pbNPTableRow.npDraw { border-left: 2px solid rgba(255,200,50,0.4); }
+.pbNPTdPlayers { display: flex; align-items: center; gap: 6px; }
+.pbNPPlayerMe  { color: #fff; font-weight: 700; }
+.pbNPVs        { color: rgba(255,255,255,0.25); font-size: 10px; }
+.pbNPTdMode    { color: rgba(255,255,255,0.4); font-size: 11px; letter-spacing: 0.5px; }
+.pbNPTdDate    { color: rgba(255,255,255,0.35); font-size: 11px; }
+.pbNPResultBadge {
+  display: inline-block; padding: 2px 8px; border-radius: 5px;
+  font-size: 10px; font-weight: 900; letter-spacing: 1.5px;
+  font-family: 'Orbitron', system-ui, sans-serif;
 }
-@keyframes pbNPSkeletonShimmer { 0%{background-position:200% 0} 100%{background-position:-200% 0} }
-
-.pbNPMatchEmpty {
-  display: flex; flex-direction: column; align-items: center; gap: 8px;
-  padding: 40px 16px; color: rgba(255,255,255,0.25);
-}
-.pbNPMatchEmptyIcon { font-size: 28px; }
-.pbNPMatchEmptyText { font-size: 12px; letter-spacing: 0.5px; }
-
-.pbNPMatchList { display: flex; flex-direction: column; }
-
-.pbNPMatchCard {
-  display: flex; align-items: center; gap: 0;
-  border-bottom: 1px solid rgba(255,255,255,0.05);
-  transition: background .12s;
-  position: relative;
-  overflow: hidden;
-}
-.pbNPMatchCard:last-child { border-bottom: none; }
-.pbNPMatchCard:hover { background: rgba(255,255,255,0.03); }
-
-/* Left accent stripe */
-.pbNPMatchCard::before {
-  content: ''; position: absolute; left: 0; top: 0; bottom: 0; width: 3px;
-}
-.pbNPMatchCard.npMCWin::before  { background: #3dffa0; }
-.pbNPMatchCard.npMCLoss::before { background: #ff4060; }
-.pbNPMatchCard.npMCDraw::before { background: rgba(255,200,50,0.6); }
-
-/* Result column */
-.pbNPMCResult {
-  width: 62px; flex-shrink: 0; padding: 12px 10px 12px 14px;
-  display: flex; flex-direction: column; align-items: flex-start; gap: 3px;
-}
-.pbNPMCResultLabel {
-  font-family: 'Orbitron', sans-serif; font-size: 10px; font-weight: 900; letter-spacing: 1.5px;
-}
-.npMCWin  .pbNPMCResultLabel { color: #3dffa0; }
-.npMCLoss .pbNPMCResultLabel { color: #ff4060; }
-.npMCDraw .pbNPMCResultLabel { color: #ffc832; }
-.pbNPMCDuration { font-size: 10px; color: rgba(255,255,255,0.28); font-variant-numeric: tabular-nums; }
-
-/* Center column */
-.pbNPMCCenter {
-  flex: 1; min-width: 0; padding: 10px 12px;
-  display: flex; flex-direction: column; gap: 5px;
-}
-.pbNPMCOpponent { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
-.pbNPMCVs { font-size: 10px; color: rgba(255,255,255,0.28); font-style: italic; }
-.pbNPMCOppName { font-size: 13px; font-weight: 700; color: rgba(255,255,255,0.85); }
-.pbNPMCModeChip {
-  font-size: 9px; font-weight: 900; letter-spacing: 1.5px; text-transform: uppercase;
-  font-family: 'Orbitron', sans-serif; color: rgba(255,255,255,0.35);
-  background: rgba(255,255,255,0.06); border-radius: 4px; padding: 2px 6px;
-}
-.pbNPMCPicks { display: flex; align-items: center; gap: 3px; flex-wrap: wrap; }
-.pbNPMCPiece {
-  width: 22px; height: 22px; display: flex; align-items: center; justify-content: center;
-  background: rgba(255,255,255,0.04); border-radius: 4px;
-  transition: background .1s;
-}
-.pbNPMCPiece:hover { background: rgba(255,255,255,0.09); }
-.pbNPMCPieceSvg { width: 16px; height: 16px; display: block; }
-.pbNPMCPickMore { font-size: 10px; color: rgba(255,255,255,0.3); margin-left: 2px; }
-.pbNPMCMirrorNote { font-size: 10px; color: rgba(255,255,255,0.2); font-style: italic; }
-
-/* Right/meta column */
-.pbNPMCMeta {
-  flex-shrink: 0; padding: 10px 14px;
-  display: flex; flex-direction: column; align-items: flex-end; gap: 5px;
-}
-.pbNPMCDate { font-size: 10px; color: rgba(255,255,255,0.3); white-space: nowrap; }
-.pbNPMCEndReason {
-  font-size: 9px; font-weight: 800; letter-spacing: 1px; text-transform: uppercase;
-  padding: 2px 6px; border-radius: 4px; background: rgba(255,255,255,0.05);
-  color: rgba(255,255,255,0.3);
-}
-.pbNPMCEndReason.er-timeout   { color: #ffb347; }
-.pbNPMCEndReason.er-surrender { color: rgba(255,255,255,0.35); }
-.pbNPMCEndReason.er-abandoned { color: rgba(255,255,255,0.25); }
-
-/* Pagination */
-.pbNPPagination {
-  display: flex; align-items: center; justify-content: center; gap: 16px;
-  padding: 12px; border-top: 1px solid rgba(255,255,255,0.06);
-}
-.pbNPPageBtn {
-  background: rgba(255,255,255,0.06); border: 1px solid rgba(255,255,255,0.12);
-  color: #fff; width: 32px; height: 32px; border-radius: 8px; cursor: pointer;
-  font-size: 16px; display: flex; align-items: center; justify-content: center;
-  transition: background .12s;
-}
-.pbNPPageBtn:disabled { opacity: 0.3; cursor: default; }
-.pbNPPageBtn:not(:disabled):hover { background: rgba(255,255,255,0.12); }
-.pbNPPageInfo { font-size: 12px; color: rgba(255,255,255,0.4); }
-/* (old table row styles removed) */
+.pbNPResultBadge.w { background: rgba(77,255,144,0.12); color: #4dff90; border: 1px solid rgba(77,255,144,0.25); }
+.pbNPResultBadge.l { background: rgba(255,64,96,0.12);  color: #ff4060; border: 1px solid rgba(255,64,96,0.25);  }
+.pbNPResultBadge.d { background: rgba(255,200,50,0.10); color: #ffd050; border: 1px solid rgba(255,200,50,0.2);  }
 
 /* Pagination */
 .pbNPPagination {
