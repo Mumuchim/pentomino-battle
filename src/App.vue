@@ -131,6 +131,20 @@
             <span class="tetBarIconCount zero" v-else>0</span>
           </button>
 
+          <!-- Messages sidebar button -->
+          <button
+            class="tetBarIconBtn"
+            :class="{ active: msgSidebarOpen }"
+            @click="toggleMsgSidebar"
+            title="Messages"
+            aria-label="Messages"
+          >
+            <svg class="tetBarIconSvg" viewBox="0 0 22 20" fill="none" xmlns="http://www.w3.org/2000/svg">
+              <path d="M11 2C6.03 2 2 5.58 2 10c0 1.85.67 3.55 1.8 4.93L3 18l3.5-1.4A9.3 9.3 0 0 0 11 18c4.97 0 9-3.58 9-8s-4.03-8-9-8z" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/>
+            </svg>
+            <span class="tetBarIconCount" v-if="totalUnreadMsgCount > 0">{{ totalUnreadMsgCount }}</span>
+          </button>
+
           <button
             class="tetBarIconBtn"
             :class="{ active: notifSidebarOpen }"
@@ -1790,13 +1804,72 @@
     </Teleport>
 
     <!-- ════════════════════════════════════════════════════════════
+         MESSAGES SIDEBAR  (recent conversations)
+    ═══════════════════════════════════════════════════════════════ -->
+    <Teleport to="body">
+      <Transition name="pbSidebar">
+        <div v-if="msgSidebarOpen" class="pbSidebarOverlay" @click.self="msgSidebarOpen = false" aria-label="Messages panel">
+          <div class="pbSidebar pbMsgSidebar">
+            <div class="pbSidebarHead">
+              <div class="pbSidebarHeadLeft">
+                <span class="pbSidebarTitle">MESSAGES</span>
+              </div>
+              <button class="pbSidebarClose" @click="msgSidebarOpen = false" aria-label="Close">✕</button>
+            </div>
+
+            <!-- Loading state -->
+            <div v-if="recentConvLoading" class="pbSidebarEmpty" style="padding-top:30px">
+              <span class="pbChatSpinner"></span>
+            </div>
+
+            <!-- Empty state -->
+            <div v-else-if="recentConversations.length === 0" class="pbSidebarEmpty">
+              <div class="pbSidebarEmptyArt">
+                <svg viewBox="0 0 80 80" fill="none" class="pbSidebarEmptyArtSvg">
+                  <path d="M40 10C25.64 10 14 20.75 14 34c0 5.5 2 10.6 5.4 14.7L18 64l10.5-4.2A28.2 28.2 0 0 0 40 62c14.36 0 26-10.75 26-28s-11.64-24-26-24z" stroke="rgba(255,255,255,0.12)" stroke-width="3" stroke-linejoin="round"/>
+                </svg>
+              </div>
+              <p class="pbSidebarEmptyText">No recent conversations.<br/>Message a friend to get started.</p>
+            </div>
+
+            <!-- Conversation list -->
+            <div v-else class="pbMsgConvList">
+              <div
+                v-for="conv in recentConversations"
+                :key="conv.friendId"
+                class="pbMsgConvRow"
+                :class="{ active: openChats[0]?.friendId === conv.friendId && !openChats[0]?.minimized }"
+                @click="openChatFromSidebar(conv)"
+              >
+                <div class="pbMsgConvAvatarWrap">
+                  <img :src="guestAvatarUrl" class="pbMsgConvAvatar" alt="" />
+                  <span class="pbMsgConvDot" :class="onlineUserIds?.has(conv.friendId) ? 'online' : 'offline'"></span>
+                </div>
+                <div class="pbMsgConvMeta">
+                  <div class="pbMsgConvTop">
+                    <span class="pbMsgConvName">{{ conv.friendName }}</span>
+                    <span class="pbMsgConvTime">{{ chatFormatTime(conv.lastAt) }}</span>
+                  </div>
+                  <div class="pbMsgConvBottom">
+                    <span class="pbMsgConvPreview">{{ conv.lastPreview }}</span>
+                    <span v-if="conv.unread > 0" class="pbMsgConvUnread">{{ conv.unread }}</span>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </Transition>
+    </Teleport>
+
+    <!-- ════════════════════════════════════════════════════════════
          CHAT WINDOWS  (floating, bottom-left, LoL-style)
     ═══════════════════════════════════════════════════════════════ -->
     <Teleport to="body">
       <div
         class="pbChatDock"
         v-if="loggedIn"
-        :style="friendsSidebarOpen ? 'left: calc(340px + 12px)' : 'left: 12px'"
+        :style="(friendsSidebarOpen || msgSidebarOpen) ? 'left: calc(340px + 12px)' : 'left: 12px'"
       >
         <TransitionGroup name="pbChatWin">
           <div
@@ -1806,7 +1879,7 @@
             :class="{ minimized: chat.minimized }"
           >
             <!-- LoL-style title bar -->
-            <div class="pbChatTitleBar" @click="chat.minimized = !chat.minimized">
+            <div class="pbChatTitleBar" @click="expandChat(chat)">
               <div class="pbChatTitleLeft">
                 <div class="pbChatTitleAvatarWrap">
                   <img :src="guestAvatarUrl" class="pbChatTitleAvatar" alt="" />
@@ -1819,8 +1892,10 @@
                   </span>
                 </div>
               </div>
+              <!-- Unread bubble shown when minimized -->
+              <span v-if="chat.minimized && chat.unreadCount > 0" class="pbChatUnreadBubble">{{ chat.unreadCount }}</span>
               <div class="pbChatTitleActions" @click.stop>
-                <button class="pbChatTitleBtn" @click="chat.minimized = !chat.minimized" :title="chat.minimized ? 'Expand' : 'Minimize'">
+                <button class="pbChatTitleBtn" @click="expandChat(chat)" :title="chat.minimized ? 'Expand' : 'Minimize'">
                   <svg viewBox="0 0 10 10" fill="none" style="width:10px;height:10px">
                     <path v-if="!chat.minimized" d="M2 7l3-3 3 3" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
                     <path v-else d="M2 3l3 3 3-3" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
@@ -1846,17 +1921,22 @@
                     v-for="(msg, msgIdx) in chat.messages"
                     :key="msg.id"
                     class="pbChatMsg"
-                    :class="msg.from_id === myUserId ? 'pbChatMsgMe' : 'pbChatMsgThem'"
+                    :class="msg.isSystem ? 'pbChatMsgSystem' : (msg.from_id === myUserId ? 'pbChatMsgMe' : 'pbChatMsgThem')"
                   >
-                    <div class="pbChatBubble">{{ msg.content }}</div>
-                    <div class="pbChatMsgMeta">
-                      <span class="pbChatMsgTime">{{ chatFormatTime(msg.created_at) }}</span>
-                      <span
-                        v-if="msg.from_id === myUserId"
-                        class="pbChatMsgStatus"
-                        :class="chatMsgStatusClass(msg, msgIdx, chat)"
-                      >{{ chatMsgStatusText(msg, msgIdx, chat) }}</span>
-                    </div>
+                    <template v-if="msg.isSystem">
+                      <div class="pbChatBubbleSystem">{{ msg.content }}</div>
+                    </template>
+                    <template v-else>
+                      <div class="pbChatBubble" :class="{ pbChatBubbleError: msg.error }">{{ msg.content }}</div>
+                      <div class="pbChatMsgMeta">
+                        <span class="pbChatMsgTime">{{ chatFormatTime(msg.created_at) }}</span>
+                        <span
+                          v-if="msg.from_id === myUserId"
+                          class="pbChatMsgStatus"
+                          :class="chatMsgStatusClass(msg, msgIdx, chat)"
+                        >{{ chatMsgStatusText(msg, msgIdx, chat) }}</span>
+                      </div>
+                    </template>
                   </div>
                 </template>
               </div>
@@ -2678,11 +2758,15 @@ const allowFlip = computed({
 ══════════════════════════════════════════════════════ */
 const friendsSidebarOpen = ref(false);
 const notifSidebarOpen   = ref(false);
+const msgSidebarOpen     = ref(false);
 const profileModalOpen   = ref(false);
 const friendTab          = ref('all');
 const friendSearch       = ref('');
 const friendsOnlineCount = ref(0);
 const unreadNotifCount   = ref(0);
+const recentConversations = ref([]); // [{ friendId, friendName, lastAt, lastPreview, unread }]
+const recentConvLoading   = ref(false);
+let   _globalIncomingSub  = null;
 
 // Friend requests from Supabase
 const friendRequests  = ref([]);   // [{ id, from_id, name }]
@@ -2958,9 +3042,13 @@ function copyUid() {
 }
 
 /* ─── Direct Messages (chat windows) ────────────────────── */
-const openChats       = ref([]);   // [{ friendId, friendName, messages, draft, loading, minimized, sub }]
+const openChats       = ref([]);   // [{ friendId, friendName, messages, draft, loading, minimized, unreadCount, sub }]
 const chatScrollRefs  = {};
 const myUserId        = ref(null); // set after login
+
+const totalUnreadMsgCount = computed(() =>
+  openChats.value.reduce((sum, c) => sum + (c.unreadCount || 0), 0)
+);
 
 // Get current user id once and cache it
 async function ensureMyUserId() {
@@ -2978,24 +3066,52 @@ async function openChat(friend) {
   const existing = openChats.value.find(c => c.friendId === friend.friend_id);
   if (existing) {
     existing.minimized = false;
+    existing.unreadCount = 0;
+    markChatRead(existing);
     return;
   }
-  // Use reactive() so Vue tracks mutations on the object (e.g. chat.loading = false)
+  // Use reactive() so Vue tracks mutations on the object
   const { reactive: vReactive } = await import('vue');
   const chat = vReactive({
-    friendId:   friend.friend_id,
-    friendName: friend.name,
-    messages:   [],
-    draft:      '',
-    loading:    true,
-    minimized:  false,
-    sub:        null,
+    friendId:    friend.friend_id,
+    friendName:  friend.name,
+    messages:    [],
+    draft:       '',
+    loading:     true,
+    minimized:   false,
+    unreadCount: 0,
+    sub:         null,
   });
-  // Cap at 3 open windows
-  if (openChats.value.length >= 3) openChats.value.shift()?.sub?.unsubscribe?.();
-  openChats.value.push(chat);
+  // Only 1 chat window at a time — close the existing one
+  if (openChats.value.length > 0) {
+    const old = openChats.value[0];
+    old.sub?.unsubscribe?.();
+    if (old._pollTimer) clearInterval(old._pollTimer);
+    if (old._globalPollTimer) clearInterval(old._globalPollTimer);
+  }
+  openChats.value = [chat];
   await loadChatHistory(chat);
   subscribeChatRealtime(chat);
+}
+
+// Expand chat and clear unread count
+function expandChat(chat) {
+  if (chat.minimized) {
+    chat.minimized = false;
+    chat.unreadCount = 0;
+    markChatRead(chat);
+  } else {
+    chat.minimized = true;
+  }
+}
+
+// Open chat from the messages sidebar (friend obj with friendId/friendName)
+async function openChatFromSidebar(conv) {
+  msgSidebarOpen.value = false;
+  await openChat({ friend_id: conv.friendId, name: conv.friendName });
+  // Update recent conv unread to 0
+  const rc = recentConversations.value.find(c => c.friendId === conv.friendId);
+  if (rc) rc.unread = 0;
 }
 
 function closeChat(friendId) {
@@ -3004,7 +3120,21 @@ function closeChat(friendId) {
   const chat = openChats.value[idx];
   chat.sub?.unsubscribe?.();
   if (chat._pollTimer) clearInterval(chat._pollTimer);
+  if (chat._globalPollTimer) clearInterval(chat._globalPollTimer);
   openChats.value.splice(idx, 1);
+}
+
+// Helper: mark all incoming unread messages in this chat as read in DB
+async function markChatRead(chat) {
+  try {
+    const uid = await ensureMyUserId();
+    const supabase = sbRealtime;
+    if (!uid || !supabase) return;
+    const unread = chat.messages.filter(m => m.to_id === uid && !m.read).map(m => m.id);
+    if (unread.length > 0) {
+      supabase.from('pb_messages').update({ read: true }).in('id', unread).then(() => {});
+    }
+  } catch {}
 }
 
 async function loadChatHistory(chat) {
@@ -3039,8 +3169,6 @@ function subscribeChatRealtime(chat) {
       const uid = await ensureMyUserId();
       if (!uid || !supabase) return;
 
-      // Use Broadcast (no RLS/replica-identity config needed) for real-time delivery.
-      // Channel name is deterministic and shared between both participants.
       const channelName = `pb_chat_${[uid, chat.friendId].sort().join('_')}`;
       const channel = supabase
         .channel(channelName)
@@ -3052,8 +3180,19 @@ function subscribeChatRealtime(chat) {
           if (!chat.messages.find(m => m.id === msg.id)) {
             chat.messages.push(msg);
             nextTickScrollChat(chat.friendId);
-            if (msg.to_id === uid && !chat.minimized) {
-              supabase.from('pb_messages').update({ read: true }).eq('id', msg.id).then(() => {});
+            if (msg.to_id === uid) {
+              if (!chat.minimized) {
+                // Chat is open — mark read immediately
+                supabase.from('pb_messages').update({ read: true }).eq('id', msg.id).then(() => {});
+              } else {
+                // Chat is minimized — increment unread
+                chat.unreadCount = (chat.unreadCount || 0) + 1;
+                // Update recent conversations preview
+                updateRecentConv(msg, chat.friendName);
+              }
+            } else {
+              // Our own outgoing message received via broadcast — update recent conv
+              updateRecentConv(msg, chat.friendName);
             }
           }
         })
@@ -3061,7 +3200,7 @@ function subscribeChatRealtime(chat) {
 
       chat.sub = channel;
 
-      // Polling fallback every 4s: catches messages missed by broadcast
+      // Polling fallback every 4s
       chat._pollTimer = setInterval(async () => {
         try {
           const latest = chat.messages.at(-1);
@@ -3076,7 +3215,13 @@ function subscribeChatRealtime(chat) {
             if (!chat.messages.find(m => m.id === msg.id)) {
               chat.messages.push(msg);
               nextTickScrollChat(chat.friendId);
+              if (msg.to_id === uid && chat.minimized) {
+                chat.unreadCount = (chat.unreadCount || 0) + 1;
+              }
             }
+            // Sync read flag on existing messages
+            const existing = chat.messages.find(m => m.id === msg.id);
+            if (existing && msg.read !== existing.read) existing.read = msg.read;
           });
         } catch {}
       }, 4000);
@@ -3085,14 +3230,165 @@ function subscribeChatRealtime(chat) {
   })();
 }
 
+// Subscribe to incoming messages for friends with NO open chat window (global listener)
+function subscribeGlobalIncoming() {
+  (async () => {
+    try {
+      const supabase = sbRealtime;
+      const uid = await ensureMyUserId();
+      if (!uid || !supabase) return;
+      if (_globalIncomingSub) { try { _globalIncomingSub.unsubscribe(); } catch {} }
+
+      _globalIncomingSub = supabase
+        .channel('pb_global_incoming_' + uid)
+        .on('postgres_changes', {
+          event: 'INSERT',
+          schema: 'public',
+          table: 'pb_messages',
+          filter: `to_id=eq.${uid}`,
+        }, async ({ new: msg }) => {
+          if (!msg) return;
+          const fromId = msg.from_id;
+          // If we already have an open chat window for this sender, ignore (handled by per-chat sub)
+          const existingChat = openChats.value.find(c => c.friendId === fromId);
+          if (existingChat) return;
+
+          // Find friend name from friends list
+          const friend = friendsList.value.find(f => f.friend_id === fromId);
+          const friendName = friend?.name || 'Unknown';
+
+          // Auto-open minimized chat
+          const { reactive: vReactive } = await import('vue');
+          const chat = vReactive({
+            friendId:    fromId,
+            friendName,
+            messages:    [],
+            draft:       '',
+            loading:     false,
+            minimized:   true,  // <-- open minimized
+            unreadCount: 1,
+            sub:         null,
+          });
+          // Close any existing chat window (1 at a time)
+          if (openChats.value.length > 0) {
+            const old = openChats.value[0];
+            old.sub?.unsubscribe?.();
+            if (old._pollTimer) clearInterval(old._pollTimer);
+            if (old._globalPollTimer) clearInterval(old._globalPollTimer);
+          }
+          openChats.value = [chat];
+          await loadChatHistory(chat);
+          subscribeChatRealtime(chat);
+
+          // Update recent conversations
+          updateRecentConv(msg, friendName);
+        })
+        .subscribe();
+    } catch (e) { console.warn('subscribeGlobalIncoming error', e); }
+  })();
+}
+
+// Update or insert a recent conversation entry
+function updateRecentConv(msg, friendName) {
+  const uid = myUserId.value;
+  const friendId = msg.from_id === uid ? msg.to_id : msg.from_id;
+  const existing = recentConversations.value.find(c => c.friendId === friendId);
+  const preview = (msg.from_id === uid ? 'You: ' : '') + (msg.content?.slice(0, 40) || '');
+  if (existing) {
+    existing.lastAt = msg.created_at;
+    existing.lastPreview = preview;
+    if (msg.from_id !== uid && !msg.read) existing.unread = (existing.unread || 0) + 1;
+    // Move to top
+    const idx = recentConversations.value.indexOf(existing);
+    if (idx > 0) {
+      recentConversations.value.splice(idx, 1);
+      recentConversations.value.unshift(existing);
+    }
+  } else {
+    recentConversations.value.unshift({
+      friendId,
+      friendName: friendName || 'Unknown',
+      lastAt: msg.created_at,
+      lastPreview: preview,
+      unread: (msg.from_id !== uid && !msg.read) ? 1 : 0,
+    });
+  }
+}
+
+// Load recent conversations from DB for the sidebar
+async function loadRecentConversations() {
+  recentConvLoading.value = true;
+  try {
+    const supabase = sbRealtime;
+    const uid = await ensureMyUserId();
+    if (!uid || !supabase) return;
+
+    const { data } = await supabase
+      .from('pb_messages')
+      .select('id, from_id, to_id, content, created_at, read')
+      .or(`from_id.eq.${uid},to_id.eq.${uid}`)
+      .order('created_at', { ascending: false })
+      .limit(200);
+
+    if (!data) return;
+
+    // Group by conversation partner, take most recent per partner
+    const convMap = new Map();
+    for (const msg of data) {
+      const partnerId = msg.from_id === uid ? msg.to_id : msg.from_id;
+      if (!convMap.has(partnerId)) {
+        const friend = friendsList.value.find(f => f.friend_id === partnerId);
+        convMap.set(partnerId, {
+          friendId: partnerId,
+          friendName: friend?.name || 'Unknown',
+          lastAt: msg.created_at,
+          lastPreview: (msg.from_id === uid ? 'You: ' : '') + (msg.content?.slice(0, 40) || ''),
+          unread: 0,
+        });
+      }
+      // Count unread (messages sent to me that I haven't read)
+      if (msg.to_id === uid && !msg.read) {
+        convMap.get(partnerId).unread++;
+      }
+    }
+    recentConversations.value = [...convMap.values()];
+  } catch (e) { console.warn('loadRecentConversations error', e); }
+  finally { recentConvLoading.value = false; }
+}
+
 async function sendMessage(chat) {
   const content = chat.draft.trim();
   if (!content) return;
+
+  // Handle /w and /whisper commands: switch chat target
+  const whisperMatch = content.match(/^\/(w|whisper)\s+(\S+)\s*(.*)/i);
+  if (whisperMatch) {
+    const targetName = whisperMatch[2].toLowerCase();
+    const remainder  = whisperMatch[3].trim();
+    chat.draft = '';
+    const target = friendsList.value.find(f => f.name?.toLowerCase() === targetName);
+    if (!target) {
+      // Show inline error
+      chat.messages.push({
+        id: 'sys_' + Date.now(), from_id: '__system__', to_id: '__system__',
+        content: `No friend found named "${whisperMatch[2]}". Check your friends list.`,
+        created_at: new Date().toISOString(), read: true, isSystem: true,
+      });
+      nextTickScrollChat(chat.friendId);
+      return;
+    }
+    await openChat(target);
+    // If there's a message after the username, queue it in the new chat
+    const newChat = openChats.value[0];
+    if (newChat && remainder) { newChat.draft = remainder; }
+    return;
+  }
+
   chat.draft = '';
   const uid = await ensureMyUserId();
   if (!uid) return;
   // Optimistic push
-  const tempMsg = { id: 'tmp_' + Date.now(), from_id: uid, to_id: chat.friendId, content, created_at: new Date().toISOString(), read: false };
+  const tempMsg = { id: 'tmp_' + Date.now(), from_id: uid, to_id: chat.friendId, content, created_at: new Date().toISOString(), read: false, error: false };
   chat.messages.push(tempMsg);
   nextTickScrollChat(chat.friendId);
   try {
@@ -3105,16 +3401,23 @@ async function sendMessage(chat) {
     if (!error && data) {
       const idx = chat.messages.findIndex(m => m.id === tempMsg.id);
       if (idx !== -1) chat.messages[idx] = data;
-      // Broadcast via the already-subscribed channel — do NOT call supabase.channel()
-      // again here as it creates a duplicate registration and leaks channels, which
-      // can destabilise the shared WebSocket connection (breaks QM realtime sync).
+      // Update recent conversations
+      updateRecentConv(data, chat.friendName);
       if (chat.sub?.send) {
         try {
           await chat.sub.send({ type: 'broadcast', event: 'new_message', payload: data });
         } catch {}
       }
+    } else {
+      // Mark as error
+      const idx = chat.messages.findIndex(m => m.id === tempMsg.id);
+      if (idx !== -1) chat.messages[idx] = { ...tempMsg, error: true };
     }
-  } catch (e) { console.warn('sendMessage error', e); }
+  } catch (e) {
+    console.warn('sendMessage error', e);
+    const idx = chat.messages.findIndex(m => m.id === tempMsg.id);
+    if (idx !== -1) chat.messages[idx] = { ...tempMsg, error: true };
+  }
 }
 
 function nextTickScrollChat(friendId) {
@@ -3134,47 +3437,67 @@ function chatFormatTime(iso) {
   } catch { return ''; }
 }
 
-// Returns status label for a sent message: Sending → Sent → Delivered → Seen
+// Returns status label for a sent message: Sending → Sent/Delivered → Seen / Error
 function chatMsgStatusText(msg, msgIdx, chat) {
+  if (msg.error) return '✕ Error';
   if (msg.id?.startsWith('tmp_')) return 'Sending…';
-  // Seen: recipient has read:true on this message (set when they open the chat)
   if (msg.read) return 'Seen';
-  // Delivered: message has a real ID (confirmed in DB) and is the last message
-  const myMsgs = chat.messages.filter(m => m.from_id === myUserId.value);
+  // Only show status on the last message I sent
+  const myMsgs = chat.messages.filter(m => m.from_id === myUserId.value && !m.id?.startsWith('tmp_'));
   const isLastMine = myMsgs.at(-1)?.id === msg.id;
-  if (isLastMine) return 'Delivered';
-  return 'Sent';
+  if (!isLastMine) return '';
+  // Delivered = recipient is currently online (they can receive it); Sent = offline
+  return onlineUserIds.value?.has(chat.friendId) ? 'Delivered' : 'Sent';
 }
 
 function chatMsgStatusClass(msg, msgIdx, chat) {
+  if (msg.error) return 'pbChatStatusError';
   if (msg.id?.startsWith('tmp_')) return 'pbChatStatusSending';
   if (msg.read) return 'pbChatStatusSeen';
-  const myMsgs = chat.messages.filter(m => m.from_id === myUserId.value);
+  const myMsgs = chat.messages.filter(m => m.from_id === myUserId.value && !m.id?.startsWith('tmp_'));
   const isLastMine = myMsgs.at(-1)?.id === msg.id;
-  if (isLastMine) return 'pbChatStatusDelivered';
-  return 'pbChatStatusSent';
+  if (!isLastMine) return '';
+  return onlineUserIds.value?.has(chat.friendId) ? 'pbChatStatusDelivered' : 'pbChatStatusSent';
 }
 
 // Clean up chats on logout
 watch(loggedIn, (isIn) => {
   if (!isIn) {
-    openChats.value.forEach(c => c.sub?.unsubscribe?.());
+    openChats.value.forEach(c => {
+      c.sub?.unsubscribe?.();
+      if (c._pollTimer) clearInterval(c._pollTimer);
+      if (c._globalPollTimer) clearInterval(c._globalPollTimer);
+    });
     openChats.value = [];
     myUserId.value = null;
+    recentConversations.value = [];
+    if (_globalIncomingSub) { try { _globalIncomingSub.unsubscribe(); } catch {} _globalIncomingSub = null; }
+  } else {
+    // Start global incoming subscription when logged in
+    subscribeGlobalIncoming();
   }
 });
 
 function toggleFriendsSidebar() {
   notifSidebarOpen.value = false;
+  msgSidebarOpen.value   = false;
   friendsSidebarOpen.value = !friendsSidebarOpen.value;
 }
 function toggleNotifSidebar() {
   friendsSidebarOpen.value = false;
-  notifSidebarOpen.value = !notifSidebarOpen.value;
+  msgSidebarOpen.value     = false;
+  notifSidebarOpen.value   = !notifSidebarOpen.value;
+}
+function toggleMsgSidebar() {
+  friendsSidebarOpen.value = false;
+  notifSidebarOpen.value   = false;
+  msgSidebarOpen.value     = !msgSidebarOpen.value;
+  if (msgSidebarOpen.value) loadRecentConversations();
 }
 function openProfileModal() {
   friendsSidebarOpen.value = false;
   notifSidebarOpen.value   = false;
+  msgSidebarOpen.value     = false;
   profileModalOpen.value   = true;
 }
 function onViewFullProfile() {
@@ -3196,6 +3519,7 @@ function tierDisplayName(tier) {
 const _pbPanelEscHandler = (e) => {
   if (e.key !== 'Escape') return;
   if (profileModalOpen.value)   { profileModalOpen.value = false;   return; }
+  if (msgSidebarOpen.value)     { msgSidebarOpen.value = false;     return; }
   if (friendsSidebarOpen.value) { friendsSidebarOpen.value = false; return; }
   if (notifSidebarOpen.value)   { notifSidebarOpen.value = false;   return; }
 };
@@ -15372,10 +15696,92 @@ onBeforeUnmount(() => {
   font-size: 9px; font-family: 'Rajdhani', system-ui, sans-serif;
   font-weight: 600; letter-spacing: 0.3px;
 }
-.pbChatStatusSending { color: rgba(255,255,255,0.25); font-style: italic; }
-.pbChatStatusSent    { color: rgba(255,255,255,0.3); }
+.pbChatStatusSending   { color: rgba(255,255,255,0.25); font-style: italic; }
+.pbChatStatusSent      { color: rgba(255,255,255,0.3); }
 .pbChatStatusDelivered { color: rgba(80,201,238,0.6); }
-.pbChatStatusSeen    { color: #50C9EE; }
+.pbChatStatusSeen      { color: #50C9EE; }
+.pbChatStatusError     { color: #ff4060; font-weight: 700; }
+
+/* Error bubble tint */
+.pbChatBubbleError { background: rgba(255,64,96,0.18) !important; border: 1px solid rgba(255,64,96,0.35); }
+
+/* System message (e.g. /w error) */
+.pbChatMsgSystem { align-self: center; }
+.pbChatBubbleSystem {
+  padding: 4px 10px; border-radius: 8px;
+  background: rgba(255,255,255,0.06); color: rgba(255,255,255,0.4);
+  font-size: 11px; font-family: 'Rajdhani', system-ui, sans-serif;
+  font-style: italic; text-align: center;
+}
+
+/* Unread bubble on minimized title bar */
+.pbChatUnreadBubble {
+  min-width: 18px; height: 18px; padding: 0 5px;
+  border-radius: 9px; background: #ff4060;
+  color: #fff; font-size: 10px; font-weight: 700;
+  font-family: 'Orbitron', system-ui, sans-serif;
+  display: flex; align-items: center; justify-content: center;
+  flex-shrink: 0; margin-right: 4px;
+  box-shadow: 0 0 6px rgba(255,64,96,0.5);
+  animation: pbUnreadPop .2s ease;
+}
+@keyframes pbUnreadPop {
+  from { transform: scale(0.6); opacity: 0; }
+  to   { transform: scale(1);   opacity: 1; }
+}
+
+/* ── Recent Messages Sidebar ── */
+.pbMsgSidebar { /* inherits .pbSidebar */ }
+
+.pbMsgConvList {
+  display: flex; flex-direction: column; overflow-y: auto; flex: 1;
+  scrollbar-width: thin; scrollbar-color: rgba(255,255,255,0.08) transparent;
+}
+.pbMsgConvRow {
+  display: flex; align-items: center; gap: 10px;
+  padding: 10px 14px; cursor: pointer;
+  border-bottom: 1px solid rgba(255,255,255,0.04);
+  transition: background .1s;
+}
+.pbMsgConvRow:hover { background: rgba(255,255,255,0.05); }
+.pbMsgConvRow.active { background: rgba(80,201,238,0.07); }
+
+.pbMsgConvAvatarWrap { position: relative; flex-shrink: 0; }
+.pbMsgConvAvatar {
+  width: 36px; height: 36px; border-radius: 50%;
+  border: 1.5px solid rgba(255,255,255,0.12); object-fit: cover; background: #2a2a40;
+}
+.pbMsgConvDot {
+  position: absolute; bottom: 1px; right: 1px;
+  width: 9px; height: 9px; border-radius: 50%; border: 2px solid #141420;
+}
+.pbMsgConvDot.online  { background: #4dff90; }
+.pbMsgConvDot.offline { background: rgba(255,255,255,0.18); }
+
+.pbMsgConvMeta { display: flex; flex-direction: column; gap: 2px; min-width: 0; flex: 1; }
+.pbMsgConvTop  { display: flex; align-items: baseline; justify-content: space-between; gap: 4px; }
+.pbMsgConvName {
+  font-family: 'Orbitron', system-ui, sans-serif;
+  font-size: 11px; font-weight: 700; color: #fff;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.pbMsgConvTime {
+  font-size: 9px; color: rgba(255,255,255,0.25);
+  font-family: 'Rajdhani', system-ui, sans-serif; flex-shrink: 0;
+}
+.pbMsgConvBottom { display: flex; align-items: center; justify-content: space-between; gap: 4px; }
+.pbMsgConvPreview {
+  font-size: 11px; color: rgba(255,255,255,0.35);
+  font-family: 'Rajdhani', system-ui, sans-serif;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis; flex: 1;
+}
+.pbMsgConvUnread {
+  min-width: 17px; height: 17px; padding: 0 4px; border-radius: 8.5px;
+  background: #ff4060; color: #fff; font-size: 10px; font-weight: 700;
+  font-family: 'Orbitron', system-ui, sans-serif;
+  display: flex; align-items: center; justify-content: center; flex-shrink: 0;
+  box-shadow: 0 0 5px rgba(255,64,96,0.4);
+}
 
 /* Input row */
 .pbChatInputRow {
