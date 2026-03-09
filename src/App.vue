@@ -739,37 +739,46 @@
                       <div class="pbNPMCDuration">{{ mhFormatDuration(m.duration_sec) }}</div>
                     </div>
 
-                    <!-- Center: opponent + mode + picks -->
-                    <div class="pbNPMCCenter">
-                      <div class="pbNPMCOpponent">
+                    <!-- Center + Right: single row LoL layout -->
+                    <div style="flex: 1; display: flex; flex-direction: row; align-items: center; flex-wrap: nowrap; gap: 8px; padding: 0 12px; min-width: 0;">
+
+                      <!-- vs Name -->
+                      <div style="display: flex; flex-direction: row; align-items: baseline; gap: 8px; flex-shrink: 0; white-space: nowrap;">
                         <span class="pbNPMCVs">vs</span>
                         <span class="pbNPMCOppName">{{ m.opponentName }}</span>
-                        <span class="pbNPMCModeChip">{{ mhModeLabel(m.mode) }}</span>
                       </div>
-                      <div class="pbNPMCPicks" v-if="!mhIsMirror(m.mode) && m.myPicks && m.myPicks.length > 0">
-                        <div
-                          v-for="piece in m.myPicks.slice(0, 6)" :key="piece"
-                          class="pbNPMCPiece"
-                          :title="piece"
-                        >
-                          <svg class="pbNPMCPieceSvg" viewBox="0 0 15 15">
-                            <rect
-                              v-for="(cell, ci) in mhPieceCells(piece)" :key="ci"
-                              :x="cell[1] * 3 + 0.2" :y="cell[0] * 3 + 0.2"
-                              width="2.6" height="2.6" rx="0.3"
-                              :fill="mhPieceColor(piece)"
-                            />
-                          </svg>
-                        </div>
-                        <span v-if="m.myPicks.length > 6" class="pbNPMCPickMore">+{{ m.myPicks.length - 6 }}</span>
-                      </div>
-                      <div class="pbNPMCPicks pbNPMCMirrorNote" v-else-if="mhIsMirror(m.mode)">mirror — same pieces for both players</div>
-                    </div>
 
-                    <!-- Right: date + end reason -->
-                    <div class="pbNPMCMeta">
-                      <div class="pbNPMCDate">{{ mhFormatDate(m.created_at) }}</div>
-                      <span v-if="m.end_reason && m.end_reason !== 'normal'" class="pbNPMCEndReason" :class="'er-' + m.end_reason">{{ mhEndReasonLabel(m.end_reason) }}</span>
+                      <!-- Pieces — no containers, raw SVGs -->
+                      <div v-if="!mhIsMirror(m.mode) && m.myPicks && m.myPicks.length > 0" style="flex-shrink: 0; display: flex; flex-direction: row; flex-wrap: nowrap; align-items: center; gap: 0px; margin-left: 8px; padding-left: 12px; border-left: 1px solid rgba(255,255,255,0.1);">
+                        <svg
+                          v-for="piece in m.myPicks.slice(0, 6)" :key="piece"
+                          :title="piece"
+                          style="width: 40px; height: 40px; flex-shrink: 0;"
+                          :viewBox="mhPieceCenteredViewBox(piece)"
+                        >
+                          <rect
+                            v-for="(cell, ci) in mhPieceCells(piece)" :key="ci"
+                            :x="cell[1] * 3 + 0.2" :y="cell[0] * 3 + 0.2"
+                            width="2.6" height="2.6" rx="0.3"
+                            :fill="mhPieceColor(piece)"
+                          />
+                        </svg>
+                        <span v-if="m.myPicks.length > 6" class="pbNPMCPickMore" style="flex-shrink: 0;">+{{ m.myPicks.length - 6 }}</span>
+                      </div>
+                      <div class="pbNPMCMirrorNote" v-else-if="mhIsMirror(m.mode)" style="flex-shrink: 0;">mirror — same pieces</div>
+
+                      <!-- Mode chip -->
+                      <span class="pbNPMCModeChip" style="flex-shrink: 0; margin: 0;">{{ mhModeLabel(m.mode) }}</span>
+
+                      <!-- End reason -->
+                      <span v-if="m.end_reason && m.end_reason !== 'normal'" class="pbNPMCEndReason" :class="'er-' + m.end_reason" style="flex-shrink: 0; margin: 0;">{{ mhEndReasonLabel(m.end_reason) }}</span>
+
+                      <!-- Spacer -->
+                      <div style="flex-grow: 1;"></div>
+
+                      <!-- Timestamp -->
+                      <div class="pbNPMCDate" style="flex-shrink: 0; text-align: right;">{{ mhFormatDate(m.created_at) }}</div>
+
                     </div>
                   </div>
                 </div>
@@ -928,40 +937,62 @@
                     <div class="mhResultLabel" :class="m.result.toLowerCase()">
                       {{ m.result === 'W' ? 'VICTORY' : m.result === 'L' ? 'DEFEAT' : 'DRAW' }}
                     </div>
-                    <div class="mhModeLabel">{{ mhModeLabel(m.mode) }}</div>
                     <div class="mhDurationLabel">{{ mhFormatDuration(m.duration_sec) }}</div>
                   </div>
 
                   <!-- Divider -->
                   <div class="mhCardDivider"></div>
 
-                  <!-- Right: LoL-style — name + pieces + date ALL on one row -->
-                  <div class="mhCardRight">
-                    <div class="mhMainRow">
-                      <span class="mhVsLabel">vs</span>
-                      <span class="mhOppName">{{ m.opponentName }}</span>
+                  <!-- Right: LoL post-game style layout -->
+                  <div style="display: flex; flex-direction: column; justify-content: center; flex: 1; min-width: 0; padding: 10px 16px;">
+
+                    <div style="display: flex; flex-direction: row; align-items: center; flex-wrap: nowrap; width: 100%; gap: 8px;">
+
+                      <div style="display: flex; flex-direction: row; align-items: baseline; gap: 4px; flex-shrink: 0; white-space: nowrap;">
+                        <span style="font-size: 11px; color: rgba(255, 255, 255, 0.4);">vs</span>
+                        <span style="color: #fff; font-weight: 700; font-size: 13px;">{{ m.opponentName }}</span>
+                      </div>
+
                       <template v-if="!mhIsMirror(m.mode) && m.myPicks && m.myPicks.length > 0">
-                        <div
-                          v-for="piece in m.myPicks" :key="piece"
-                          class="mhPieceChip"
-                          :title="piece"
-                        >
-                          <svg class="mhPieceSvg" viewBox="0 0 15 15">
-                            <rect
-                              v-for="(cell, ci) in mhPieceCells(piece)" :key="ci"
-                              :x="cell[1] * 3 + 0.2" :y="cell[0] * 3 + 0.2"
-                              width="2.6" height="2.6" rx="0.3"
-                              :fill="mhPieceColor(piece)"
-                            />
-                          </svg>
+                        <div style="display: flex; flex-direction: row; flex-wrap: nowrap; gap: 3px; flex-shrink: 0;">
+                          <div
+                            v-for="piece in m.myPicks"
+                            :key="piece"
+                            :title="piece"
+                            style="width: 22px; height: 22px; border-radius: 4px; display: flex; align-items: center; justify-content: center; background: rgba(255, 255, 255, 0.08); border: 1px solid rgba(255, 255, 255, 0.15); flex-shrink: 0;"
+                          >
+                            <svg style="width: 14px; height: 14px;" viewBox="0 0 15 15">
+                              <rect
+                                v-for="(cell, ci) in mhPieceCells(piece)"
+                                :key="ci"
+                                :x="cell[1] * 3 + 0.2"
+                                :y="cell[0] * 3 + 0.2"
+                                width="2.6" height="2.6" rx="0.3"
+                                :fill="mhPieceColor(piece)"
+                              />
+                            </svg>
+                          </div>
                         </div>
                       </template>
-                      <span class="mhDateLabel">{{ mhFormatDate(m.created_at) }}</span>
+
+                      <div style="flex-grow: 1;"></div>
+
+                      <span style="font-size: 11px; color: rgba(255, 255, 255, 0.3); white-space: nowrap; flex-shrink: 0;">
+                        {{ mhFormatDate(m.created_at) }}
+                      </span>
+
                     </div>
-                    <div class="mhSubRow">
-                      <span class="mhDurationLabel">{{ mhFormatDuration(m.duration_sec) }}</span>
-                      <span class="mhMetaTag" :class="'er-' + m.end_reason">{{ mhEndReasonLabel(m.end_reason) }}</span>
+
+                    <div style="display: flex; flex-direction: row; align-items: center; gap: 6px; margin-top: 4px;">
+                      <span style="font-size: 10px; font-weight: 700; letter-spacing: 1px; color: rgba(255, 255, 255, 0.45); text-transform: uppercase;">
+                        {{ mhModeLabel(m.mode) }}
+                      </span>
+                      <span style="font-size: 10px; color: rgba(255, 255, 255, 0.3);">·</span>
+                      <span style="font-size: 10px; font-weight: 500; color: rgba(255, 255, 255, 0.5); text-transform: lowercase;">
+                        {{ mhEndReasonLabel(m.end_reason) }}
+                      </span>
                     </div>
+
                   </div>
 
                 </div>
@@ -4488,6 +4519,19 @@ function mhPieceColor(key) {
     W:"#00F5A0",X:"#FFCBA4",Y:"#FB8500",Z:"#EF476F",
   };
   return MAP[key] || "#ffffff";
+}
+
+// Centered viewBox — same 15x15 zoom (uniform scale) but shifted to center the piece
+function mhPieceCenteredViewBox(key) {
+  const cells = mhPieceCells(key);
+  if (!cells.length) return "0 0 15 15";
+  const rows = cells.map(c => c[0]);
+  const cols = cells.map(c => c[1]);
+  const centerCol = (Math.min(...cols) + Math.max(...cols) + 1) * 1.5;
+  const centerRow = (Math.min(...rows) + Math.max(...rows) + 1) * 1.5;
+  const x = centerCol - 7.5;
+  const y = centerRow - 7.5;
+  return `${x} ${y} 15 15`;
 }
 
 // Normalised cells for a piece: shifted to start at 0,0
@@ -13557,12 +13601,12 @@ onBeforeUnmount(() => {
 }
 .pbNPMCPicks { display: flex; align-items: center; gap: 3px; flex-wrap: wrap; }
 .pbNPMCPiece {
-  width: 22px; height: 22px; display: flex; align-items: center; justify-content: center;
-  background: rgba(255,255,255,0.04); border-radius: 4px;
+  width: 32px; height: 32px; display: flex; align-items: center; justify-content: center;
+  background: rgba(255,255,255,0.04); border-radius: 5px;
   transition: background .1s;
 }
 .pbNPMCPiece:hover { background: rgba(255,255,255,0.09); }
-.pbNPMCPieceSvg { width: 16px; height: 16px; display: block; }
+.pbNPMCPieceSvg { width: 22px; height: 22px; display: block; }
 .pbNPMCPickMore { font-size: 10px; color: rgba(255,255,255,0.3); margin-left: 2px; }
 .pbNPMCMirrorNote { font-size: 10px; color: rgba(255,255,255,0.2); font-style: italic; }
 
