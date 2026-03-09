@@ -2369,11 +2369,23 @@
 <script setup>
 import { computed, onBeforeUnmount, onMounted, reactive, ref, watch } from "vue";
 import { useGameStore, randomSplitPieces } from "./store/game";
-import { supabase as sbRealtime } from "./lib/supabase";
+import { supabase as sbRealtime, requireSupabase } from "./lib/supabase";
 import { getPieceStyle } from "./lib/pieceStyles";
 import { boundsOf, transformCells } from "./lib/geom";
 import { PENTOMINOES } from "./lib/pentominoes";
 import { createAiEngine } from "./lib/aiEngine.js";
+import {
+  signIn as _authSignIn,
+  signUp as _authSignUp,
+  signOut as _authSignOut,
+  getUser as _authGetUser,
+  getCurrentPlayerId,
+  getCurrentPlayerName as _authGetPlayerName,
+  getAccessToken as _authGetAccessToken,
+  onAuthChange as _authOnAuthChange,
+  isLoggedIn as _authIsLoggedIn,
+} from "./lib/auth.js";
+import { createLobby as _onlineMatchCreateLobby } from "./lib/onlineMatch.js";
 
 // ── Floating pentomino pieces: DVD-bounce physics ──────────────────────────
 const LANDING_CELL = 42;
@@ -2554,24 +2566,26 @@ const { isDevUser, devModeActive, toggleDevMode } = useDevMode();
 
 // ✅ Seed auth state from any persisted session on startup, then keep it live.
 // This runs once — the subscription in onMounted() handles future changes.
-import("./lib/auth.js").then(async ({ isLoggedIn, getCurrentPlayerName, onAuthChange }) => {
-  // Check for an existing session (e.g. after a page refresh)
-  loggedIn.value = await isLoggedIn();
-  if (loggedIn.value) {
-    guestName.value = await getCurrentPlayerName();
-    await checkDevStatus(); // check dev role on startup
-    ensureMyUserId();       // eagerly cache user ID so chat bubbles align correctly
-    loadFriendData();       // load friends/requests for existing session
-  }
+(async () => {
+  try {
+    // Check for an existing session (e.g. after a page refresh)
+    loggedIn.value = await _authIsLoggedIn();
+    if (loggedIn.value) {
+      guestName.value = await _authGetPlayerName();
+      await checkDevStatus(); // check dev role on startup
+      ensureMyUserId();       // eagerly cache user ID so chat bubbles align correctly
+      loadFriendData();       // load friends/requests for existing session
+    }
 
-  // React to future sign-in / sign-out events
-  onAuthChange(async ({ event, session }) => {
-    loggedIn.value = !!session;
-    guestName.value = await getCurrentPlayerName();
-    await checkDevStatus(); // re-check dev role on every auth change
-    if (session) ensureMyUserId(); // refresh user ID on new login
-  });
-}).catch(() => { /* Supabase not configured — stay logged out */ });
+    // React to future sign-in / sign-out events
+    _authOnAuthChange(async ({ event, session }) => {
+      loggedIn.value = !!session;
+      guestName.value = await _authGetPlayerName();
+      await checkDevStatus(); // re-check dev role on every auth change
+      if (session) ensureMyUserId(); // refresh user ID on new login
+    });
+  } catch { /* Supabase not configured — stay logged out */ }
+})();
 // ─── Auth modal state ───────────────────────────────────────────────────────
 const authModal = reactive({
   open: false,
@@ -2612,7 +2626,7 @@ async function submitAuth() {
 
   authModal.loading = true;
   try {
-    const { signIn, signUp } = await import("./lib/auth.js");
+    const signIn = _authSignIn, signUp = _authSignUp;
     const fn = authModal.mode === "signup" ? signUp : signIn;
     const args = authModal.mode === "signup"
       ? [email, password, username]
@@ -2649,8 +2663,7 @@ async function submitAuth() {
 }
 
 async function doSignOut() {
-  const { signOut } = await import("./lib/auth.js");
-  await signOut();
+  await _authSignOut();
   screen.value = "auth";
 }
 
@@ -2696,8 +2709,8 @@ let _presenceChannel     = null;
 
 async function loadFriendData() {
   try {
-    const { supabase } = await import('./lib/supabase.js');
-    const { getUser }  = await import('./lib/auth.js');
+    const supabase = sbRealtime;
+    const getUser = _authGetUser;
     const user = await getUser();
     if (!user || !supabase) return;
 
@@ -2797,7 +2810,7 @@ function _startPresence(supabase, myId) {
 
 async function acceptFriendRequest(id) {
   try {
-    const { supabase } = await import('./lib/supabase.js');
+    const supabase = sbRealtime;
     await supabase.from('pb_friend_requests').update({ status: 'accepted' }).eq('id', id);
     await loadFriendData();
     showModal({ title: 'Friend Added!', message: 'You are now friends.', tone: 'good' });
@@ -2808,7 +2821,7 @@ async function acceptFriendRequest(id) {
 
 async function declineFriendRequest(id) {
   try {
-    const { supabase } = await import('./lib/supabase.js');
+    const supabase = sbRealtime;
     await supabase.from('pb_friend_requests').update({ status: 'declined' }).eq('id', id);
     friendRequests.value = friendRequests.value.filter(r => r.id !== id);
   } catch {
@@ -2827,7 +2840,7 @@ watch(loggedIn, async (isIn) => {
     friendsSidebarOpen.value = false;
     notifSidebarOpen.value = false;
     try {
-      const { supabase } = await import('./lib/supabase.js');
+      const supabase = sbRealtime;
       if (_friendsSubscription) { supabase.removeChannel(_friendsSubscription); _friendsSubscription = null; }
       if (_presenceChannel)     { supabase.removeChannel(_presenceChannel);     _presenceChannel = null; }
     } catch {}
@@ -2858,8 +2871,8 @@ async function runFriendSearch() {
   friendSearchLoading.value = true;
   friendSearchResults.value = [];
   try {
-    const { supabase } = await import('./lib/supabase.js');
-    const { getUser }  = await import('./lib/auth.js');
+    const supabase = sbRealtime;
+    const getUser = _authGetUser;
     const user = await getUser();
 
     // Names: partial case-insensitive match; UID: exact case-insensitive match
@@ -2902,8 +2915,8 @@ async function sendFriendRequest(targetId) {
   const result = friendSearchResults.value.find(r => r.id === targetId);
   if (result) result.sending = true;
   try {
-    const { supabase } = await import('./lib/supabase.js');
-    const { getUser }  = await import('./lib/auth.js');
+    const supabase = sbRealtime;
+    const getUser = _authGetUser;
     const user = await getUser();
     if (!user) return;
     const { error } = await supabase
@@ -2935,7 +2948,7 @@ async function viewFriendProfile(friend) {
   viewingFriendId.value   = friend.friend_id;
   viewingFriendData.value = null; // will load on screen enter
   try {
-    const { supabase } = await import('./lib/supabase.js');
+    const supabase = sbRealtime;
     const { data } = await supabase
       .from('pb_profiles')
       .select('id, username, display_name, uid, wins, losses, draws, ranked_lp, ranked_tier, ranked_wins, ranked_losses, ranked_peak_lp, placement_games, win_streak')
@@ -2969,7 +2982,7 @@ const myUserId        = ref(null); // set after login
 async function ensureMyUserId() {
   if (myUserId.value) return myUserId.value;
   try {
-    const { getUser } = await import('./lib/auth.js');
+    const getUser = _authGetUser;
     const user = await getUser();
     myUserId.value = user?.id ?? null;
     return myUserId.value;
@@ -3013,7 +3026,7 @@ function closeChat(friendId) {
 async function loadChatHistory(chat) {
   chat.loading = true;
   try {
-    const { supabase } = await import('./lib/supabase.js');
+    const supabase = sbRealtime;
     const uid = await ensureMyUserId();
     if (!uid || !supabase) return;
 
@@ -3038,7 +3051,7 @@ async function loadChatHistory(chat) {
 function subscribeChatRealtime(chat) {
   (async () => {
     try {
-      const { supabase } = await import('./lib/supabase.js');
+      const supabase = sbRealtime;
       const uid = await ensureMyUserId();
       if (!uid || !supabase) return;
 
@@ -3099,7 +3112,7 @@ async function sendMessage(chat) {
   chat.messages.push(tempMsg);
   nextTickScrollChat(chat.friendId);
   try {
-    const { supabase } = await import('./lib/supabase.js');
+    const supabase = sbRealtime;
     const { data, error } = await supabase
       .from('pb_messages')
       .insert({ from_id: uid, to_id: chat.friendId, content })
@@ -3927,8 +3940,8 @@ watch(loggedIn, async (isIn) => {
     return;
   }
   try {
-    const { supabase } = await import("./lib/supabase.js");
-    const { getUser } = await import("./lib/auth.js");
+    const supabase = sbRealtime;
+    const getUser = _authGetUser;
     const user = await getUser();
     if (!user || !supabase) return;
     const { data } = await supabase
@@ -3986,8 +3999,8 @@ async function loadMatchHistory() {
   mh.loading = true;
   mh.items   = [];
   try {
-    const { supabase }  = await import("./lib/supabase.js");
-    const { getUser }   = await import("./lib/auth.js");
+    const supabase = sbRealtime;
+    const getUser = _authGetUser;
     const user = await getUser();
     if (!user || !supabase) return;
 
@@ -4685,12 +4698,12 @@ const loadingPrivate = ref(false);
 // ✅ Delegate to auth.js — works for both logged-in users and guests.
 // getGuestId / getGuestName kept as thin async wrappers for call-site compat.
 async function getGuestId() {
-  const { getCurrentPlayerId } = await import("./lib/auth.js");
+  // getCurrentPlayerId already statically imported
   return getCurrentPlayerId();
 }
 
 async function getGuestName() {
-  const { getCurrentPlayerName } = await import("./lib/auth.js");
+  const getCurrentPlayerName = _authGetPlayerName;
   return getCurrentPlayerName();
 }
 
@@ -4711,7 +4724,7 @@ async function sbHeaders() {
   // Try to get the live session token from the Supabase auth module
   let token = anon;
   try {
-    const { getAccessToken } = await import("./lib/auth.js");
+    const getAccessToken = _authGetAccessToken;
     const jwt = await getAccessToken();
     if (jwt) token = jwt;
   } catch { /* auth module not available – use anon key */ }
@@ -4930,8 +4943,7 @@ async function sbCreateLobby({ isPrivate = false, lobbyName = "", extraStateMeta
   //   • uses the Supabase SDK (not raw fetch)
   //   • generates a proper 6-char alphanumeric code (not PB-XXXXXXXX hex)
   //   • retries up to 5× on code collision
-  const { createLobby: _createLobby } = await import("./lib/onlineMatch.js");
-  return _createLobby({
+  return _onlineMatchCreateLobby({
     lobbyName,
     region: "auto",
     isPrivate,
@@ -4970,7 +4982,7 @@ async function sbJoinLobby(lobbyId) {
   // silently blocked by RLS policies that require a valid user session on UPDATE.
   // The SDK automatically refreshes tokens and applies the correct auth context.
   try {
-    const { requireSupabase } = await import("./lib/supabase.js");
+    // requireSupabase already statically imported
     const supabase = requireSupabase();
 
     const { data: rows, error } = await supabase
@@ -5133,7 +5145,7 @@ async function sbRecordMatchResult({
 }) {
   if (!lobbyId || !player1Id || !player2Id) return;
   try {
-    const { requireSupabase } = await import("./lib/supabase.js");
+    // requireSupabase already statically imported
     const sb = requireSupabase();
     await sb.rpc("record_match_result", {
       p_lobby_id:     lobbyId,
@@ -7116,7 +7128,7 @@ async function _handleGameover() {
           // ── Fetch LP delta for ranked matches and update modal message ────
           if (meta?.mode === "ranked" || lobby?.mode === "ranked") {
             try {
-              const { requireSupabase } = await import("./lib/supabase.js");
+              // requireSupabase already statically imported
               const sb = requireSupabase();
               const myId = myPlayer.value === 1 ? p1Id : p2Id;
               const { data: lpResult } = await sb.rpc("pb_get_match_lp_result", {
