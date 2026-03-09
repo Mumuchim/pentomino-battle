@@ -1859,13 +1859,20 @@
                   <!-- Date separator -->
                   <div class="pbChatDateSep">Today</div>
                   <div
-                    v-for="msg in chat.messages"
+                    v-for="(msg, msgIdx) in chat.messages"
                     :key="msg.id"
                     class="pbChatMsg"
                     :class="msg.from_id === myUserId ? 'pbChatMsgMe' : 'pbChatMsgThem'"
                   >
                     <div class="pbChatBubble">{{ msg.content }}</div>
-                    <div class="pbChatMsgTime">{{ chatFormatTime(msg.created_at) }}</div>
+                    <div class="pbChatMsgMeta">
+                      <span class="pbChatMsgTime">{{ chatFormatTime(msg.created_at) }}</span>
+                      <span
+                        v-if="msg.from_id === myUserId"
+                        class="pbChatMsgStatus"
+                        :class="chatMsgStatusClass(msg, msgIdx, chat)"
+                      >{{ chatMsgStatusText(msg, msgIdx, chat) }}</span>
+                    </div>
                   </div>
                 </template>
               </div>
@@ -3101,13 +3108,14 @@ async function sendMessage(chat) {
     if (!error && data) {
       const idx = chat.messages.findIndex(m => m.id === tempMsg.id);
       if (idx !== -1) chat.messages[idx] = data;
-      // Broadcast the real message to the recipient in real-time
-      const channelName = `pb_chat_${[uid, chat.friendId].sort().join('_')}`;
-      try {
-        await supabase.channel(channelName).send({
-          type: 'broadcast', event: 'new_message', payload: data,
-        });
-      } catch {}
+      // Broadcast via the already-subscribed channel — do NOT call supabase.channel()
+      // again here as it creates a duplicate registration and leaks channels, which
+      // can destabilise the shared WebSocket connection (breaks QM realtime sync).
+      if (chat.sub?.send) {
+        try {
+          await chat.sub.send({ type: 'broadcast', event: 'new_message', payload: data });
+        } catch {}
+      }
     }
   } catch (e) { console.warn('sendMessage error', e); }
 }
@@ -3127,6 +3135,27 @@ function chatFormatTime(iso) {
     const m = d.getMinutes().toString().padStart(2, '0');
     return `${h}:${m}`;
   } catch { return ''; }
+}
+
+// Returns status label for a sent message: Sending → Sent → Delivered → Seen
+function chatMsgStatusText(msg, msgIdx, chat) {
+  if (msg.id?.startsWith('tmp_')) return 'Sending…';
+  // Seen: recipient has read:true on this message (set when they open the chat)
+  if (msg.read) return 'Seen';
+  // Delivered: message has a real ID (confirmed in DB) and is the last message
+  const myMsgs = chat.messages.filter(m => m.from_id === myUserId.value);
+  const isLastMine = myMsgs.at(-1)?.id === msg.id;
+  if (isLastMine) return 'Delivered';
+  return 'Sent';
+}
+
+function chatMsgStatusClass(msg, msgIdx, chat) {
+  if (msg.id?.startsWith('tmp_')) return 'pbChatStatusSending';
+  if (msg.read) return 'pbChatStatusSeen';
+  const myMsgs = chat.messages.filter(m => m.from_id === myUserId.value);
+  const isLastMine = myMsgs.at(-1)?.id === msg.id;
+  if (isLastMine) return 'pbChatStatusDelivered';
+  return 'pbChatStatusSent';
 }
 
 // Clean up chats on logout
@@ -6562,6 +6591,7 @@ async function onResetClick() {
   // Prefer a single author for round resets to avoid version fights.
   // Host resets the round; guest simply waits for the new state to arrive via polling.
   if (online.role !== "host") {
+    closeModal(); // ✅ FIX: dismiss the gameover/rematch modal so guest sees the new round
     return;
   }
 
@@ -6586,6 +6616,12 @@ async function onResetClick() {
 
     const newRoundSeed = makeRoundSeed();
     const lobbyKind = String(meta.kind || "");
+
+    // ✅ FIX: Clear rematch flags before building snapshot so the new round
+    // doesn't inherit {1:true,2:true} which would immediately re-trigger the
+    // rematch watcher on the guest and cause a loop / stale gameover state.
+    game.rematch = { 1: false, 2: false };
+    game.rematchDeclinedBy = null;
 
     game.allowFlip = allowFlip.value;
     if (lobbyKind === "mirror_war") {
@@ -15131,11 +15167,22 @@ onBeforeUnmount(() => {
   background: #EE4B72; color: #fff;
   border-bottom-left-radius: 4px;
 }
+.pbChatMsgMeta {
+  display: flex; align-items: center; gap: 4px;
+  margin: 2px 4px 4px;
+}
 .pbChatMsgTime {
   font-size: 9px; color: rgba(255,255,255,0.2);
   font-family: 'Rajdhani', system-ui, sans-serif;
-  margin: 2px 4px 4px;
 }
+.pbChatMsgStatus {
+  font-size: 9px; font-family: 'Rajdhani', system-ui, sans-serif;
+  font-weight: 600; letter-spacing: 0.3px;
+}
+.pbChatStatusSending { color: rgba(255,255,255,0.25); font-style: italic; }
+.pbChatStatusSent    { color: rgba(255,255,255,0.3); }
+.pbChatStatusDelivered { color: rgba(80,201,238,0.6); }
+.pbChatStatusSeen    { color: #50C9EE; }
 
 /* Input row */
 .pbChatInputRow {
