@@ -7569,6 +7569,13 @@ async function startQuickMatchAuto() {
 
     // If we're the host, stay in the modal until someone joins (no more "Match Found" → waiting confusion).
     hostLobbyId = lobby?.id || null;
+    // ✅ FIX (cross-join): remember when OUR lobby was created so late-merge only
+    // joins lobbies that are STRICTLY OLDER than ours. Without this, two simultaneous
+    // hosts each join the other's lobby at the same time, both delete the lobby the
+    // other just joined, and both accept flows silently fail ("Lobby not found" is
+    // swallowed by the late-merge catch), leaving both players polling deleted lobbies
+    // until the 60 s timeout.
+    const myLobbyUpdatedAt = lobby?.updated_at ?? new Date().toISOString();
 
     const waitUntil = Date.now() + 60_000;
     let qmLoopCount = 0;
@@ -7603,7 +7610,6 @@ async function startQuickMatchAuto() {
             "is_private=eq.false",
             "guest_id=is.null",
             "mode=eq.quick",
-            // ✅ FIX: server-side self-join guard
             `host_id=neq.${encodeURIComponent(meId)}`,
             "order=updated_at.asc",
             "limit=5",
@@ -7611,9 +7617,20 @@ async function startQuickMatchAuto() {
           const lmRes = await fetch(sbRestUrl(`pb_lobbies?${lmQ}`), { headers: await sbHeaders() });
           if (lmRes.ok) {
             const lmRows = await lmRes.json();
-            const others = (Array.isArray(lmRows) ? lmRows : []).filter(
-              l => l.id !== hostLobbyId && l.host_id !== meId && !isLobbyExpired(l)
-            );
+            const myTs = parseIsoMs(myLobbyUpdatedAt);
+            const others = (Array.isArray(lmRows) ? lmRows : []).filter(l => {
+              if (!l || l.id === hostLobbyId || l.host_id === meId) return false;
+              if (isLobbyExpired(l)) return false;
+              // ✅ FIX (cross-join): only join a lobby that is OLDER than ours.
+              // If both players scan simultaneously they see each other's lobby, but
+              // only the one whose lobby is NEWER will pass this check and join.
+              // The one with the OLDER lobby simply waits for the other to join them.
+              // Tiebreak by lobby ID so exactly one side wins when timestamps are equal.
+              const targetTs = parseIsoMs(l.updated_at);
+              if (targetTs < myTs) return true;
+              if (targetTs > myTs) return false;
+              return String(l.id) < String(hostLobbyId); // equal ts: smaller ID wins
+            });
             if (others.length > 0 && !cancelled) {
               // Another host is waiting — join their lobby as guest and close ours
               const target = others[0];
@@ -8022,6 +8039,7 @@ async function startMirrorWarMode() {
     });
     if (!created?.id) throw new Error("Failed to create Mirror War lobby.");
     hostLobbyId = created.id;
+    const myLobbyUpdatedAt = created?.updated_at ?? new Date().toISOString();
 
     const waitUntil = Date.now() + 60_000;
     let qmLoopCount = 0;
@@ -8056,9 +8074,15 @@ async function startMirrorWarMode() {
           const lmRes = await fetch(sbRestUrl(`pb_lobbies?${lmQ}`), { headers: await sbHeaders() });
           if (lmRes.ok) {
             const lmRows = await lmRes.json();
-            const others = (Array.isArray(lmRows) ? lmRows : []).filter(
-              l => l.id !== hostLobbyId && l.host_id !== meId && !isLobbyExpired(l)
-            );
+            const myTs = parseIsoMs(myLobbyUpdatedAt);
+            const others = (Array.isArray(lmRows) ? lmRows : []).filter(l => {
+              if (!l || l.id === hostLobbyId || l.host_id === meId) return false;
+              if (isLobbyExpired(l)) return false;
+              const targetTs = parseIsoMs(l.updated_at);
+              if (targetTs < myTs) return true;
+              if (targetTs > myTs) return false;
+              return String(l.id) < String(hostLobbyId);
+            });
             if (others.length > 0 && !cancelled) {
               const target = others[0];
               const joined = await sbJoinLobby(target.id);
@@ -8177,6 +8201,7 @@ async function startBlindDraftMode() {
     });
     if (!created?.id) throw new Error("Failed to create Blind Draft lobby.");
     hostLobbyId = created.id;
+    const myLobbyUpdatedAt = created?.updated_at ?? new Date().toISOString();
 
     const waitUntil = Date.now() + 60_000;
     let qmLoopCount = 0;
@@ -8211,9 +8236,15 @@ async function startBlindDraftMode() {
           const lmRes = await fetch(sbRestUrl(`pb_lobbies?${lmQ}`), { headers: await sbHeaders() });
           if (lmRes.ok) {
             const lmRows = await lmRes.json();
-            const others = (Array.isArray(lmRows) ? lmRows : []).filter(
-              l => l.id !== hostLobbyId && l.host_id !== meId && !isLobbyExpired(l)
-            );
+            const myTs = parseIsoMs(myLobbyUpdatedAt);
+            const others = (Array.isArray(lmRows) ? lmRows : []).filter(l => {
+              if (!l || l.id === hostLobbyId || l.host_id === meId) return false;
+              if (isLobbyExpired(l)) return false;
+              const targetTs = parseIsoMs(l.updated_at);
+              if (targetTs < myTs) return true;
+              if (targetTs > myTs) return false;
+              return String(l.id) < String(hostLobbyId);
+            });
             if (others.length > 0 && !cancelled) {
               const target = others[0];
               const joined = await sbJoinLobby(target.id);
