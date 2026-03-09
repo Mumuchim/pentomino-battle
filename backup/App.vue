@@ -3452,9 +3452,6 @@ function onGlobalMouseMove(e) {
 // (b) a piece is click-selected (no drag) and cursor is NOT over the board
 const cursorGhostVisible = computed(() => {
   if (!game.selectedPieceKey || game.phase !== 'place') return false;
-  // Hide when piece is staged on the board (pendingPlace) — the board's own
-  // ghostOverlay handles the visual; the cursor ghost would double up on mobile.
-  if (game.pendingPlace) return false;
   if (game.drag?.active) {
     // Drag mode: hide when board overlay takes over
     return !game.drag?.target?.inside;
