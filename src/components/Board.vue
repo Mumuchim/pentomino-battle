@@ -66,7 +66,7 @@
       </div>
 
       <!-- Illegal placement toast — floats over the board -->
-      <div v-if="warningMessage" class="boardWarnToast" role="status" aria-live="polite">
+      <div v-if="warningMessage" class="boardWarnToast" :class="warningType" role="status" aria-live="polite">
         <span class="warnIcon" aria-hidden="true">⚠</span>
         <span class="warnText">{{ warningMessage }}</span>
       </div>
@@ -147,7 +147,7 @@ const props = defineProps({
 
 // Show first-move adjacency tip using the same warning toast as illegal placements
 watch(() => props.adjacencyHint, (v) => {
-  if (v) showWarning('💡 Your first piece must touch Player 1\'s territory', 2000);
+  if (v) showWarning('💡 Your first piece must touch Player 1\'s territory', 2500, 'hint');
 });
 
 const game = useGameStore();
@@ -332,12 +332,15 @@ function handleFlip() {
 }
 
 const warningMessage = ref("");
+const warningType = ref("warn"); // "warn" | "hint"
 let warnTimer = null;
-function showWarning(msg, duration = 1400) {
+function showWarning(msg, duration = 1400, type = "warn") {
   warningMessage.value = msg;
+  warningType.value = type;
   if (warnTimer) clearTimeout(warnTimer);
   warnTimer = setTimeout(() => {
     warningMessage.value = "";
+    warningType.value = "warn";
     warnTimer = null;
   }, duration);
 }
@@ -1119,6 +1122,18 @@ const ghostOverlayGridStyle = computed(() => ({}));
   white-space: nowrap;
   animation: warnPop 160ms ease;
   pointer-events: none;
+}
+/* Hint variant — yellow/amber for advisory messages */
+.boardWarnToast.hint {
+  border-color: rgba(255, 210, 80, 0.35);
+  box-shadow:
+    0 8px 22px rgba(0,0,0,0.65),
+    0 0 14px rgba(255, 200, 60, 0.14);
+  color: rgba(255, 230, 130, 0.97);
+}
+.boardWarnToast.hint .warnIcon {
+  background: rgba(255, 200, 60, 0.18);
+  border-color: rgba(255, 210, 80, 0.32);
 }
 .warnIcon {
   width: 20px;

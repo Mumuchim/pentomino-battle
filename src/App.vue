@@ -155,7 +155,7 @@
             title="View profile"
           >
             <div class="tetBarAvatarWrap">
-              <img :src="guestAvatarUrl" class="tetBarAvatar" alt="Profile" />
+              <img :src="loggedIn ? profileDisplayAvatar : guestAvatarUrl" class="tetBarAvatar" alt="Profile" />
               <span v-if="loggedIn" class="tetBarOnlineDot"></span>
             </div>
             <div class="tetBarIgn">
@@ -178,7 +178,7 @@
         </div>
 
         <div class="right">
-          <img :src="guestAvatarUrl" class="topAvatar" alt="Profile" />
+          <img :src="loggedIn ? profileDisplayAvatar : guestAvatarUrl" class="topAvatar" alt="Profile" />
           <!-- In-game settings (Esc) -->
           <button
             class="btn ghost"
@@ -628,7 +628,7 @@
           <!-- ── Hero row ── -->
           <div class="pbNPHero">
             <div class="pbNPAvatarWrap">
-              <img :src="guestAvatarUrl" class="pbNPAvatar" alt="Avatar" />
+              <img :src="viewingFriendId ? (viewingFriendData?.avatar_url || guestAvatarUrl) : profileDisplayAvatar" class="pbNPAvatar" :class="!viewingFriendId && selectedBorder ? 'pbAvatarBorder--' + selectedBorder : ''" alt="Avatar" />
               <span class="pbNPOnlineDot" v-if="!viewingFriendId || onlineUserIds?.has(viewingFriendId)" title="Online now"></span>
             </div>
 
@@ -637,7 +637,7 @@
                 {{ viewingFriendData ? viewingFriendData.name : displayName }}
                 <span class="pbNPHeroFlag">🇵🇭</span>
               </div>
-              <div class="pbNPHeroStatus">{{ viewingFriendId ? (onlineUserIds?.has(viewingFriendId) ? '● Online now' : '● Offline') : 'Enter a status here…' }}</div>
+              <div class="pbNPHeroStatus">{{ viewingFriendId ? (onlineUserIds?.has(viewingFriendId) ? '● Online now' : '● Offline') : (memberStats.status || 'Enter a status here…') }}</div>
               <div class="pbNPHeroMeta">
                 <span class="pbNPMetaItem">
                   <b>{{ (viewingFriendData ? viewingFriendData.uid : memberStats.uid) ? '#' + (viewingFriendData ? viewingFriendData.uid : memberStats.uid) : '—' }}</b> UID
@@ -655,7 +655,7 @@
                 <button class="pbNPActionBtn" @click="viewingFriendId = null; viewingFriendData = null">← BACK TO MY PROFILE</button>
               </template>
               <template v-else>
-                <button class="pbNPActionBtn pbNPActionEdit">✎ Edit Profile</button>
+                <button class="pbNPActionBtn pbNPActionEdit" @click="openEditProfile">✎ Edit Profile</button>
               </template>
             </div>
           </div>
@@ -676,34 +676,28 @@
             <div class="pbNPMain">
               <!-- Mode rating cards row -->
               <div class="pbNPRatingCards">
-                <!-- Standard -->
-                <div class="pbNPRatingCard">
-                  <div class="pbNPRatingIcon">⚔</div>
+                <div
+                  v-for="mode in profileModes"
+                  :key="mode.key"
+                  class="pbNPRatingCard"
+                  :class="'pbNPRatingCard--' + (((viewingFriendData || memberStats)[mode.tierKey]) || 'unranked')"
+                >
+                  <div class="pbNPRatingIcon">{{ mode.key === 'standard' ? '⚔' : mode.key === 'mirrorwar' ? '🪞' : '🎲' }}</div>
                   <div class="pbNPRatingInfo">
-                    <div class="pbNPRatingMode">Standard</div>
-                    <div class="pbNPRatingVal">{{ (viewingFriendData || memberStats).ranked_lp || 0 }}</div>
-                    <div class="pbNPRatingBar">
-                      <div class="pbNPRatingBarFill" :class="'pbTierFill-' + ((viewingFriendData || memberStats).ranked_tier || 'plastic')"
-                           :style="{ width: lpBarPercent((viewingFriendData || memberStats).ranked_lp, (viewingFriendData || memberStats).ranked_tier) + '%' }"></div>
+                    <div class="pbNPRatingMode">{{ mode.label }}</div>
+                    <div
+                      class="pbNPRatingTier"
+                      :class="'pbModeTier-' + (((viewingFriendData || memberStats)[mode.tierKey]) || 'unranked')"
+                    >
+                      {{ tierDisplayName((viewingFriendData || memberStats)[mode.tierKey]) }}
                     </div>
-                  </div>
-                </div>
-                <!-- Mirror War -->
-                <div class="pbNPRatingCard">
-                  <div class="pbNPRatingIcon">🪞</div>
-                  <div class="pbNPRatingInfo">
-                    <div class="pbNPRatingMode">Mirror War</div>
-                    <div class="pbNPRatingVal">—</div>
-                    <div class="pbNPRatingBar"><div class="pbNPRatingBarFill" style="width:0%"></div></div>
-                  </div>
-                </div>
-                <!-- Blind Draft -->
-                <div class="pbNPRatingCard">
-                  <div class="pbNPRatingIcon">🎲</div>
-                  <div class="pbNPRatingInfo">
-                    <div class="pbNPRatingMode">Blind Draft</div>
-                    <div class="pbNPRatingVal">—</div>
-                    <div class="pbNPRatingBar"><div class="pbNPRatingBarFill" style="width:0%"></div></div>
+                    <div class="pbNPRatingBar">
+                      <div
+                        class="pbNPRatingBarFill"
+                        :class="'pbTierFill-' + (((viewingFriendData || memberStats)[mode.tierKey]) || 'unranked')"
+                        :style="{ width: (viewingFriendData || memberStats)[mode.tierKey] ? '40%' : '0%' }"
+                      ></div>
+                    </div>
                   </div>
                 </div>
               </div>
@@ -855,6 +849,87 @@
                 <div class="pbNPSideRankBadge" :class="'pbTier-' + (memberStats.ranked_tier || 'plastic')">{{ rankedTier }}</div>
                 <div class="pbNPSideRankLp">{{ memberStats.ranked_lp }} LP</div>
               </div>
+            </div>
+          </div>
+
+          <!-- ══ ACHIEVEMENTS TAB ══ -->
+          <div v-else-if="profileTab === 'achievements'" class="pbNPBody pbAchievementsBody">
+            <div class="pbNPMain pbAchievementsMain">
+
+              <!-- ── General Achievements — only show unlocked ──────── -->
+              <div class="pbNPSection">
+                <div class="pbNPSectionHead">🏆 Achievements</div>
+                <div v-if="generalAchievements.filter(a => isAchievementUnlocked(a.key) || (a.secret && !isAchievementUnlocked(a.key))).length === 0 && generalAchievements.filter(a => isAchievementUnlocked(a.key)).length === 0" class="pbAchEmpty">
+                  <div class="pbAchEmptyIcon">🔒</div>
+                  <div class="pbAchEmptyText">No achievements unlocked yet — keep playing!</div>
+                </div>
+                <div class="pbAchGrid">
+                  <template v-for="ach in generalAchievements" :key="ach.key">
+                    <!-- Always show unlocked achievements -->
+                    <div v-if="isAchievementUnlocked(ach.key)"
+                      class="pbAchCard pbAchCard--unlocked"
+                      :class="'pbAchCard--' + ach.rarity"
+                    >
+                      <div class="pbAchIcon">{{ ach.icon }}</div>
+                      <div class="pbAchInfo">
+                        <div class="pbAchLabel">{{ ach.label }}</div>
+                        <div class="pbAchDesc">{{ ach.desc }}</div>
+                        <div class="pbAchRarity" :class="'pbAchRarity--' + ach.rarity">{{ ach.rarity.toUpperCase() }}</div>
+                      </div>
+                      <div class="pbAchCheck">✓</div>
+                    </div>
+                    <!-- Secret locked ones: show as mystery -->
+                    <div v-else-if="ach.secret"
+                      class="pbAchCard pbAchCard--secret"
+                    >
+                      <div class="pbAchIcon">?</div>
+                      <div class="pbAchInfo">
+                        <div class="pbAchLabel">???</div>
+                        <div class="pbAchDesc">Hidden achievement — keep playing to discover it.</div>
+                        <div class="pbAchRarity pbAchRarity--secret">SECRET</div>
+                      </div>
+                    </div>
+                    <!-- Non-secret locked: hidden entirely -->
+                  </template>
+                </div>
+              </div>
+
+              <!-- ── Piece Achievements — only show pieces with progress ── -->
+              <div class="pbNPSection" v-if="PENTOMINO_PIECES.some(p => getPieceWins(p) > 0)">
+                <div class="pbNPSectionHead" style="cursor:pointer;user-select:none" @click="pieceAchExpanded = !pieceAchExpanded">
+                  🧩 Piece Mastery <span style="font-size:11px;color:rgba(255,255,255,0.35);margin-left:8px">{{ pieceAchExpanded ? '▲ collapse' : '▼ expand' }}</span>
+                </div>
+                <div v-if="pieceAchExpanded" class="pbAchPieceGrid">
+                  <template v-for="piece in PENTOMINO_PIECES" :key="piece">
+                    <div v-if="getPieceWins(piece) > 0 || pieceTiers.some(t => isAchievementUnlocked('ach_piece_' + piece + '_' + t.threshold))" class="pbAchPieceGroup">
+                      <div class="pbAchPieceGroupLabel">{{ piece }}-PIECE</div>
+                      <div
+                        v-for="tier in pieceTiers" :key="tier.threshold"
+                        class="pbAchCard pbAchCard--piece"
+                        :class="[
+                          'pbAchCard--' + tier.rarity,
+                          { 'pbAchCard--unlocked': isAchievementUnlocked('ach_piece_' + piece + '_' + tier.threshold) }
+                        ]"
+                      >
+                        <div class="pbAchIcon">{{ tier.icon }}</div>
+                        <div class="pbAchInfo">
+                          <div class="pbAchLabel">{{ piece }}-Piece {{ tier.title }}</div>
+                          <div class="pbAchProgressWrap">
+                            <div class="pbAchProgressBar">
+                              <div class="pbAchProgressFill" :class="'pbAchProgressFill--' + tier.rarity"
+                                :style="{ width: Math.min(100, (getPieceWins(piece) / tier.threshold) * 100) + '%' }"></div>
+                            </div>
+                            <span class="pbAchProgressLabel">{{ Math.min(getPieceWins(piece), tier.threshold) }}/{{ tier.threshold }}</span>
+                          </div>
+                          <div class="pbAchRarity" :class="'pbAchRarity--' + tier.rarity">{{ tier.rarity.toUpperCase() }}</div>
+                        </div>
+                        <div v-if="isAchievementUnlocked('ach_piece_' + piece + '_' + tier.threshold)" class="pbAchCheck">✓</div>
+                      </div>
+                    </div>
+                  </template>
+                </div>
+              </div>
+
             </div>
           </div>
 
@@ -1186,10 +1261,6 @@
             <div class="vsStyleCard">
               <div class="vsStyleCardTitle">GAMEPLAY</div>
               <label class="vsStyleRow">
-                <span class="vsStyleRowLabel">Allow Flip (Mirror)</span>
-                <input type="checkbox" class="vsStyleCheck" v-model="allowFlip" />
-              </label>
-              <label class="vsStyleRow">
                 <span class="vsStyleRowLabel">Enable Drag Placement</span>
                 <input type="checkbox" class="vsStyleCheck" v-model="game.ui.enableDragPlace" />
               </label>
@@ -1432,6 +1503,16 @@
           <Board :isOnline="isOnline" :myPlayer="myPlayer" :canAct="canAct" :adjacencyHint="showAdjacencyHint" />
         </section>
 
+        <!-- ── ONLINE CHAT SIDEBAR ── -->
+        <ChatSidebar
+          v-if="isOnline"
+          v-model="chatOpen"
+          :rtChannel="online.rtChannel"
+          :myPlayer="myPlayer"
+          :p1Name="panelP1Name"
+          :p2Name="panelP2Name"
+        />
+
         <!-- ── STORY TAUNT BUBBLE — absolute inside gameLayout, escapes panelHead stacking context ── -->
         <Transition name="storyTauntBubble">
           <div
@@ -1454,6 +1535,74 @@
 
     <!-- ══════════════════════════════════════════════════════════
          AUTH MODAL — Login / Create Account
+    ═══════════════════════════════════════════════════════════ -->
+    <Teleport to="body">
+      <!-- Edit Profile Modal -->
+      <div v-if="editProfile.open" class="pbEditProfileOverlay" @click.self="closeEditProfile">
+        <div class="pbEditProfileModal">
+          <div class="pbEditProfileTitle">✎ Edit Profile</div>
+
+          <!-- Avatar upload -->
+          <div class="pbEditAvatarRow">
+            <div class="pbEditAvatarPreview">
+              <img :src="editProfile.previewUrl || profileDisplayAvatar" alt="Preview" />
+            </div>
+            <div class="pbEditAvatarRight">
+              <label class="pbEditAvatarBtn">
+                📷 Choose Photo
+                <input type="file" accept="image/*" style="display:none" @change="onAvatarFileChange" />
+              </label>
+              <button
+                v-if="editProfile.previewUrl || memberStats.avatar_url"
+                class="pbEditRemoveBtn"
+                @click="removeAvatar"
+              >🗑 Remove Photo</button>
+              <div class="pbEditAvatarHint">Max 2 MB · JPEG, PNG, WebP</div>
+            </div>
+          </div>
+
+          <!-- Status -->
+          <div class="pbEditField">
+            <label class="pbEditLabel">Status</label>
+            <input v-model="editProfile.statusDraft" class="pbEditInput" type="text" maxlength="80" placeholder="What's on your mind?" />
+          </div>
+
+          <!-- Border picker — only unlocked borders -->
+          <div class="pbEditField">
+            <label class="pbEditLabel">Profile Border</label>
+            <div class="pbEditBorderScroll">
+              <div
+                v-for="b in allBorders.filter(b => isBorderUnlocked(b))" :key="b.key"
+                class="pbBorderTile"
+                :class="{ 'pbBorderTile--selected': selectedBorder === b.key }"
+                :title="b.label"
+                @click="selectBorder(b.key)"
+              >
+                <div class="pbBorderTileAvatar" :class="'pbAvatarBorder--' + b.key">
+                  <img :src="editProfile.previewUrl || profileDisplayAvatar" alt="" />
+                </div>
+                <div class="pbBorderTileLabel">{{ b.label }}</div>
+                <div v-if="selectedBorder === b.key" class="pbBorderTileCheck">✓</div>
+              </div>
+            </div>
+            <div v-if="allBorders.filter(b => isBorderUnlocked(b)).length <= 1" class="pbEditBorderHint">
+              Earn ranks and achievements to unlock more borders.
+            </div>
+          </div>
+
+          <!-- Actions -->
+          <div class="pbEditActions">
+            <button class="pbEditSaveBtn" :disabled="editProfile.saving" @click="saveEditProfile">
+              {{ editProfile.saving ? 'Saving…' : '✓ Save' }}
+            </button>
+            <button class="pbEditCancelBtn" @click="closeEditProfile">Cancel</button>
+          </div>
+        </div>
+      </div>
+    </Teleport>
+
+    <!-- ══════════════════════════════════════════════════════════
+         AUTH MODAL — Login / Create Account (existing)
     ═══════════════════════════════════════════════════════════ -->
     <Teleport to="body">
       <Transition name="authFade">
@@ -1624,7 +1773,7 @@
               </div>
               <div class="pbRequestList">
                 <div v-for="result in friendSearchResults" :key="result.id" class="pbSearchResultRow">
-                  <img :src="guestAvatarUrl" class="pbRequestAvatar" alt="Avatar" />
+                  <img :src="result.avatar_url || guestAvatarUrl" class="pbRequestAvatar" alt="Avatar" />
                   <div class="pbRequestInfo">
                     <span class="pbRequestName">{{ result.display_name || result.username }}</span>
                     <span class="pbRequestSub">{{ result.uid ? '#' + result.uid : '' }}</span>
@@ -1674,7 +1823,7 @@
               <div v-else class="pbRequestList">
                 <div v-for="f in (friendTab === 'online' ? friendsList.filter(x => x.online) : friendsList)" :key="f.friend_id" class="pbRequestRow">
                   <div class="pbFriendAvatarWrap">
-                    <img :src="guestAvatarUrl" class="pbRequestAvatar" alt="Avatar" />
+                    <img :src="f.avatar_url || guestAvatarUrl" class="pbRequestAvatar" alt="Avatar" />
                     <span class="pbFriendStatusDot" :class="f.online ? 'online' : 'offline'"></span>
                   </div>
                   <div class="pbRequestInfo">
@@ -1719,7 +1868,7 @@
                   :key="req.id"
                   class="pbRequestRow"
                 >
-                  <img :src="guestAvatarUrl" class="pbRequestAvatar" alt="Avatar" />
+                  <img :src="req.avatar_url || guestAvatarUrl" class="pbRequestAvatar" alt="Avatar" />
                   <div class="pbRequestInfo">
                     <span class="pbRequestName">{{ req.name }}</span>
                     <span class="pbRequestSub">sent you a friend request</span>
@@ -1778,7 +1927,7 @@
             <!-- Header row -->
             <div class="pbProfileHead">
               <div class="pbProfileAvatarBlock">
-                <img :src="guestAvatarUrl" class="pbProfileAvatar" alt="Avatar" />
+                <img :src="profileDisplayAvatar" class="pbProfileAvatar" alt="Avatar" />
               </div>
               <div class="pbProfileMeta">
                 <div class="pbProfileName">
@@ -1866,7 +2015,7 @@
           <div class="pbChatTitleBar" @click="expandChat(openChats[0])">
             <div class="pbChatTitleLeft">
               <div class="pbChatTitleAvatarWrap">
-                <img :src="guestAvatarUrl" class="pbChatTitleAvatar" alt="" />
+                <img :src="openChats[0].friendAvatarUrl || guestAvatarUrl" class="pbChatTitleAvatar" alt="" />
                 <span class="pbChatTitleDot" :class="onlineUserIds?.has(openChats[0].friendId) ? 'online' : 'offline'"></span>
               </div>
               <div class="pbChatTitleMeta">
@@ -1944,16 +2093,13 @@
 
         <!-- Recent conversations panel — sits to the right of the chat window -->
         <Transition name="pbRecentPanel">
-          <div v-if="openChats.length > 0" class="pbRecentPanel" :class="{ minimized: openChats[0]?.minimized }">
+          <div v-if="openChats.length > 0 && visibleRecentConversations.length >= 2" class="pbRecentPanel" :class="{ minimized: openChats[0]?.minimized }">
             <div v-if="recentConvLoading" class="pbRecentLoading">
               <span class="pbChatSpinner"></span>
             </div>
-            <div v-else-if="recentConversations.length === 0" class="pbRecentEmpty">
-              No recent chats
-            </div>
             <div v-else class="pbRecentList">
               <div
-                v-for="conv in recentConversations"
+                v-for="conv in visibleRecentConversations"
                 :key="conv.friendId"
                 class="pbRecentRow"
                 :class="{ active: openChats[0]?.friendId === conv.friendId }"
@@ -1961,7 +2107,7 @@
                 :title="conv.friendName"
               >
                 <div class="pbRecentAvatarWrap">
-                  <img :src="guestAvatarUrl" class="pbRecentAvatar" alt="" />
+                  <img :src="getFriendAvatar(conv.friendId) || guestAvatarUrl" class="pbRecentAvatar" alt="" />
                   <span class="pbRecentDot" :class="onlineUserIds?.has(conv.friendId) ? 'online' : 'offline'"></span>
                   <span v-if="conv.unread > 0" class="pbRecentUnread">{{ conv.unread }}</span>
                 </div>
@@ -1969,6 +2115,11 @@
                   <span class="pbRecentName">{{ conv.friendName }}</span>
                   <span class="pbRecentPreview">{{ conv.lastPreview }}</span>
                 </div>
+                <button
+                  class="pbRecentDismiss"
+                  @click.stop="dismissRecentConv(conv.friendId, $event)"
+                  title="Dismiss"
+                >×</button>
               </div>
             </div>
           </div>
@@ -2444,6 +2595,20 @@
   </div>
 
   </div>
+
+  <!-- ── Achievement Toast ───────────────────────────────────────────── -->
+  <Teleport to="body">
+    <Transition name="achToastFade">
+      <div v-if="achToast.visible" class="pbAchToast">
+        <div class="pbAchToastIcon">{{ achToast.icon }}</div>
+        <div class="pbAchToastInfo">
+          <div class="pbAchToastTitle">Achievement Unlocked!</div>
+          <div class="pbAchToastLabel">{{ achToast.label }}</div>
+        </div>
+      </div>
+    </Transition>
+  </Teleport>
+
 </template>
 
 <script setup>
@@ -2608,6 +2773,7 @@ import DraftPanel from "./components/DraftPanel.vue";
 import PiecePicker from "./components/PiecePicker.vue";
 import Controls from "./components/Controls.vue";
 import DevOverlay from "./components/DevOverlay.vue";
+import ChatSidebar from "./components/ChatSidebar.vue";
 import { useDevMode, checkDevStatus } from "./lib/devMode.js";
 
 
@@ -2783,11 +2949,36 @@ const friendsOnlineCount = ref(0);
 const unreadNotifCount   = ref(0);
 const recentConversations = ref([]); // [{ friendId, friendName, lastAt, lastPreview, unread }]
 const recentConvLoading   = ref(false);
+const dismissedChatIds    = ref(new Set()); // friendIds dismissed via X button
+
+// Panel only shows when >= 2 undismissed convos exist
+const visibleRecentConversations = computed(() =>
+  recentConversations.value.filter(c => !dismissedChatIds.value.has(c.friendId))
+);
+
+function dismissRecentConv(friendId, event) {
+  event.stopPropagation();
+  dismissedChatIds.value = new Set([...dismissedChatIds.value, friendId]);
+}
+
+// When a new message arrives for a dismissed convo, un-dismiss it
+function undismissConvIfNeeded(friendId) {
+  if (dismissedChatIds.value.has(friendId)) {
+    const next = new Set(dismissedChatIds.value);
+    next.delete(friendId);
+    dismissedChatIds.value = next;
+  }
+}
 let   _globalIncomingSub  = null;
 
 // Friend requests from Supabase
 const friendRequests  = ref([]);   // [{ id, from_id, name }]
-const friendsList     = ref([]);   // [{ id, friend_id, name, online }]
+const friendsList     = ref([]);   // [{ id, friend_id, name, avatar_url, online }]
+
+// Quick lookup: friend avatar by their user ID
+function getFriendAvatar(userId) {
+  return friendsList.value.find(f => f.friend_id === userId)?.avatar_url || null;
+}
 const onlineUserIds   = ref(new Set()); // set of user UUIDs currently online
 let _friendsSubscription = null;
 let _presenceChannel     = null;
@@ -2810,10 +3001,10 @@ async function loadFriendData() {
       const fromIds = reqData.map(r => r.from_id);
       const { data: profiles } = await supabase
         .from('pb_profiles')
-        .select('id, username, display_name')
+        .select('id, username, display_name, avatar_url')
         .in('id', fromIds);
-      const profileMap = Object.fromEntries((profiles || []).map(p => [p.id, p.display_name || p.username || 'Unknown']));
-      friendRequests.value = reqData.map(r => ({ id: r.id, from_id: r.from_id, name: profileMap[r.from_id] || 'Unknown' }));
+      const profileMap = Object.fromEntries((profiles || []).map(p => [p.id, { name: p.display_name || p.username || 'Unknown', avatar_url: p.avatar_url || null }]));
+      friendRequests.value = reqData.map(r => ({ id: r.id, from_id: r.from_id, name: profileMap[r.from_id]?.name || 'Unknown', avatar_url: profileMap[r.from_id]?.avatar_url || null }));
     } else {
       friendRequests.value = [];
     }
@@ -2829,12 +3020,13 @@ async function loadFriendData() {
       const friendIds = accepted.map(r => r.from_id === user.id ? r.to_id : r.from_id);
       const { data: fProfiles } = await supabase
         .from('pb_profiles')
-        .select('id, username, display_name')
+        .select('id, username, display_name, avatar_url')
         .in('id', friendIds);
-      const fpMap = Object.fromEntries((fProfiles || []).map(p => [p.id, p.display_name || p.username || 'Unknown']));
+      const fpMap = Object.fromEntries((fProfiles || []).map(p => [p.id, { name: p.display_name || p.username || 'Unknown', avatar_url: p.avatar_url || null }]));
       friendsList.value = accepted.map(r => {
         const fid = r.from_id === user.id ? r.to_id : r.from_id;
-        return { id: r.id, friend_id: fid, name: fpMap[fid] || 'Unknown', online: onlineUserIds.value.has(fid) };
+        const fp = fpMap[fid] || {};
+        return { id: r.id, friend_id: fid, name: fp.name || 'Unknown', avatar_url: fp.avatar_url || null, online: onlineUserIds.value.has(fid) };
       });
     } else {
       friendsList.value = [];
@@ -2964,7 +3156,7 @@ async function runFriendSearch() {
     const cleanUid = q.replace(/^#/, '');
     const { data, error } = await supabase
       .from('pb_profiles')
-      .select('id, username, display_name, uid')
+      .select('id, username, display_name, uid, avatar_url')
       .or(`username.ilike.%${q}%,display_name.ilike.%${q}%,uid.ilike.${cleanUid}`)
       .limit(20);
 
@@ -3021,7 +3213,7 @@ const profileTabs = [
   { key: 'overview', label: 'Overview' },
   { key: 'stats',    label: 'Stats'    },
   { key: 'friends',  label: 'Friends'  },
-  { key: 'awards',   label: 'Awards'   },
+  { key: 'achievements', label: 'Achievements' },
 ];
 
 // When set, the profile screen shows this friend's data instead of the logged-in player's
@@ -3036,7 +3228,7 @@ async function viewFriendProfile(friend) {
     const supabase = sbRealtime;
     const { data } = await supabase
       .from('pb_profiles')
-      .select('id, username, display_name, uid, wins, losses, draws, ranked_lp, ranked_tier, ranked_wins, ranked_losses, ranked_peak_lp, placement_games, win_streak')
+      .select('id, username, display_name, uid, wins, losses, draws, ranked_lp, ranked_tier, ranked_wins, ranked_losses, ranked_peak_lp, placement_games, win_streak, avatar_url')
       .eq('id', friend.friend_id)
       .single();
     if (data) viewingFriendData.value = { ...data, name: data.display_name || data.username || 'Unknown' };
@@ -3103,8 +3295,9 @@ async function openChat(friend) {
     chat._pollTimer   = null;
 
     // Swap identity & reset state — same reactive object, no remount
-    chat.friendId    = friend.friend_id;
-    chat.friendName  = friend.name;
+    chat.friendId       = friend.friend_id;
+    chat.friendName     = friend.name;
+    chat.friendAvatarUrl= friend.avatar_url || null;
     chat.messages    = [];
     chat.draft       = '';
     chat.loading     = true;
@@ -3119,8 +3312,9 @@ async function openChat(friend) {
 
   // No window open yet — create fresh
   const chat = vReactive({
-    friendId:    friend.friend_id,
-    friendName:  friend.name,
+    friendId:        friend.friend_id,
+    friendName:      friend.name,
+    friendAvatarUrl: friend.avatar_url || null,
     messages:    [],
     draft:       '',
     loading:     true,
@@ -3349,6 +3543,8 @@ function updateRecentConv(msg, friendName) {
   const friendId = msg.from_id === uid ? msg.to_id : msg.from_id;
   const existing = recentConversations.value.find(c => c.friendId === friendId);
   const preview = (msg.from_id === uid ? 'You: ' : '') + (msg.content?.slice(0, 40) || '');
+  // Un-dismiss if this person messages again
+  undismissConvIfNeeded(friendId);
   if (existing) {
     existing.lastAt = msg.created_at;
     existing.lastPreview = preview;
@@ -3911,6 +4107,356 @@ function onViewportChange() {
 const logoUrl = new URL("./assets/logo.png", import.meta.url).href;
 const guestAvatarUrl = new URL("./assets/guest_avatar.png", import.meta.url).href;
 
+// ── Edit Profile modal ────────────────────────────────────────────────────
+const editProfile = reactive({
+  open: false,
+  saving: false,
+  statusDraft: '',
+  previewUrl: null,   // base64 or object URL for immediate preview
+  fileBase64: null,   // base64 to persist locally
+  removePhoto: false, // flag: user wants to clear avatar
+});
+
+function openEditProfile() {
+  editProfile.statusDraft = memberStats.status || '';
+  editProfile.previewUrl  = memberStats.avatar_url || null;
+  editProfile.fileBase64  = null;
+  editProfile.removePhoto = false;
+  editProfile.saving      = false;
+  editProfile.open        = true;
+}
+function closeEditProfile() { editProfile.open = false; }
+
+function onAvatarFileChange(e) {
+  const file = e.target.files?.[0];
+  if (!file) return;
+  if (file.size > 2 * 1024 * 1024) {
+    alert('Image must be under 2 MB.');
+    return;
+  }
+  const reader = new FileReader();
+  reader.onload = (ev) => {
+    editProfile.previewUrl  = ev.target.result;
+    editProfile.fileBase64  = ev.target.result;
+    editProfile.removePhoto = false;
+  };
+  reader.readAsDataURL(file);
+}
+
+function removeAvatar() {
+  editProfile.previewUrl  = null;
+  editProfile.fileBase64  = null;
+  editProfile.removePhoto = true;
+}
+
+async function saveEditProfile() {
+  editProfile.saving = true;
+  try {
+    const sb   = requireSupabase?.();
+    const user = await _authGetUser?.();
+    // Use the Supabase auth user.id (UUID) for the localStorage key — never the display uid
+    const userKey = user?.id || 'guest';
+    let avatarUrl = memberStats.avatar_url;
+
+    // ── REMOVE photo ─────────────────────────────────────────────
+    if (editProfile.removePhoto) {
+      avatarUrl = null;
+      try { localStorage.removeItem(`pb_avatar_local_${userKey}`); } catch {}
+    }
+    // ── UPLOAD new photo ─────────────────────────────────────────
+    else if (editProfile.fileBase64) {
+      if (sb && user) {
+        try {
+          const res  = await fetch(editProfile.fileBase64);
+          const blob = await res.blob();
+          const ext  = blob.type.split('/')[1] || 'jpg';
+          const path = `${user.id}/avatar.${ext}`;
+          const { error: upErr } = await sb.storage.from('pb_avatars').upload(path, blob, {
+            upsert: true, contentType: blob.type,
+          });
+          if (!upErr) {
+            const { data: urlData } = sb.storage.from('pb_avatars').getPublicUrl(path);
+            avatarUrl = urlData?.publicUrl || editProfile.fileBase64;
+          } else {
+            avatarUrl = editProfile.fileBase64;
+          }
+        } catch {
+          avatarUrl = editProfile.fileBase64;
+        }
+      } else {
+        avatarUrl = editProfile.fileBase64;
+      }
+      // Keyed by Supabase user.id so different accounts never share a cached avatar
+      try { localStorage.setItem(`pb_avatar_local_${userKey}`, avatarUrl); } catch {}
+    }
+
+    // ── Update pb_profiles (avatar_url + status only) ─────────────
+    if (sb && user) {
+      try {
+        await sb.from('pb_profiles')
+          .update({ avatar_url: avatarUrl, status: editProfile.statusDraft.trim() || null })
+          .eq('id', user.id);
+      } catch { /* non-fatal: columns may not exist yet in DB */ }
+
+      // ── Re-fetch full profile so uid/wins/all stats stay fresh ──
+      try {
+        const { data } = await sb
+          .from('pb_profiles')
+          .select('wins,losses,draws,ranked_lp,ranked_tier,ranked_wins,ranked_losses,ranked_peak_lp,placement_games,win_streak,demotion_shield,uid,avatar_url,status,standard_tier,mirror_war_tier,blind_draft_tier')
+          .eq('id', user.id)
+          .single();
+        if (data) {
+          memberStats.wins            = data.wins             ?? memberStats.wins;
+          memberStats.losses          = data.losses           ?? memberStats.losses;
+          memberStats.draws           = data.draws            ?? memberStats.draws;
+          memberStats.ranked_lp       = data.ranked_lp        ?? memberStats.ranked_lp;
+          memberStats.ranked_tier     = data.ranked_tier      ?? memberStats.ranked_tier;
+          memberStats.ranked_wins     = data.ranked_wins      ?? memberStats.ranked_wins;
+          memberStats.ranked_losses   = data.ranked_losses    ?? memberStats.ranked_losses;
+          memberStats.ranked_peak_lp  = data.ranked_peak_lp  ?? memberStats.ranked_peak_lp;
+          memberStats.placement_games = data.placement_games  ?? memberStats.placement_games;
+          memberStats.win_streak      = data.win_streak       ?? memberStats.win_streak;
+          memberStats.demotion_shield = data.demotion_shield  ?? memberStats.demotion_shield;
+          memberStats.standard_tier   = data.standard_tier   ?? null;
+          memberStats.mirror_war_tier = data.mirror_war_tier ?? null;
+          memberStats.blind_draft_tier= data.blind_draft_tier?? null;
+          memberStats.uid             = data.uid              ?? memberStats.uid;
+          memberStats.avatar_url      = data.avatar_url       ?? avatarUrl;
+          memberStats.status          = data.status           ?? (editProfile.statusDraft.trim() || null);
+        } else {
+          memberStats.avatar_url = avatarUrl;
+          memberStats.status     = editProfile.statusDraft.trim() || null;
+        }
+      } catch {
+        memberStats.avatar_url = avatarUrl;
+        memberStats.status     = editProfile.statusDraft.trim() || null;
+      }
+    } else {
+      memberStats.avatar_url = avatarUrl;
+      memberStats.status     = editProfile.statusDraft.trim() || null;
+    }
+
+    editProfile.open = false;
+  } finally {
+    editProfile.saving = false;
+  }
+}
+
+// Reactive store for the Supabase auth user.id (UUID) — set on login, cleared on logout
+// Used to key localStorage avatar cache per-user so different accounts never cross-contaminate
+const _supabaseUserId = ref(null);
+watch(loggedIn, async (isIn) => {
+  if (isIn) {
+    try {
+      const user = await _authGetUser?.();
+      _supabaseUserId.value = user?.id || null;
+    } catch { _supabaseUserId.value = null; }
+  } else {
+    _supabaseUserId.value = null;
+  }
+}, { immediate: true });
+
+// Computed: use saved avatar_url from DB, fall back to user-scoped localStorage cache, then guest default
+const profileDisplayAvatar = computed(() => {
+  if (memberStats.avatar_url) return memberStats.avatar_url;
+  try {
+    const uid = _supabaseUserId.value;
+    if (uid) {
+      const local = localStorage.getItem(`pb_avatar_local_${uid}`);
+      if (local) return local;
+    }
+  } catch {}
+  return guestAvatarUrl;
+});
+
+// ════════════════════════════════════════════════════════════
+//  ACHIEVEMENTS SYSTEM
+// ════════════════════════════════════════════════════════════
+const PENTOMINO_PIECES = ['F','I','L','P','N','T','U','V','W','X','Y','Z'];
+
+const pieceTiers = [
+  { threshold: 30,  title: 'NOVICE',  rarity: 'common',    icon: '🟢' },
+  { threshold: 50,  title: 'EXPERT',  rarity: 'rare',      icon: '🔵' },
+  { threshold: 100, title: 'MASTER',  rarity: 'epic',      icon: '🟣' },
+];
+
+const generalAchievements = [
+  { key: 'ach_pentokill',         label: 'PENTOKILL',           desc: 'Win your first 5 matches.',              rarity: 'epic',      icon: '⚡', secret: false },
+  { key: 'ach_pentwelve_champion',label: 'PENTWELVE CHAMPION',  desc: 'Beat all 12 PENTWELVE opponents.',       rarity: 'legendary', icon: '👑', secret: false },
+  { key: 'ach_zen_puzzle',        label: 'ZEN MASTER',          desc: 'Perfectly solve the ZEN PUZZLE (60/60 cells).', rarity: 'rare', icon: '🧘', secret: false },
+  { key: 'ach_ai_100',            label: 'AI FANATIC',          desc: 'Play 100 AI matches.',                   rarity: 'secret',    icon: '🤖', secret: true  },
+];
+
+const ACH_KEY = 'pb_achievements_v1';
+
+function _loadAchievements() {
+  try {
+    const raw = localStorage.getItem(ACH_KEY);
+    return raw ? JSON.parse(raw) : {};
+  } catch { return {}; }
+}
+function _saveAchievements(data) {
+  try { localStorage.setItem(ACH_KEY, JSON.stringify(data)); } catch {}
+}
+
+const achievementsState = reactive(_loadAchievements());
+
+function grantAchievement(key) {
+  if (achievementsState[key]?.unlocked) return false;
+  const data = _loadAchievements();
+  if (data[key]?.unlocked) return false;
+  data[key] = { ...(data[key] || {}), unlocked: true, unlockedAt: Date.now() };
+  _saveAchievements(data);
+  Object.assign(achievementsState, data);
+  _showAchievementToast(key);
+  return true;
+}
+
+function incrementAchievementCounter(key, amount = 1) {
+  const data = _loadAchievements();
+  const current = data[key]?.count ?? 0;
+  data[key] = { ...(data[key] || {}), count: current + amount };
+  _saveAchievements(data);
+  Object.assign(achievementsState, data);
+}
+
+function isAchievementUnlocked(key) {
+  return !!(achievementsState[key]?.unlocked);
+}
+
+function getPieceWins(piece) {
+  // The max achieved across all three tiers for that piece
+  const key100 = `ach_piece_${piece}_100`;
+  if (achievementsState[key100]?.unlocked) return 100;
+  const key50 = `ach_piece_${piece}_50`;
+  if (achievementsState[key50]?.unlocked) return 50;
+  const key30 = `ach_piece_${piece}_30`;
+  return achievementsState[key30]?.count ?? 0;
+}
+
+// Toast for achievement unlock
+const achToast = reactive({ visible: false, label: '', icon: '' });
+let _achToastTimer = null;
+function _showAchievementToast(key) {
+  // Find the achievement definition
+  const gen = generalAchievements.find(a => a.key === key);
+  let label = gen ? gen.label : key;
+  let icon  = gen ? gen.icon  : '🏆';
+  if (!gen) {
+    // Piece achievement
+    const m = key.match(/^ach_piece_([A-Z])_(\d+)$/);
+    if (m) {
+      const tier = pieceTiers.find(t => t.threshold === Number(m[2]));
+      label = `${m[1]}-Piece ${tier?.title ?? m[2]}`;
+      icon  = tier?.icon ?? '🎖';
+    }
+  }
+  achToast.label   = label;
+  achToast.icon    = icon;
+  achToast.visible = true;
+  clearTimeout(_achToastTimer);
+  _achToastTimer = setTimeout(() => { achToast.visible = false; }, 4000);
+}
+
+// ── Achievement hooks ─────────────────────────────────────────────────────
+function checkAiAchievements() {
+  incrementAchievementCounter('ach_ai_played');
+  const data = _loadAchievements();
+  const count = data['ach_ai_played']?.count ?? 0;
+  if (count >= 100) grantAchievement('ach_ai_100');
+}
+
+function checkPentokill() {
+  if ((memberStats.wins || 0) >= 5) grantAchievement('ach_pentokill');
+}
+
+function checkPieceAchievements(picks) {
+  if (!Array.isArray(picks)) return;
+  const data = _loadAchievements();
+  for (const piece of picks) {
+    for (const tier of pieceTiers) {
+      const key = `ach_piece_${piece}_${tier.threshold}`;
+      if (data[key]?.unlocked) continue;
+      // Increment win counter for this piece
+      const cKey = `piece_wins_${piece}`;
+      const prev = data[cKey]?.count ?? 0;
+      data[cKey] = { count: prev + 1 };
+      if (data[cKey].count >= tier.threshold) {
+        data[key] = { unlocked: true, unlockedAt: Date.now() };
+        _saveAchievements(data);
+        Object.assign(achievementsState, data);
+        _showAchievementToast(key);
+      }
+    }
+  }
+  _saveAchievements(data);
+  Object.assign(achievementsState, data);
+}
+
+const pieceAchExpanded = ref(false);
+
+// ════════════════════════════════════════════════════════════
+//  BORDER SYSTEM
+// ════════════════════════════════════════════════════════════
+const BORDER_KEY = 'pb_selected_border';
+const BORDER_TIERS = ['plastic','wood','bronze','silver','gold','platinum','diamond','master','champion'];
+const BORDER_MODES = [
+  { key: 'std', label: 'Standard',    tierKey: 'standard_tier'   },
+  { key: 'mw',  label: 'Mirror War',  tierKey: 'mirror_war_tier' },
+  { key: 'bd',  label: 'Blind Draft', tierKey: 'blind_draft_tier'},
+];
+
+const selectedBorder = ref((() => { try { return localStorage.getItem(BORDER_KEY) || 'default'; } catch { return 'default'; } })());
+
+function selectBorder(key) {
+  selectedBorder.value = key;
+  try { localStorage.setItem(BORDER_KEY, key); } catch {}
+}
+
+function isBorderUnlocked(b) {
+  if (b.key === 'default') return true;
+  if (b.unlockFn) return b.unlockFn();
+  return false;
+}
+
+const allBorders = computed(() => {
+  const borders = [
+    { key: 'default', label: 'Default', group: 'default', unlockFn: () => true },
+  ];
+  // Per-mode rank borders
+  for (const mode of BORDER_MODES) {
+    for (const tier of BORDER_TIERS) {
+      borders.push({
+        key:      `rank_${mode.key}_${tier}`,
+        label:    `${mode.label}: ${tier.charAt(0).toUpperCase() + tier.slice(1)}`,
+        group:    mode.key,
+        tier,
+        unlockFn: () => {
+          const myTier = memberStats[mode.tierKey];
+          if (!myTier) return false;
+          const myIdx  = BORDER_TIERS.indexOf(myTier);
+          const reqIdx = BORDER_TIERS.indexOf(tier);
+          return myIdx >= reqIdx;
+        },
+      });
+    }
+  }
+  // Special borders
+  borders.push({
+    key: 'border_pentwelve', label: 'PENTWELVE CHAMPION', group: 'special',
+    unlockFn: () => isAchievementUnlocked('ach_pentwelve_champion'),
+  });
+  borders.push({
+    key: 'border_zen', label: 'ZEN MASTER', group: 'special',
+    unlockFn: () => isAchievementUnlocked('ach_zen_puzzle'),
+  });
+  borders.push({
+    key: 'border_piece_master', label: 'PIECE MASTER', group: 'special',
+    unlockFn: () => PENTOMINO_PIECES.every(p => isAchievementUnlocked(`ach_piece_${p}_100`)),
+  });
+  return borders;
+});
+
 // ── Homepage / Auth screen assets (Figma HOMEPAGE kit) ─────────────────────
 const hpLogoUrl         = new URL("./assets/hp_logo.png",          import.meta.url).href;
 const hpTitleUrl        = new URL("./assets/hp_title.png",         import.meta.url).href;
@@ -4296,6 +4842,8 @@ const memberStats = reactive({
   placement_games: 0, win_streak: 0, demotion_shield: 0,
   standard_tier: null, mirror_war_tier: null, blind_draft_tier: null,
   uid: null,
+  avatar_url: null,
+  status: null,
 });
 watch(loggedIn, async (isIn) => {
   if (!isIn) {
@@ -4305,7 +4853,7 @@ watch(loggedIn, async (isIn) => {
       ranked_wins: 0, ranked_losses: 0, ranked_peak_lp: 0,
       placement_games: 0, win_streak: 0, demotion_shield: 0,
       standard_tier: null, mirror_war_tier: null, blind_draft_tier: null,
-      uid: null,
+      uid: null, avatar_url: null, status: null,
     });
     return;
   }
@@ -4316,7 +4864,7 @@ watch(loggedIn, async (isIn) => {
     if (!user || !supabase) return;
     const { data } = await supabase
       .from("pb_profiles")
-      .select("wins,losses,draws,ranked_lp,ranked_tier,ranked_wins,ranked_losses,ranked_peak_lp,placement_games,win_streak,demotion_shield,uid")
+      .select("wins,losses,draws,ranked_lp,ranked_tier,ranked_wins,ranked_losses,ranked_peak_lp,placement_games,win_streak,demotion_shield,uid,avatar_url,status")
       .eq("id", user.id)
       .single();
     if (data) {
@@ -4336,6 +4884,8 @@ watch(loggedIn, async (isIn) => {
       memberStats.mirror_war_tier  = data.mirror_war_tier  ?? null;
       memberStats.blind_draft_tier = data.blind_draft_tier ?? null;
       memberStats.uid              = data.uid              ?? null;
+      memberStats.avatar_url       = data.avatar_url       ?? null;
+      memberStats.status           = data.status           ?? null;
     }
   } catch {}
 }, { immediate: true });
@@ -4793,6 +5343,8 @@ const bottomStatusText = computed(() => {
 
 // ✅ Online match
 const isOnline = computed(() => screen.value === "online");
+// Chat sidebar visibility (online mode only)
+const chatOpen = ref(false);
 const myPlayer = ref(null); // 1 | 2 | null
 const onlineSyncing = ref(false);
 
@@ -5259,6 +5811,7 @@ function stopPolling() {
 async function leaveOnlineLobby(reason = "left") {
   if (!online.lobbyId) return;
   if (!isOnline.value) return;
+  chatOpen.value = false;
 
   try {
     const lobby = await sbSelectLobbyById(online.lobbyId);
@@ -7704,15 +8257,21 @@ async function _fireMatchRecord() {
     }
     replayLogger.clearReplay();
 
-    // ── LP delta for ranked matches ──────────────────────────────────────────
+    // ── Achievement hooks for online win ─────────────────────────────────
+    const myId = myPlayer.value === 1 ? p1Id : p2Id;
+    if (winnerId && winnerId === myId) {
+      const myPicks = [...(game.picks?.[myPlayer.value] || [])];
+      checkPieceAchievements(myPicks);
+      checkPentokill();
+    }
     if (online.matchKind === "ranked") {
       try {
         const sb = requireSupabase();
-        const myId = myPlayer.value === 1 ? p1Id : p2Id;
+        const myIdRanked = myPlayer.value === 1 ? p1Id : p2Id;
         const { data: lpResult } = await sb.rpc("pb_get_match_lp_result", {
           p_lobby_id:  online.lobbyId,
           p_round:     Number(online.matchRound),  // integer — matches function signature
-          p_player_id: myId,
+          p_player_id: myIdRanked,
         });
         if (lpResult?.found) {
           const delta    = lpResult.lp_delta ?? 0;
@@ -9328,6 +9887,9 @@ function handlePuzzleEnd() {
   const isPerfect = covered === 60;
   const emoji = isPerfect ? "🎉 PERFECT!" : covered >= 48 ? "⭐ Great!" : covered >= 30 ? "👍 Good effort!" : "💪 Keep practicing!";
 
+  // ── Achievement hook ──────────────────────────────────────
+  if (isPerfect) grantAchievement('ach_zen_puzzle');
+
   // Never set gameover for zen puzzle — keep phase as-is so clicking outside
   // the modal doesn't strand the player on a dead screen.
 
@@ -9622,6 +10184,15 @@ async function handleStoryResult(humanWon) {
 
   // Record AI match to history — awaited so the request isn't aborted on navigation
   await sbRecordAiMatch({ charId: ch.id, humanWon, humanPicks, aiPicks });
+
+  // ── Achievement hooks ──────────────────────────────────────
+  checkAiAchievements();
+  if (humanWon) {
+    // Check if all 12 chapters cleared
+    const allTwelveCleared = STORY_CHAPTERS.length <= storyProgress.cleared.size + 1
+      || (storyProgress.cleared.size >= STORY_CHAPTERS.length - 1);
+    if (allTwelveCleared) grantAchievement('ach_pentwelve_champion');
+  }
 
   if (humanWon) {
     sfxStoryWin(ch.id);
@@ -13575,19 +14146,40 @@ onBeforeUnmount(() => {
 
 /* Rating cards row */
 .pbNPRatingCards {
-  display: flex; gap: 14px;
+  display: flex; gap: 10px;
 }
 .pbNPRatingCard {
-  flex: 1; background: rgba(255,255,255,0.04); border: 1px solid rgba(255,255,255,0.08);
-  border-radius: 12px; padding: 16px 14px; display: flex; align-items: flex-start; gap: 12px;
-  transition: background .13s;
+  flex: 1; background: rgba(255,255,255,0.03); border: 1px solid rgba(255,255,255,0.08);
+  border-radius: 14px; padding: 14px 12px; display: flex; align-items: flex-start; gap: 10px;
+  transition: background .15s, border-color .15s;
+  position: relative; overflow: hidden;
 }
-.pbNPRatingCard:hover { background: rgba(255,255,255,0.07); }
-.pbNPRatingIcon { font-size: 24px; margin-top: 2px; }
+.pbNPRatingCard::before {
+  content: ''; position: absolute; inset: 0; border-radius: 14px;
+  background: var(--card-glow, transparent); opacity: 0.06; pointer-events: none;
+}
+.pbNPRatingCard:hover { background: rgba(255,255,255,0.06); }
+/* Tier-tinted card borders */
+.pbNPRatingCard--unranked  { border-color: rgba(255,255,255,0.08); }
+.pbNPRatingCard--plastic   { border-color: rgba(170,170,185,0.2); --card-glow: #aab; }
+.pbNPRatingCard--wood      { border-color: rgba(184,134,74,0.25); --card-glow: #b88a4a; }
+.pbNPRatingCard--bronze    { border-color: rgba(205,127,50,0.3); --card-glow: #cd7f32; }
+.pbNPRatingCard--silver    { border-color: rgba(192,192,192,0.25); --card-glow: #c0c0c0; }
+.pbNPRatingCard--gold      { border-color: rgba(255,215,0,0.3); --card-glow: #ffd700; }
+.pbNPRatingCard--platinum  { border-color: rgba(100,220,255,0.28); --card-glow: #64dcff; }
+.pbNPRatingCard--diamond   { border-color: rgba(100,160,255,0.3); --card-glow: #64a0ff; }
+.pbNPRatingCard--master    { border-color: rgba(170,80,255,0.35); --card-glow: #aa50ff; }
+.pbNPRatingCard--champion  { border-color: rgba(255,210,0,0.4); --card-glow: #ffd200; box-shadow: 0 0 12px rgba(255,210,0,0.1); }
+.pbNPRatingIcon { font-size: 20px; margin-top: 1px; flex-shrink: 0; }
 .pbNPRatingInfo { flex: 1; min-width: 0; }
-.pbNPRatingMode { font-size: 11px; color: rgba(255,255,255,0.4); letter-spacing: 1px; text-transform: uppercase; margin-bottom: 2px; }
-.pbNPRatingVal  { font-size: 28px; font-weight: 900; color: #fff; font-family: 'Orbitron', sans-serif; line-height: 1.1; }
-.pbNPRatingBar  { height: 3px; background: rgba(255,255,255,0.08); border-radius: 2px; margin-top: 8px; overflow: hidden; }
+.pbNPRatingMode { font-size: 9px; font-weight: 700; color: rgba(255,255,255,0.35); letter-spacing: 1.5px; text-transform: uppercase; margin-bottom: 5px; }
+.pbNPRatingTier {
+  font-size: 12px; font-weight: 800; letter-spacing: 1px;
+  text-transform: uppercase; font-family: 'Orbitron', sans-serif;
+  padding: 3px 8px; border-radius: 5px; border: 1px solid transparent;
+  display: inline-block; margin-bottom: 8px;
+}
+.pbNPRatingBar  { height: 3px; background: rgba(255,255,255,0.08); border-radius: 2px; overflow: hidden; }
 .pbNPRatingBarFill { height: 100%; border-radius: 2px; background: #4da6ff; transition: width .4s; }
 
 /* Section */
@@ -16189,9 +16781,23 @@ onBeforeUnmount(() => {
   padding: 8px 10px; cursor: pointer;
   border-bottom: 1px solid rgba(255,255,255,0.04);
   transition: background .1s;
+  position: relative;
 }
 .pbRecentRow:hover   { background: rgba(255,255,255,0.05); }
 .pbRecentRow.active  { background: rgba(80,201,238,0.08); border-left: 2px solid #50C9EE; }
+.pbRecentDismiss {
+  flex-shrink: 0; opacity: 0; pointer-events: none;
+  width: 18px; height: 18px; border-radius: 50%;
+  background: rgba(255,255,255,0.08); border: none;
+  color: rgba(255,255,255,0.5); font-size: 14px; line-height: 1;
+  display: flex; align-items: center; justify-content: center;
+  cursor: pointer; transition: opacity .15s, background .15s, color .15s;
+  padding: 0;
+}
+.pbRecentRow:hover .pbRecentDismiss {
+  opacity: 1; pointer-events: all;
+}
+.pbRecentDismiss:hover { background: rgba(255,60,80,0.25); color: #ff4060; }
 
 .pbRecentAvatarWrap  { position: relative; flex-shrink: 0; }
 .pbRecentAvatar {
@@ -18691,5 +19297,302 @@ onBeforeUnmount(() => {
 @keyframes adjHintIn {
   from { opacity: 0; transform: translateX(-50%) translateY(10px); }
   to   { opacity: 1; transform: translateX(-50%) translateY(0); }
+}
+
+/* ══════════════════════════════════════════════════════════════
+   EDIT PROFILE MODAL
+══════════════════════════════════════════════════════════════ */
+.pbEditProfileOverlay {
+  position: fixed; inset: 0; z-index: 9500;
+  background: rgba(0,0,0,0.72); backdrop-filter: blur(6px);
+  display: flex; align-items: center; justify-content: center;
+}
+.pbEditProfileModal {
+  background: #181826; border: 1px solid rgba(255,255,255,0.12);
+  border-radius: 20px; padding: 32px 28px 28px;
+  width: 460px; max-width: calc(100vw - 32px);
+  box-shadow: 0 24px 64px rgba(0,0,0,0.7);
+  display: flex; flex-direction: column; gap: 20px;
+  max-height: 90vh; overflow-y: auto;
+}
+.pbEditProfileTitle {
+  font-family: 'Orbitron', sans-serif; font-size: 16px; font-weight: 800;
+  color: #fff; letter-spacing: 1px;
+}
+.pbEditAvatarRow { display: flex; align-items: center; gap: 18px; }
+.pbEditAvatarPreview {
+  width: 80px; height: 80px; border-radius: 14px; overflow: hidden; flex-shrink: 0;
+  border: 2px solid rgba(255,255,255,0.18); background: #1a1a2e;
+}
+.pbEditAvatarPreview img { width: 100%; height: 100%; object-fit: cover; }
+.pbEditAvatarRight { display: flex; flex-direction: column; gap: 8px; }
+.pbEditAvatarBtn {
+  display: inline-block; padding: 8px 16px; background: rgba(80,200,120,0.15);
+  border: 1px solid rgba(80,200,120,0.4); color: #5ce89a;
+  border-radius: 8px; font-size: 12px; font-weight: 700;
+  font-family: 'Orbitron', sans-serif; letter-spacing: 0.5px;
+  cursor: pointer; text-transform: uppercase;
+  transition: background .13s;
+}
+.pbEditAvatarBtn:hover { background: rgba(80,200,120,0.25); }
+.pbEditAvatarHint { font-size: 11px; color: rgba(255,255,255,0.3); }
+.pbEditField { display: flex; flex-direction: column; gap: 6px; }
+.pbEditLabel { font-size: 11px; font-weight: 700; letter-spacing: 1.5px; text-transform: uppercase; color: rgba(255,255,255,0.4); font-family: 'Orbitron', sans-serif; }
+.pbEditInput {
+  background: rgba(255,255,255,0.06); border: 1px solid rgba(255,255,255,0.14);
+  border-radius: 10px; padding: 10px 14px; color: #fff; font-size: 14px;
+  font-family: 'Rajdhani', sans-serif; outline: none;
+  transition: border-color .13s;
+}
+.pbEditInput:focus { border-color: rgba(92,232,154,0.5); }
+.pbEditInput::placeholder { color: rgba(255,255,255,0.25); }
+.pbEditActions { display: flex; gap: 10px; }
+.pbEditSaveBtn {
+  flex: 1; padding: 11px; background: rgba(80,200,120,0.2);
+  border: 1px solid rgba(80,200,120,0.5); color: #5ce89a; border-radius: 10px;
+  font-size: 13px; font-weight: 800; font-family: 'Orbitron', sans-serif;
+  cursor: pointer; letter-spacing: 0.5px; transition: background .13s;
+}
+.pbEditSaveBtn:hover:not(:disabled) { background: rgba(80,200,120,0.35); }
+.pbEditSaveBtn:disabled { opacity: 0.5; cursor: not-allowed; }
+.pbEditCancelBtn {
+  padding: 11px 20px; background: rgba(255,255,255,0.07);
+  border: 1px solid rgba(255,255,255,0.15); color: rgba(255,255,255,0.6); border-radius: 10px;
+  font-size: 13px; font-weight: 600; cursor: pointer;
+  font-family: 'Orbitron', sans-serif; letter-spacing: 0.5px;
+  transition: background .13s;
+}
+.pbEditCancelBtn:hover { background: rgba(255,255,255,0.13); }
+.pbEditBorderScroll {
+  display: flex; gap: 8px; overflow-x: auto; padding: 4px 0 8px;
+  scrollbar-width: thin; scrollbar-color: rgba(255,255,255,0.12) transparent;
+}
+.pbEditBorderHint {
+  font-size: 11px; color: rgba(255,255,255,0.28); margin-top: 4px; font-style: italic;
+}
+.pbEditRemoveBtn {
+  display: inline-block; padding: 7px 14px; background: rgba(255,60,60,0.12);
+  border: 1px solid rgba(255,60,60,0.35); color: rgba(255,100,100,0.9);
+  border-radius: 8px; font-size: 11px; font-weight: 700;
+  font-family: 'Orbitron', sans-serif; letter-spacing: 0.5px;
+  cursor: pointer; text-transform: uppercase;
+  transition: background .13s;
+}
+.pbEditRemoveBtn:hover { background: rgba(255,60,60,0.22); }
+
+/* ══════════════════════════════════════════════════════════════
+   ACHIEVEMENTS TAB
+══════════════════════════════════════════════════════════════ */
+.pbAchievementsBody { flex-direction: column !important; }
+.pbAchievementsMain { width: 100%; max-width: 100%; }
+
+/* Achievement grid */
+.pbAchEmpty {
+  display: flex; flex-direction: column; align-items: center; gap: 8px;
+  padding: 32px 16px; color: rgba(255,255,255,0.3);
+}
+.pbAchEmptyIcon { font-size: 32px; }
+.pbAchEmptyText { font-size: 13px; font-style: italic; }
+.pbAchGrid {
+  display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+  gap: 12px; padding: 16px;
+}
+.pbAchCard {
+  display: flex; align-items: flex-start; gap: 12px; padding: 14px 16px;
+  background: rgba(255,255,255,0.03); border: 1px solid rgba(255,255,255,0.08);
+  border-radius: 14px; position: relative; transition: all .15s;
+  opacity: 0.55;
+}
+.pbAchCard--unlocked { opacity: 1; background: rgba(255,255,255,0.06); }
+.pbAchCard--unlocked.pbAchCard--common   { border-color: rgba(170,170,185,0.35); }
+.pbAchCard--unlocked.pbAchCard--rare     { border-color: rgba(64,168,255,0.45); background: rgba(64,168,255,0.06); }
+.pbAchCard--unlocked.pbAchCard--epic     { border-color: rgba(170,80,255,0.5);  background: rgba(170,80,255,0.07); }
+.pbAchCard--unlocked.pbAchCard--legendary{ border-color: rgba(255,215,0,0.55);  background: rgba(255,215,0,0.07); box-shadow: 0 0 16px rgba(255,215,0,0.1); }
+.pbAchCard--unlocked.pbAchCard--secret   { border-color: rgba(255,80,180,0.45); background: rgba(255,80,180,0.06); }
+.pbAchCard--secret:not(.pbAchCard--unlocked) { background: rgba(30,10,40,0.6); border-color: rgba(255,255,255,0.06); }
+.pbAchIcon { font-size: 28px; flex-shrink: 0; margin-top: 2px; }
+.pbAchInfo { flex: 1; min-width: 0; }
+.pbAchLabel { font-family: 'Orbitron', sans-serif; font-size: 12px; font-weight: 800; color: #fff; letter-spacing: 0.5px; margin-bottom: 4px; }
+.pbAchDesc { font-size: 12px; color: rgba(255,255,255,0.45); line-height: 1.4; margin-bottom: 6px; }
+.pbAchRarity {
+  font-size: 9px; font-weight: 900; letter-spacing: 2px; padding: 2px 7px;
+  border-radius: 4px; display: inline-block; text-transform: uppercase;
+  font-family: 'Orbitron', sans-serif;
+}
+.pbAchRarity--common   { background: rgba(170,170,185,0.15); color: #aab; }
+.pbAchRarity--rare     { background: rgba(64,168,255,0.15);  color: #40a8ff; }
+.pbAchRarity--epic     { background: rgba(170,80,255,0.15);  color: #aa50ff; }
+.pbAchRarity--legendary{ background: rgba(255,215,0,0.15);   color: #ffd700; }
+.pbAchRarity--secret   { background: rgba(255,80,180,0.15);  color: #ff50b4;
+  animation: secretShimmer 2.5s linear infinite; }
+@keyframes secretShimmer {
+  0%,100% { opacity: 1; } 50% { opacity: 0.6; }
+}
+.pbAchLock { position: absolute; top: 10px; right: 12px; font-size: 14px; opacity: 0.5; }
+.pbAchCheck { position: absolute; top: 10px; right: 12px; font-size: 14px; color: #5ce89a; font-weight: 900; }
+
+/* Piece achievements */
+.pbAchPieceGrid {
+  display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+  gap: 16px; padding: 16px;
+}
+.pbAchPieceGroup { display: flex; flex-direction: column; gap: 8px; }
+.pbAchPieceGroupLabel {
+  font-family: 'Orbitron', sans-serif; font-size: 10px; font-weight: 900;
+  color: rgba(255,255,255,0.4); letter-spacing: 2px; padding: 0 4px;
+}
+.pbAchCard--piece { padding: 10px 12px; }
+.pbAchProgressWrap { display: flex; align-items: center; gap: 8px; margin-bottom: 6px; }
+.pbAchProgressBar { flex: 1; height: 4px; background: rgba(255,255,255,0.1); border-radius: 2px; overflow: hidden; }
+.pbAchProgressFill { height: 100%; border-radius: 2px; transition: width .4s; }
+.pbAchProgressFill--common   { background: linear-gradient(90deg, #6878a0, #aab); }
+.pbAchProgressFill--rare     { background: linear-gradient(90deg, #4068c8, #40a8ff); }
+.pbAchProgressFill--epic     { background: linear-gradient(90deg, #8030c0, #aa50ff); }
+.pbAchProgressLabel { font-size: 10px; color: rgba(255,255,255,0.4); white-space: nowrap; font-family: 'Orbitron', sans-serif; }
+
+/* ══════════════════════════════════════════════════════════════
+   BORDER PICKER
+══════════════════════════════════════════════════════════════ */
+.pbBorderPickerSection {}
+.pbBorderPickerScroll {
+  display: flex; gap: 10px; padding: 16px;
+  overflow-x: auto; scroll-snap-type: x mandatory;
+  scrollbar-width: thin; scrollbar-color: rgba(255,255,255,0.15) transparent;
+}
+.pbBorderTile {
+  flex-shrink: 0; scroll-snap-align: start;
+  width: 90px; display: flex; flex-direction: column; align-items: center; gap: 6px;
+  cursor: pointer; position: relative;
+  transition: transform .15s;
+}
+.pbBorderTile:hover:not(.pbBorderTile--locked) { transform: translateY(-3px); }
+.pbBorderTile--locked { opacity: 0.38; cursor: not-allowed; }
+.pbBorderTile--selected .pbBorderTileAvatar { box-shadow: 0 0 0 3px #5ce89a; }
+.pbBorderTileAvatar {
+  width: 64px; height: 64px; border-radius: 12px; overflow: hidden;
+  border: 2px solid rgba(255,255,255,0.15);
+  transition: box-shadow .15s;
+}
+.pbBorderTileAvatar img { width: 100%; height: 100%; object-fit: cover; }
+.pbBorderTileLabel {
+  font-size: 9px; font-weight: 700; text-align: center; color: rgba(255,255,255,0.5);
+  letter-spacing: 0.5px; text-transform: uppercase; font-family: 'Orbitron', sans-serif;
+  max-width: 88px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.pbBorderTileLock { position: absolute; top: 4px; right: 8px; font-size: 11px; }
+.pbBorderTileCheck { position: absolute; top: 4px; right: 8px; font-size: 11px; color: #5ce89a; }
+
+/* Avatar border classes applied to .pbNPAvatar */
+.pbAvatarBorder--default { border: 3px solid rgba(255,255,255,0.18) !important; }
+
+/* Standard rank borders */
+.pbAvatarBorder--rank_std_plastic  { border: 3px solid #7b8cbf !important; box-shadow: 0 0 8px rgba(123,140,191,0.3); }
+.pbAvatarBorder--rank_std_wood     { border: 3px solid #b8864a !important; box-shadow: 0 0 8px rgba(184,134,74,0.3); }
+.pbAvatarBorder--rank_std_bronze   { border: 3px solid #d4824a !important; box-shadow: 0 0 10px rgba(212,130,74,0.35); }
+.pbAvatarBorder--rank_std_silver   { border: 3px solid #b8c4d8 !important; box-shadow: 0 0 10px rgba(184,196,216,0.35); }
+.pbAvatarBorder--rank_std_gold     { border: 3px solid #f0c830 !important; box-shadow: 0 0 12px rgba(240,200,48,0.45); }
+.pbAvatarBorder--rank_std_platinum { border: 3px solid #38d8c8 !important; box-shadow: 0 0 12px rgba(56,216,200,0.4); }
+.pbAvatarBorder--rank_std_diamond  { border: 3px solid #80b8ff !important; box-shadow: 0 0 14px rgba(128,184,255,0.45); }
+.pbAvatarBorder--rank_std_master   { border: 3px solid #d080ff !important; box-shadow: 0 0 14px rgba(208,128,255,0.5); }
+.pbAvatarBorder--rank_std_champion {
+  border: 3px solid #ffd700 !important;
+  box-shadow: 0 0 0 2px #cc8800, 0 0 18px rgba(255,215,0,0.65);
+  animation: championPulse 1.8s ease-in-out infinite;
+}
+/* Mirror War borders */
+.pbAvatarBorder--rank_mw_plastic  { border: 3px solid #7b8cbf !important; box-shadow: 0 0 8px rgba(123,140,191,0.25), inset 0 0 0 2px rgba(100,220,255,0.1); }
+.pbAvatarBorder--rank_mw_wood     { border: 3px solid #b8864a !important; box-shadow: 0 0 8px rgba(184,134,74,0.25); }
+.pbAvatarBorder--rank_mw_bronze   { border: 3px solid #d4824a !important; box-shadow: 0 0 10px rgba(212,130,74,0.3); }
+.pbAvatarBorder--rank_mw_silver   { border: 3px solid #b8c4d8 !important; box-shadow: 0 0 10px rgba(184,196,216,0.3); }
+.pbAvatarBorder--rank_mw_gold     { border: 3px solid #f0c830 !important; box-shadow: 0 0 12px rgba(240,200,48,0.4); }
+.pbAvatarBorder--rank_mw_platinum { border: 3px solid #38d8c8 !important; box-shadow: 0 0 12px rgba(56,216,200,0.38); }
+.pbAvatarBorder--rank_mw_diamond  { border: 3px solid #80b8ff !important; box-shadow: 0 0 14px rgba(128,184,255,0.4); }
+.pbAvatarBorder--rank_mw_master   { border: 3px solid #d080ff !important; box-shadow: 0 0 14px rgba(208,128,255,0.45); }
+.pbAvatarBorder--rank_mw_champion {
+  border: 3px solid #ffd700 !important;
+  box-shadow: 0 0 0 2px #cc8800, 0 0 18px rgba(255,215,0,0.6);
+  animation: championPulse 1.8s ease-in-out infinite;
+}
+/* Blind Draft borders */
+.pbAvatarBorder--rank_bd_plastic  { border: 3px solid #7b8cbf !important; }
+.pbAvatarBorder--rank_bd_wood     { border: 3px solid #b8864a !important; }
+.pbAvatarBorder--rank_bd_bronze   { border: 3px solid #d4824a !important; box-shadow: 0 0 10px rgba(212,130,74,0.3); }
+.pbAvatarBorder--rank_bd_silver   { border: 3px solid #b8c4d8 !important; box-shadow: 0 0 10px rgba(184,196,216,0.3); }
+.pbAvatarBorder--rank_bd_gold     { border: 3px solid #f0c830 !important; box-shadow: 0 0 12px rgba(240,200,48,0.4); }
+.pbAvatarBorder--rank_bd_platinum { border: 3px solid #38d8c8 !important; box-shadow: 0 0 12px rgba(56,216,200,0.38); }
+.pbAvatarBorder--rank_bd_diamond  { border: 3px solid #80b8ff !important; box-shadow: 0 0 14px rgba(128,184,255,0.4); }
+.pbAvatarBorder--rank_bd_master   { border: 3px solid #d080ff !important; box-shadow: 0 0 14px rgba(208,128,255,0.45); }
+.pbAvatarBorder--rank_bd_champion {
+  border: 3px solid #ffd700 !important;
+  box-shadow: 0 0 0 2px #cc8800, 0 0 18px rgba(255,215,0,0.6);
+  animation: championPulse 1.8s ease-in-out infinite;
+}
+/* Special borders */
+.pbAvatarBorder--border_pentwelve {
+  border: 3px solid transparent !important;
+  background-clip: padding-box;
+  box-shadow: 0 0 0 3px #ffd700, 0 0 24px rgba(255,215,0,0.55);
+  animation: pentwelveShimmer 2s linear infinite;
+}
+.pbAvatarBorder--border_zen {
+  border: 3px solid #38d8c8 !important;
+  box-shadow: 0 0 18px rgba(56,216,200,0.6), 0 0 40px rgba(56,216,200,0.2);
+  animation: zenPulse 3s ease-in-out infinite;
+}
+.pbAvatarBorder--border_piece_master {
+  border: 3px solid transparent !important;
+  box-shadow: 0 0 0 3px #aa50ff, 0 0 18px rgba(170,80,255,0.55), 0 0 40px rgba(170,80,255,0.2);
+  animation: pieceShimmer 2.5s linear infinite;
+}
+.pbAvatarBorder--locked { border: 3px solid rgba(255,255,255,0.12) !important; opacity: 0.5; }
+
+@keyframes championPulse {
+  0%,100% { box-shadow: 0 0 0 2px #cc8800, 0 0 18px rgba(255,215,0,0.65); }
+  50%      { box-shadow: 0 0 0 2px #cc8800, 0 0 28px rgba(255,215,0,0.9); }
+}
+@keyframes pentwelveShimmer {
+  0%   { box-shadow: 0 0 0 3px #ffd700, 0 0 24px rgba(255,215,0,0.55); }
+  33%  { box-shadow: 0 0 0 3px #ff6acc, 0 0 24px rgba(255,106,204,0.55); }
+  66%  { box-shadow: 0 0 0 3px #64dcff, 0 0 24px rgba(100,220,255,0.55); }
+  100% { box-shadow: 0 0 0 3px #ffd700, 0 0 24px rgba(255,215,0,0.55); }
+}
+@keyframes zenPulse {
+  0%,100% { box-shadow: 0 0 18px rgba(56,216,200,0.6), 0 0 40px rgba(56,216,200,0.2); }
+  50%     { box-shadow: 0 0 28px rgba(56,216,200,0.85), 0 0 56px rgba(56,216,200,0.35); }
+}
+@keyframes pieceShimmer {
+  0%   { box-shadow: 0 0 0 3px #aa50ff, 0 0 18px rgba(170,80,255,0.55); }
+  50%  { box-shadow: 0 0 0 3px #d080ff, 0 0 28px rgba(208,128,255,0.75); }
+  100% { box-shadow: 0 0 0 3px #aa50ff, 0 0 18px rgba(170,80,255,0.55); }
+}
+
+/* ══════════════════════════════════════════════════════════════
+   ACHIEVEMENT TOAST
+══════════════════════════════════════════════════════════════ */
+.pbAchToast {
+  position: fixed; bottom: 32px; right: 24px; z-index: 9999;
+  display: flex; align-items: center; gap: 14px;
+  background: linear-gradient(135deg, #1a1830 0%, #201840 100%);
+  border: 1px solid rgba(255,215,0,0.4); border-radius: 16px;
+  padding: 14px 20px 14px 16px;
+  box-shadow: 0 8px 40px rgba(0,0,0,0.7), 0 0 0 1px rgba(255,215,0,0.1), 0 0 24px rgba(255,215,0,0.12);
+  min-width: 260px; max-width: 340px;
+}
+.pbAchToastIcon { font-size: 32px; flex-shrink: 0; }
+.pbAchToastInfo { display: flex; flex-direction: column; gap: 3px; }
+.pbAchToastTitle {
+  font-size: 9px; font-weight: 900; letter-spacing: 2px;
+  color: #ffd700; text-transform: uppercase;
+  font-family: 'Orbitron', sans-serif;
+}
+.pbAchToastLabel {
+  font-size: 14px; font-weight: 800; color: #fff;
+  font-family: 'Orbitron', sans-serif; letter-spacing: 0.5px;
+}
+.achToastFade-enter-active { animation: achToastIn .4s cubic-bezier(0.34,1.56,0.64,1) both; }
+.achToastFade-leave-active { animation: achToastIn .25s ease reverse both; }
+@keyframes achToastIn {
+  from { opacity: 0; transform: translateY(20px) scale(0.92); }
+  to   { opacity: 1; transform: translateY(0) scale(1); }
 }
 </style>

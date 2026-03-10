@@ -11,6 +11,7 @@
           <span class="nameGroup">
             <span class="draftName">{{ topName }}</span>
             <span v-if="showYouTag" class="youTag">YOU</span>
+            <span v-else-if="game.draftTurn === topPlayer" class="pickingTag">PICKING</span>
           </span>
           <span
             class="trayAnchor"
@@ -35,7 +36,10 @@
       <!-- BOTTOM: opponent (online/AI) or P2 (couch) -->
       <div class="draftCol">
         <div class="draftHead" :class="bottomPlayer === 1 ? 'p1' : 'p2'">
-          <span class="draftName">{{ bottomName }}</span>
+          <span class="nameGroup">
+            <span class="draftName">{{ bottomName }}</span>
+            <span v-if="game.draftTurn === bottomPlayer && !showYouTag" class="pickingTag">PICKING</span>
+          </span>
           <span
             class="trayAnchor"
             :data-tray="bottomPlayer"
@@ -197,6 +201,24 @@ onBeforeUnmount(() => {
   color: rgba(255,255,255,0.75);
   margin-left: 6px;
   flex-shrink: 0;
+}
+
+.pickingTag {
+  font-size: 10px;
+  font-weight: 900;
+  letter-spacing: 0.10em;
+  padding: 2px 7px;
+  border-radius: 20px;
+  background: rgba(0, 220, 130, 0.18);
+  border: 1px solid rgba(0, 220, 130, 0.35);
+  color: rgba(100, 255, 180, 0.92);
+  margin-left: 6px;
+  flex-shrink: 0;
+  animation: pickingPulse 1.4s ease-in-out infinite;
+}
+@keyframes pickingPulse {
+  0%, 100% { opacity: 1; }
+  50%       { opacity: 0.6; }
 }
 
 /* 🔥 BIG tray layout */

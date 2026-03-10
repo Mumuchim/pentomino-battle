@@ -13,9 +13,7 @@
         Flip (E)
       </button>
 
-      <button v-if="!game.isPuzzle" class="btn" :disabled="props.isOnline || !props.canAct" @click="toggleFlipAllowed">
-        Allow Flip: <b>{{ game.allowFlip ? "ON" : "OFF" }}</b>
-      </button>
+
     </div>
 
     <!-- PC Submit button — only shown on desktop when requireSubmit is on -->
@@ -60,10 +58,6 @@ function onPcSubmit() {
   if (!ok) playBuzz();
 }
 
-function toggleFlipAllowed() {
-  game.allowFlip = !game.allowFlip;
-  if (!game.allowFlip) game.flipped = false;
-}
 
 function onKeyDown(e) {
   const tag = (e.target?.tagName || '').toLowerCase();

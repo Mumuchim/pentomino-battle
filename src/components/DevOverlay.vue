@@ -41,6 +41,31 @@
           <div class="dev-row"><span class="dev-k">recording</span>
             <span class="dev-v" :class="isRecording()?'rec-on':'muted'">{{ isRecording() ? `● ON (${currentEventCount} events)` : 'off' }}</span>
           </div>
+
+          <!-- ── Territory (AI mode, place phase only) ── -->
+          <template v-if="territory">
+            <div class="dev-sep"/>
+            <div class="dev-sectionhd">Territory (Voronoi)</div>
+            <div class="dev-terr-bar">
+              <div class="dev-terr-fill p1" :style="{ width: territory.p1Pct + '%' }"></div>
+              <div class="dev-terr-fill contested" :style="{ width: territory.cPct + '%' }"></div>
+              <div class="dev-terr-fill p2" :style="{ width: territory.p2Pct + '%' }"></div>
+            </div>
+            <div class="dev-row">
+              <span class="dev-k">P1 <span class="muted" style="font-size:9px">{{ territory.ai===1 ? 'AI' : 'YOU' }}</span></span>
+              <span class="dev-v p1">{{ territory.p1Pct }}% ({{ territory.p1Cells }} cells)</span>
+            </div>
+            <div class="dev-row">
+              <span class="dev-k">P2 <span class="muted" style="font-size:9px">{{ territory.ai===2 ? 'AI' : 'YOU' }}</span></span>
+              <span class="dev-v p2">{{ territory.p2Pct }}% ({{ territory.p2Cells }} cells)</span>
+            </div>
+            <div class="dev-row"><span class="dev-k">contested</span><span class="dev-v muted">{{ territory.cPct }}% ({{ territory.contested }} cells)</span></div>
+            <div class="dev-row"><span class="dev-k">edge</span>
+              <span class="dev-v" :class="territory.p1Pct > territory.p2Pct ? 'p1' : territory.p2Pct > territory.p1Pct ? 'p2' : 'muted'">
+                {{ territory.p1Pct === territory.p2Pct ? 'even' : (territory.p1Pct > territory.p2Pct ? 'P1 +' : 'P2 +') + Math.abs(territory.p1Pct - territory.p2Pct) + '%' }}
+              </span>
+            </div>
+          </template>
         </div>
 
         <!-- ── HISTORY tab ── -->
@@ -169,6 +194,72 @@ const tabs = [
   { id:'json',    label:'JSON'    },
 ];
 const activeTab = ref('live');
+
+// ── Territory (AI mode only) ──────────────────────────────────────────────
+// BFS Voronoi: each empty cell is claimed by the nearest player's piece.
+const territory = computed(() => {
+  if (props.aiPlayer === null) return null;
+  if (game.phase !== 'place') return null;
+
+  const W = game.boardW, H = game.boardH;
+  const board = game.board;
+  const DIRS = [[1,0],[-1,0],[0,1],[0,-1]];
+
+  const dist1 = new Array(H * W).fill(Infinity);
+  const dist2 = new Array(H * W).fill(Infinity);
+  const q1 = [], q2 = [];
+
+  for (let y = 0; y < H; y++) {
+    for (let x = 0; x < W; x++) {
+      const p = board[y]?.[x]?.player;
+      if (p === 1) { dist1[y * W + x] = 0; q1.push([x, y]); }
+      else if (p === 2) { dist2[y * W + x] = 0; q2.push([x, y]); }
+    }
+  }
+
+  function bfs(q, dist) {
+    let qi = 0;
+    while (qi < q.length) {
+      const [cx, cy] = q[qi++];
+      const cd = dist[cy * W + cx];
+      for (const [ox, oy] of DIRS) {
+        const nx = cx + ox, ny = cy + oy;
+        if (nx < 0 || ny < 0 || nx >= W || ny >= H) continue;
+        const nk = ny * W + nx;
+        if (board[ny][nx] !== null) continue;
+        if (dist[nk] === Infinity) { dist[nk] = cd + 1; q.push([nx, ny]); }
+      }
+    }
+  }
+  bfs(q1, dist1);
+  bfs(q2, dist2);
+
+  let p1 = 0, p2 = 0, contested = 0, empty = 0;
+  for (let y = 0; y < H; y++) {
+    for (let x = 0; x < W; x++) {
+      if (board[y][x] !== null) continue;
+      const k = y * W + x;
+      const d1 = dist1[k], d2 = dist2[k];
+      empty++;
+      if (d1 < d2) p1++;
+      else if (d2 < d1) p2++;
+      else contested++;
+    }
+  }
+
+  const total = W * H;
+  const placed1 = game.picks[1]?.length - (game.remaining[1]?.length ?? 0);
+  const placed2 = game.picks[2]?.length - (game.remaining[2]?.length ?? 0);
+
+  return {
+    p1Cells: p1, p2Cells: p2, contested,
+    p1Pct: total ? Math.round((p1 / total) * 100) : 0,
+    p2Pct: total ? Math.round((p2 / total) * 100) : 0,
+    cPct:  total ? Math.round((contested / total) * 100) : 0,
+    placed1, placed2,
+    ai: props.aiPlayer, human: props.aiPlayer === 1 ? 2 : 1,
+  };
+});
 
 // ── Live history ──────────────────────────────────────────────────────────────
 const liveHistory = ref([]);
@@ -413,4 +504,19 @@ function fmtDuration(ms) {
 .t-place   { color:#4ade80; }
 .t-gameover,.t-timeout,.t-surrender { color:#f87171; }
 .t-start_placement { color:#fbbf24; }
+
+/* Territory bar */
+.dev-terr-bar {
+  display: flex;
+  height: 7px;
+  border-radius: 4px;
+  overflow: hidden;
+  background: #111120;
+  margin: 4px 0 6px;
+  gap: 1px;
+}
+.dev-terr-fill { height: 100%; transition: width 400ms ease; min-width: 0; }
+.dev-terr-fill.p1        { background: #60a5fa; }
+.dev-terr-fill.p2        { background: #f472b6; }
+.dev-terr-fill.contested { background: #454565; }
 </style>
