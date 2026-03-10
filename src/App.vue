@@ -4391,17 +4391,18 @@ async function loadMatchHistory() {
 
     if (mh.filter === "casual")    query = query.in("mode", ["online","quick","custom","standard","blind_draft","mirror_war"]);
     if (mh.filter === "ranked")    query = query.in("mode", ["ranked","ranked_standard","ranked_mirror_war","ranked_blind_draft"]);
-    if (mh.filter === "versus_ai") query = query.eq("mode", "versus_ai");
+    if (mh.filter === "versus_ai") query = query.like("mode", "versus_ai%");
 
     const { data: matches, count, error } = await query;
     if (error) throw error;
 
     mh.total = count || 0;
 
-    // Batch-resolve opponent usernames
+    // Batch-resolve opponent usernames (skip AI matches where player2_id === player1_id)
     const opponentIds = [
       ...new Set(
         (matches || [])
+          .filter(m => !m.mode?.startsWith("versus_ai"))
           .map(m => m.player1_id === userId ? m.player2_id : m.player1_id)
           .filter(Boolean)
       ),
@@ -4421,10 +4422,20 @@ async function loadMatchHistory() {
       const opp   = profileMap[oppId];
       const myPicks  = m.player1_id === userId ? (m.player1_picks || []) : (m.player2_picks || []);
       const oppPicks = m.player1_id === userId ? (m.player2_picks || []) : (m.player1_picks || []);
+
+      // For AI matches, extract character name from mode string (e.g. "versus_ai_lilica" → "LILICA")
+      let opponentName;
+      if (m.mode && m.mode.startsWith("versus_ai")) {
+        const charId = m.mode.replace("versus_ai_", "").replace("versus_ai", "").trim();
+        opponentName = charId ? charId.toUpperCase() : "PENTWELVE";
+      } else {
+        opponentName = opp?.display_name || opp?.username || "Unknown";
+      }
+
       return {
         ...m,
         result:       m.winner_id === userId ? "W" : m.loser_id === userId ? "L" : "D",
-        opponentName: opp?.display_name || opp?.username || "Unknown",
+        opponentName,
         opponentId:   oppId,
         myPicks,
         oppPicks,
@@ -4492,17 +4503,21 @@ function mhEndReasonLabel(reason) {
 }
 
 function mhModeLabel(mode) {
+  // AI matches: mode is "versus_ai" or "versus_ai_<charId>"
+  if (mode === "versus_ai" || (mode && mode.startsWith("versus_ai"))) return "PENTWELVE · AI";
   switch (mode) {
-    case "mirror_war":         return "MIRROR MATCH";
-    case "blind_draft":        return "BLIND DRAFT";
-    case "standard":           return "STANDARD";
-    case "online":             return "STANDARD";   // legacy
-    case "versus_ai":          return "VERSUS AI";
+    // Quick (casual) matches
+    case "standard":           return "STANDARD · QUICK";
+    case "online":             return "STANDARD · QUICK";   // legacy
+    case "quick":              return "STANDARD · QUICK";
+    case "blind_draft":        return "BLIND DRAFT · QUICK";
+    case "mirror_war":         return "MIRROR WAR · QUICK";
     case "custom":             return "CUSTOM";
-    case "ranked_standard":    return "RANKED STANDARD";
-    case "ranked":             return "RANKED STANDARD"; // legacy
-    case "ranked_mirror_war":  return "RANKED MIRROR MATCH";
-    case "ranked_blind_draft": return "RANKED BLIND DRAFT";
+    // Ranked matches
+    case "ranked_standard":    return "STANDARD · RANKED";
+    case "ranked":             return "STANDARD · RANKED";  // legacy
+    case "ranked_blind_draft": return "BLIND DRAFT · RANKED";
+    case "ranked_mirror_war":  return "MIRROR WAR · RANKED";
     default:                   return (mode || "STANDARD").toUpperCase();
   }
 }
@@ -5599,7 +5614,49 @@ async function sbCloseAndNukeLobby(id, metaPatch = {}) {
 }
 
 /**
- * Record a completed online match in pb_matches.
+ * Record a completed AI (PENTWELVE story) match in pb_matches.
+ * Encodes the character ID into the mode string so match history can
+ * display the character name in the "vs" field (e.g. "versus_ai_lilica").
+ */
+async function sbRecordAiMatch({ charId = null, humanWon = false, durationSec = null, humanPicks = [], aiPicks = [] } = {}) {
+  if (!loggedIn.value) return null;
+  try {
+    const sb = requireSupabase();
+    const user = await _authGetUser();
+    if (!user || !sb) return null;
+    const mode   = charId ? `versus_ai_${charId}` : "versus_ai";
+    const userId = user.id;
+    // Direct insert — works once the RLS policy is in place:
+    //   CREATE POLICY "Users can insert their own AI matches"
+    //   ON public.pb_matches FOR INSERT TO authenticated
+    //   WITH CHECK (player1_id = auth.uid()::text);
+    const { data, error } = await sb
+      .from("pb_matches")
+      .insert({
+        lobby_id:      null,
+        round_number:  1,
+        player1_id:    userId,
+        player2_id:    userId,
+        winner_id:     humanWon ? userId : null,
+        loser_id:      humanWon ? null   : userId,
+        end_reason:    "normal",
+        duration_sec:  durationSec || null,
+        mode,
+        player1_picks: humanPicks.map(String),
+        player2_picks: aiPicks.map(String),
+      })
+      .select("id");
+    if (error) { console.error("[pbAiMatch] insert failed:", error.message, error); return null; }
+    console.log("[pbAiMatch] recorded:", data?.[0]?.id, "mode:", mode, "won:", humanWon);
+    return data?.[0]?.id ?? null;
+  } catch (e) {
+    console.error("[pbAiMatch] sbRecordAiMatch error:", e?.message ?? e, e);
+    return null;
+  }
+}
+
+
+/**
  * Safe to call from BOTH clients simultaneously — the server-side
  * record_match_result() RPC uses ON CONFLICT DO NOTHING, so only the
  * first call inserts; the second is silently ignored.
@@ -7767,7 +7824,7 @@ async function _handleGameover() {
         // ✅ STORY MODE: intercept result and route to story handler
         if (storyMode.active) {
           saveAiDraftHistory(game.picks[humanPlayer.value], !!aiWon);
-          handleStoryResult(humanWon);
+          await handleStoryResult(humanWon);
           return;
         }
 
@@ -9553,11 +9610,18 @@ function _startStoryMirrorWar() {
 }
 
 // ── Handle Story Win/Loss ───────────────────────────────────────────
-function handleStoryResult(humanWon) {
+async function handleStoryResult(humanWon) {
   const idx = storyMode.chapterIndex;
   const ch = STORY_CHAPTERS[idx];
   storyMode.active = false;
   storyMode.chapterIndex = -1;
+
+  // Capture picks BEFORE any state is cleared — game.picks is still populated here
+  const humanPicks = [...(game.picks?.[humanPlayer.value] || [])];
+  const aiPicks    = [...(game.picks?.[aiPlayer.value]    || [])];
+
+  // Record AI match to history — awaited so the request isn't aborted on navigation
+  await sbRecordAiMatch({ charId: ch.id, humanWon, humanPicks, aiPicks });
 
   if (humanWon) {
     sfxStoryWin(ch.id);
