@@ -28,7 +28,8 @@
         </div>
       </div>
 
-      <div class="chatMessages" ref="messagesEl">
+      <!-- Messages list -->
+      <div class="chatMessages" ref="messagesEl" @scroll="onScroll">
         <div v-if="messages.length === 0" class="chatEmpty">
           No messages yet. Say something!
         </div>
@@ -37,20 +38,50 @@
           :key="i"
           class="chatMsg"
           :class="{
-            mine: msg.from === myPlayer,
+            mine:   msg.from === myPlayer,
             theirs: msg.from !== myPlayer,
-            p1: msg.from === 1,
-            p2: msg.from === 2,
+            p1:     msg.from === 1,
+            p2:     msg.from === 2,
             system: msg.from === 0,
           }"
+          @click="msg.from === myPlayer ? toggleReveal(i) : null"
         >
           <span v-if="msg.from !== 0" class="chatMsgAuthor">
             {{ msg.from === 1 ? p1Name : p2Name }}
           </span>
           <span class="chatMsgText">{{ msg.text }}</span>
-          <span class="chatMsgTime">{{ fmtTime(msg.at) }}</span>
+
+          <!-- Status row — only for my messages, controlled by statusVisible computed -->
+          <Transition name="statusFade">
+            <span v-if="statusVisible[i]" class="chatMsgMeta">
+              <span class="chatMsgTime">{{ fmtTime(msg.at) }}</span>
+              <span class="chatMsgStatus" :class="msgStatus(i)">
+                {{ statusLabel(msgStatus(i)) }}
+              </span>
+            </span>
+          </Transition>
+
+          <!-- Time only for their messages -->
+          <span v-if="msg.from !== myPlayer && msg.from !== 0" class="chatMsgTime theirs">
+            {{ fmtTime(msg.at) }}
+          </span>
         </div>
       </div>
+
+      <!-- Scroll-to-bottom arrow -->
+      <Transition name="arrowFade">
+        <button
+          v-if="showScrollArrow"
+          class="scrollArrowBtn"
+          @click="jumpToBottom"
+          :aria-label="`Jump to latest${backReadUnread > 0 ? ` (${backReadUnread} new)` : ''}`"
+        >
+          <svg viewBox="0 0 20 20" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+            <path d="M10 4v12M4 10l6 6 6-6" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+          </svg>
+          <span v-if="backReadUnread > 0" class="scrollArrowBadge">{{ backReadUnread }}</span>
+        </button>
+      </Transition>
 
       <div class="chatInputRow">
         <input
@@ -82,30 +113,131 @@
 </template>
 
 <script setup>
-import { ref, watch, nextTick, onMounted, onBeforeUnmount } from 'vue';
+import { ref, watch, nextTick, computed, onBeforeUnmount } from 'vue';
 
 const props = defineProps({
-  modelValue:  { type: Boolean, default: false },   // v-model: sidebar open?
-  rtChannel:   { type: Object,  default: null  },   // online.rtChannel
-  myPlayer:    { type: Number,  default: null  },   // 1 | 2
+  modelValue:  { type: Boolean, default: false },
+  rtChannel:   { type: Object,  default: null  },
+  myPlayer:    { type: Number,  default: null  },
   p1Name:      { type: String,  default: 'P1'  },
   p2Name:      { type: String,  default: 'P2'  },
 });
 
 const emit = defineEmits(['update:modelValue']);
 
-const messages    = ref([]);
-const draft       = ref('');
-const unreadCount = ref(0);
-const messagesEl  = ref(null);
-const inputEl     = ref(null);
+// messages: array of { from, text, at }
+// statuses: parallel array of status strings ('sent'|'delivered'|'seen'|null)
+// revealed: Set of indices the user manually toggled
+const messages      = ref([]);
+const statuses      = ref([]);   // separate reactive array — avoids mutation tracking issues
+const revealed      = ref(new Set());
+const draft         = ref('');
+const unreadCount   = ref(0);
+const messagesEl    = ref(null);
+const inputEl       = ref(null);
+const isAtBottom    = ref(true);
+const backReadUnread = ref(0);
+const showScrollArrow = ref(false);
 
-// ── Subscribe to chat broadcasts on the existing match channel ──────────────
-let _unsub = null;
+// ── Core computed values ─────────────────────────────────────────────────────
 
+// Index of the very last message sent by ME
+const lastMyIdx = computed(() => {
+  for (let i = messages.value.length - 1; i >= 0; i--) {
+    if (messages.value[i].from === props.myPlayer) return i;
+  }
+  return -1;
+});
+
+// Has the OTHER player sent anything after my last message?
+const opponentRepliedAfterMe = computed(() => {
+  const last = lastMyIdx.value;
+  if (last === -1) return false;
+  for (let i = last + 1; i < messages.value.length; i++) {
+    const f = messages.value[i].from;
+    if (f !== props.myPlayer && f !== 0) return true;
+  }
+  return false;
+});
+
+// For each index: should the status badge be visible?
+// Rules:
+//   - Only my messages can show status
+//   - Default visible ONLY for the very last message from me, AND only if opponent hasn't replied after it
+//   - Clicking any of my messages toggles a manual reveal override
+//   - Manual reveal overrides both the "not last" and "opponent replied" rules
+const statusVisible = computed(() => {
+  const vis = [];
+  const revSet = revealed.value;
+  const last = lastMyIdx.value;
+  const opReplied = opponentRepliedAfterMe.value;
+
+  for (let i = 0; i < messages.value.length; i++) {
+    const isMyMsg = messages.value[i].from === props.myPlayer;
+    if (!isMyMsg) {
+      vis.push(false);
+      continue;
+    }
+    const isManuallyRevealed = revSet.has(i);
+    const isLastMine = (i === last);
+    const defaultVisible = isLastMine && !opReplied;
+    vis.push(isManuallyRevealed || defaultVisible);
+  }
+  return vis;
+});
+
+// Get status for a specific index from the parallel statuses array
+function msgStatus(i) {
+  return statuses.value[i] ?? 'sent';
+}
+
+function toggleReveal(i) {
+  if (messages.value[i]?.from !== props.myPlayer) return;
+  const next = new Set(revealed.value);
+  if (next.has(i)) next.delete(i);
+  else next.add(i);
+  revealed.value = next; // replace to trigger reactivity
+}
+
+// ── Status labels ────────────────────────────────────────────────────────────
+function statusLabel(s) {
+  if (s === 'seen')      return 'Seen';
+  if (s === 'delivered') return 'Delivered';
+  return 'Sent';
+}
+
+// ── Scroll tracking ──────────────────────────────────────────────────────────
+function onScroll() {
+  const el = messagesEl.value;
+  if (!el) return;
+  isAtBottom.value = el.scrollTop + el.clientHeight >= el.scrollHeight - 60;
+  if (isAtBottom.value) {
+    backReadUnread.value = 0;
+    showScrollArrow.value = false;
+  }
+}
+
+function jumpToBottom() {
+  backReadUnread.value = 0;
+  showScrollArrow.value = false;
+  scrollToBottom(true);
+}
+
+function scrollToBottom(force = false) {
+  nextTick(() => {
+    const el = messagesEl.value;
+    if (!el) return;
+    if (force || isAtBottom.value) {
+      el.scrollTop = el.scrollHeight;
+      isAtBottom.value = true;
+    }
+  });
+}
+
+// ── Channel attachment ───────────────────────────────────────────────────────
 function attachChannel(channel) {
   if (!channel) return;
-  // Listen for chat events on the shared lobby channel
+
   channel.on('broadcast', { event: 'chat' }, ({ payload }) => {
     if (!payload?.text) return;
     messages.value.push({
@@ -113,34 +245,76 @@ function attachChannel(channel) {
       text: String(payload.text).slice(0, 200),
       at:   payload.at ?? Date.now(),
     });
-    if (!props.modelValue) unreadCount.value++;
-    scrollToBottom();
+    statuses.value.push(null); // their messages don't get a status
+
+    if (props.modelValue) {
+      sendAck('seen');
+    } else {
+      unreadCount.value++;
+      sendAck('delivered');
+    }
+
+    if (!isAtBottom.value) {
+      backReadUnread.value++;
+      showScrollArrow.value = true;
+    } else {
+      scrollToBottom();
+    }
+  });
+
+  // Other player acknowledging MY messages
+  channel.on('broadcast', { event: 'chat_ack' }, ({ payload }) => {
+    if (!payload?.status || !payload?.upTo) return;
+    const rank = { sent: 0, delivered: 1, seen: 2 };
+    const newRank = rank[payload.status] ?? 0;
+    // Replace the whole statuses array to ensure Vue reactivity
+    const next = [...statuses.value];
+    for (let i = 0; i < messages.value.length; i++) {
+      if (messages.value[i].from === props.myPlayer && messages.value[i].at <= payload.upTo) {
+        const curRank = rank[next[i]] ?? 0;
+        if (newRank > curRank) next[i] = payload.status;
+      }
+    }
+    statuses.value = next;
   });
 }
 
-// Watch for channel becoming available (set after lobby subscribe)
+function sendAck(status) {
+  if (!props.rtChannel) return;
+  try {
+    props.rtChannel.send({
+      type: 'broadcast',
+      event: 'chat_ack',
+      payload: { status, upTo: Date.now() },
+    });
+  } catch { /* non-fatal */ }
+}
+
 watch(() => props.rtChannel, (ch) => { if (ch) attachChannel(ch); }, { immediate: true });
 
-// Clear unread counter when sidebar opens; focus input
 watch(() => props.modelValue, (open) => {
   if (open) {
     unreadCount.value = 0;
+    backReadUnread.value = 0;
+    showScrollArrow.value = false;
     nextTick(() => {
-      scrollToBottom();
+      scrollToBottom(true);
       inputEl.value?.focus();
+      sendAck('seen');
     });
   }
 });
 
+// ── Send ─────────────────────────────────────────────────────────────────────
 function send() {
   const text = draft.value.trim();
   if (!text || !props.rtChannel) return;
 
   const msg = { from: props.myPlayer, text, at: Date.now() };
-
-  // Optimistically add own message immediately
   messages.value.push(msg);
-  scrollToBottom();
+  statuses.value = [...statuses.value, 'sent']; // new array for reactivity
+
+  scrollToBottom(true);
 
   try {
     props.rtChannel.send({
@@ -148,29 +322,18 @@ function send() {
       event: 'chat',
       payload: msg,
     });
-  } catch {
-    // non-fatal
-  }
+  } catch { /* non-fatal */ }
 
   draft.value = '';
-}
-
-function scrollToBottom() {
-  nextTick(() => {
-    const el = messagesEl.value;
-    if (el) el.scrollTop = el.scrollHeight;
-  });
 }
 
 function fmtTime(ts) {
   try {
     return new Date(ts).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
-  } catch {
-    return '';
-  }
+  } catch { return ''; }
 }
 
-onBeforeUnmount(() => { _unsub?.(); });
+onBeforeUnmount(() => {});
 </script>
 
 <style scoped>
@@ -214,10 +377,7 @@ onBeforeUnmount(() => { _unsub?.(); });
   0%, 100% { box-shadow: none; }
   50%       { box-shadow: -4px 0 18px rgba(0,220,130,0.25); }
 }
-.chatToggleIcon {
-  width: 18px;
-  height: 18px;
-}
+.chatToggleIcon { width: 18px; height: 18px; }
 .chatToggleLabel {
   font-size: 9px;
   font-weight: 900;
@@ -244,7 +404,7 @@ onBeforeUnmount(() => { _unsub?.(); });
 .chatSidebar {
   position: fixed;
   right: 0;
-  top: 60px; /* below topbar */
+  top: 60px;
   bottom: 0;
   width: 270px;
   z-index: 7900;
@@ -256,16 +416,12 @@ onBeforeUnmount(() => { _unsub?.(); });
   box-shadow: -8px 0 32px rgba(0,0,0,0.55);
 }
 
-/* Slide animation */
 .chatSlide-enter-active,
 .chatSlide-leave-active {
   transition: transform 200ms cubic-bezier(0.22, 1, 0.36, 1), opacity 200ms ease;
 }
 .chatSlide-enter-from,
-.chatSlide-leave-to {
-  transform: translateX(100%);
-  opacity: 0;
-}
+.chatSlide-leave-to { transform: translateX(100%); opacity: 0; }
 
 /* ── Header ─────────────────────────────────────────────────────────────────── */
 .chatHeader {
@@ -323,6 +479,7 @@ onBeforeUnmount(() => { _unsub?.(); });
 }
 .chatMsg.mine {
   align-self: flex-end;
+  cursor: pointer;
 }
 .chatMsgAuthor {
   font-size: 9px;
@@ -355,14 +512,75 @@ onBeforeUnmount(() => { _unsub?.(); });
   border-radius: 10px 10px 10px 3px;
 }
 
+/* ── Status meta row ─────────────────────────────────────────────────────────── */
+.chatMsgMeta {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  align-self: flex-end;
+}
 .chatMsgTime {
   font-size: 9px;
   color: rgba(255,255,255,0.20);
   align-self: flex-end;
 }
-.chatMsg.mine .chatMsgTime {
-  align-self: flex-end;
+.chatMsgTime.theirs { align-self: flex-start; }
+
+.chatMsgStatus {
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
 }
+.chatMsgStatus.sent      { color: rgba(255,255,255,0.28); }
+.chatMsgStatus.delivered { color: rgba(255,255,255,0.50); }
+.chatMsgStatus.seen      { color: rgba(78, 201, 255, 0.85); }
+
+.statusFade-enter-active,
+.statusFade-leave-active { transition: opacity 200ms ease, transform 200ms ease; }
+.statusFade-enter-from,
+.statusFade-leave-to     { opacity: 0; transform: translateY(-4px); }
+
+/* ── Scroll-to-bottom arrow ─────────────────────────────────────────────────── */
+.scrollArrowBtn {
+  position: absolute;
+  bottom: 72px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 10;
+  width: 38px;
+  height: 38px;
+  border-radius: 50%;
+  background: rgba(30, 30, 52, 0.95);
+  border: 1px solid rgba(100, 160, 255, 0.35);
+  color: rgba(150, 200, 255, 0.95);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  box-shadow: 0 4px 16px rgba(0,0,0,0.55);
+  transition: background 120ms ease, transform 120ms ease;
+}
+.scrollArrowBtn:hover {
+  background: rgba(50, 60, 100, 0.98);
+  transform: translateX(-50%) scale(1.08);
+}
+.scrollArrowBtn svg { width: 18px; height: 18px; }
+.scrollArrowBadge {
+  position: absolute;
+  top: -5px; right: -5px;
+  font-size: 9px; font-weight: 900;
+  background: rgba(0,220,130,0.90);
+  color: #000;
+  border-radius: 999px;
+  padding: 1px 5px;
+  line-height: 1.5;
+  min-width: 16px;
+  text-align: center;
+}
+.arrowFade-enter-active,
+.arrowFade-leave-active { transition: opacity 180ms ease, transform 180ms ease; }
+.arrowFade-enter-from,
+.arrowFade-leave-to     { opacity: 0; transform: translateX(-50%) translateY(8px); }
 
 /* ── Input row ─────────────────────────────────────────────────────────────── */
 .chatInputRow {
@@ -393,8 +611,7 @@ onBeforeUnmount(() => { _unsub?.(); });
   border-color: rgba(100, 160, 255, 0.35);
 }
 .chatSendBtn {
-  width: 34px;
-  height: 34px;
+  width: 34px; height: 34px;
   border-radius: 10px;
   background: rgba(60, 100, 200, 0.30);
   border: 1px solid rgba(100, 160, 255, 0.28);
@@ -407,11 +624,6 @@ onBeforeUnmount(() => { _unsub?.(); });
   transition: background 100ms ease, opacity 100ms ease;
 }
 .chatSendBtn svg { width: 14px; height: 14px; }
-.chatSendBtn:hover:not(:disabled) {
-  background: rgba(60, 100, 200, 0.55);
-}
-.chatSendBtn:disabled {
-  opacity: 0.30;
-  cursor: not-allowed;
-}
+.chatSendBtn:hover:not(:disabled) { background: rgba(60, 100, 200, 0.55); }
+.chatSendBtn:disabled { opacity: 0.30; cursor: not-allowed; }
 </style>

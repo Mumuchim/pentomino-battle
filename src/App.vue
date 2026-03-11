@@ -10,7 +10,7 @@
     </div>
 
     <!-- 🎮 Floating pentomino ambient layer (transparent-bg menu screens) -->
-    <div v-if="isMenuScreen && !['landing','auth','mode','multiplayer','solo','story'].includes(screen)" class="menuPentoBg" aria-hidden="true">
+    <div v-if="isMenuScreen && !['landing','auth','mode','multiplayer','solo','story','ranked'].includes(screen)" class="menuPentoBg" aria-hidden="true">
       <div
         v-for="(piece, i) in bouncingPieces"
         :key="'mp' + i"
@@ -96,7 +96,7 @@
       </div>
     </div>
 
-    <header v-if="screen !== 'landing'" class="topbar" :class="{ tetBar: showMenuChrome, hpTopbar: screen === 'auth', mnTopbar: ['mode','multiplayer','solo'].includes(screen), vsaiTopbarBar: screen === 'story', stTopbar: ['settings','credits'].includes(screen), lbTopbar: screen === 'lobby' }" :style="screen === 'auth' ? { '--hp-topbar-img': `url(${hpAuthTopbarUrl})` } : screen === 'mode' ? { '--mn-topbar-img': `url(${menuTopbarUrl})` } : screen === 'multiplayer' ? { '--mn-topbar-img': `url(${mpTopbarUrl})` } : screen === 'solo' ? { '--mn-topbar-img': `url(${soloTopbarUrl})` } : screen === 'story' ? { '--vsai-topbar-img': `url(${vsaiTopbarUrl})` } : screen === 'settings' ? { '--st-topbar-img': `url(${settingsTopbarUrl})` } : screen === 'credits' ? { '--st-topbar-img': `url(${creditsTopbarUrl})` } : screen === 'lobby' ? { '--lb-topbar-img': `url(${lobbyTopbarNewUrl})` } : {}">
+    <header v-if="screen !== 'landing'" class="topbar" :class="{ tetBar: showMenuChrome, hpTopbar: screen === 'auth', mnTopbar: ['mode','multiplayer','solo','ranked'].includes(screen), vsaiTopbarBar: screen === 'story', stTopbar: ['settings','credits'].includes(screen), lbTopbar: screen === 'lobby' }" :style="screen === 'auth' ? { '--hp-topbar-img': `url(${hpAuthTopbarUrl})` } : screen === 'mode' ? { '--mn-topbar-img': `url(${menuTopbarUrl})` } : screen === 'multiplayer' ? { '--mn-topbar-img': `url(${mpTopbarUrl})` } : screen === 'ranked' ? { '--mn-topbar-img': `url(${mpTopbarUrl})` } : screen === 'solo' ? { '--mn-topbar-img': `url(${soloTopbarUrl})` } : screen === 'story' ? { '--vsai-topbar-img': `url(${vsaiTopbarUrl})` } : screen === 'settings' ? { '--st-topbar-img': `url(${settingsTopbarUrl})` } : screen === 'credits' ? { '--st-topbar-img': `url(${creditsTopbarUrl})` } : screen === 'lobby' ? { '--lb-topbar-img': `url(${lobbyTopbarNewUrl})` } : {}">
       <!-- TETR.IO-style menu top bar -->
       <template v-if="showMenuChrome">
         <div class="tetBarLeft">
@@ -398,8 +398,20 @@
               <button class="mnBtn" @mouseenter="uiHover" @click="uiClick(); qmPickerOpen = true">
                 <img :src="mpQuickBtnUrl" class="mnBtnImg" alt="QUICK PLAY" />
               </button>
-              <button class="mnBtn" @mouseenter="uiHover" @click="uiClick(); loggedIn ? goRanked() : showLoginRequired('Ranked')">
-                <img :src="mpRankedBtnUrl" class="mnBtnImg" :style="!loggedIn ? 'opacity:0.45;filter:grayscale(0.5)' : ''" alt="RANKED" />
+              <button
+                class="mnBtn"
+                :class="{ 'mnBtn--maintenance': loggedIn && !isDevUser }"
+                :title="loggedIn && !isDevUser ? 'Ranked is currently under maintenance' : undefined"
+                @mouseenter="uiHover"
+                @click="uiClick(); !loggedIn ? showLoginRequired('Ranked') : isDevUser ? goRanked() : null"
+              >
+                <img
+                  :src="mpRankedBtnUrl"
+                  class="mnBtnImg"
+                  :style="(!loggedIn || !isDevUser) ? 'opacity:0.38;filter:grayscale(0.6)' : ''"
+                  alt="RANKED"
+                />
+                <span v-if="loggedIn && !isDevUser" class="mnBtnMaintenanceBadge">Under Maintenance</span>
               </button>
               <button class="mnBtn" @mouseenter="uiHover" @click="uiClick(); navTo('lobby')">
                 <img :src="mpLobbyBtnUrl" class="mnBtnImg" alt="LOBBY" />
@@ -1234,22 +1246,173 @@
       <!-- =========================
            RANKED
       ========================== -->
-	  <section v-else-if="screen === 'ranked'" class="menuShell">
-          <h1 class="heroTitle small">Matchmaking</h1>
-          <p class="heroDesc small">Placeholder screen for now.</p>
+      <section v-else-if="screen === 'ranked'" class="mnMenu">
+        <div class="sectionPentoBg" aria-hidden="true"><div v-for="(p,i) in bouncingPieces" :key="'rk'+i" class="floatingPieceWrap" :style="{left:p.x+'px',top:p.y+'px'}"><svg :width="p.svgW" :height="p.svgH" :viewBox="`0 0 ${p.svgW} ${p.svgH}`" :style="{opacity:p.opacity}" xmlns="http://www.w3.org/2000/svg"><rect v-for="(cell,j) in p.cells" :key="j" :x="cell[1]*42+1" :y="cell[0]*42+1" width="40" height="40" :fill="p.color" rx="4"/></svg></div></div>
 
-        <div class="menuCard">
-          <div class="form">
-            <div class="field">
-              <span>Your Tier</span>
-              <b>{{ rankedTier }}</b>
-            </div>
-            <div class="field">
-              <span>Queue</span>
-              <b>Auto find same tier</b>
+        <!-- LEFT: placement board (centered) + brand at bottom -->
+        <div class="mnLeft rkLeft">
+          <!-- flex-grow wrapper — centers the board vertically in the space above the brand -->
+          <div class="rkBoardCenter">
+            <div class="rkPlacementBoard glass-panel">
+              <nav class="rkTabs">
+                <button
+                  v-for="tab in ['standard', 'mirror_war', 'blind_draft', 'all']"
+                  :key="tab"
+                  :class="['rkTab', { active: placementTab === tab }]"
+                  @click="placementTab = tab"
+                >{{ tab === 'mirror_war' ? 'MIRROR WAR' : tab === 'blind_draft' ? 'BLIND DRAFT' : tab.toUpperCase() }}</button>
+              </nav>
+
+              <Transition name="fade" mode="out-in">
+                <div v-if="placementTab !== 'all'" :key="placementTab" class="rkPBSingle">
+
+                  <header class="rkPBModeTitle">
+                    <span :class="['rkPBModeName', 'rkPBModeName--' + placementTab]">
+                      {{ placementTab === 'mirror_war' ? 'MIRROR WAR' : placementTab === 'blind_draft' ? 'BLIND DRAFT' : placementTab.toUpperCase() }}
+                    </span>
+                    <span class="rkPBModeLabel">PROGRESS</span>
+                  </header>
+
+                  <div class="rkPBHead">
+                    <div class="rkBannerBadge glow-badge" :class="'pbTier-' + (memberStats[placementTab === 'standard' ? 'standard_tier' : placementTab === 'mirror_war' ? 'mirror_war_tier' : 'blind_draft_tier'] || 'unranked')">
+                      {{ isPlacing ? '?' : (memberStats[placementTab === 'standard' ? 'standard_tier' : placementTab === 'mirror_war' ? 'mirror_war_tier' : 'blind_draft_tier'] || 'U').charAt(0).toUpperCase() }}
+                    </div>
+                    <div class="rkBannerInfo">
+                      <h2 class="rkBannerTier">
+                        {{ isPlacing ? 'PLACEMENT' : tierDisplayName(memberStats[placementTab === 'standard' ? 'standard_tier' : placementTab === 'mirror_war' ? 'mirror_war_tier' : 'blind_draft_tier']) }}
+                      </h2>
+                      <p class="rkBannerLp text-muted">
+                        <template v-if="isPlacing">{{ memberStats.placement_games }} / 5 placement games</template>
+                        <template v-else-if="memberStats.ranked_tier === 'champion'">{{ memberStats.ranked_lp }} LP · Champion</template>
+                        <template v-else>{{ lpInBand }} / {{ lpBandSize }} LP</template>
+                      </p>
+                    </div>
+                  </div>
+
+                  <div class="rkBannerBarWrap">
+                    <div class="rkBannerBarTrack">
+                      <div class="rkBannerBarFill"
+                        :class="isPlacing ? 'rkBarPlacement' : 'rkBarTier-' + (memberStats.ranked_tier || 'unranked')"
+                        :style="{ width: isPlacing ? (memberStats.placement_games / 5 * 100) + '%' : lpBarPercent(memberStats.ranked_lp, memberStats.ranked_tier) + '%' }"
+                      ></div>
+                    </div>
+                    <div class="rkBannerBarLabels text-muted">
+                      <span>{{ isPlacing ? 'Placement' : rankedTier }}</span>
+                      <span>{{ isPlacing ? memberStats.placement_games + '/5' : (rankedNextTier || 'MAX') }}</span>
+                    </div>
+                  </div>
+
+                  <div class="rkPBStatsRow">
+                    <div class="rkPBStatItem">
+                      <span class="rkPBStatDot rkPBStatDot--w"></span>
+                      <span class="rkW">{{ memberStats.ranked_wins }}W</span>
+                    </div>
+                    <span class="rkPBStatSep">/</span>
+                    <div class="rkPBStatItem">
+                      <span class="rkPBStatDot rkPBStatDot--l"></span>
+                      <span class="rkL">{{ memberStats.ranked_losses }}L</span>
+                    </div>
+                  </div>
+
+                  <div v-if="memberStats.win_streak >= 3 || memberStats.demotion_shield > 0" class="rkPills" style="margin-top:8px">
+                    <span v-if="memberStats.win_streak >= 3" class="rkPill rkPillStreak">🔥 {{ memberStats.win_streak }}-win streak</span>
+                    <span v-if="memberStats.demotion_shield > 0" class="rkPill rkPillShield">🛡 Demotion Shield</span>
+                  </div>
+
+                  <footer class="rkBracketNote">±1 tier bracket · widens to ±2 after 45s</footer>
+                </div>
+
+                <div v-else key="all" class="rkPBAll">
+                  <div v-for="modeInfo in [
+                    { key: 'standard_tier', label: 'STANDARD', color: '#38b8f5' },
+                    { key: 'mirror_war_tier', label: 'MIRROR WAR', color: '#f55484' },
+                    { key: 'blind_draft_tier', label: 'BLIND DRAFT', color: '#e8e8e8' }
+                  ]" :key="modeInfo.key" class="rkPBAllRow">
+                    <div class="rkPBAllMode" :style="{ color: modeInfo.color }">{{ modeInfo.label }}</div>
+                    <div class="rkPBAllBadge" :class="'pbTier-' + (memberStats[modeInfo.key] || 'unranked')">
+                      {{ isPlacing ? '?' : (memberStats[modeInfo.key] || 'U').charAt(0).toUpperCase() }}
+                    </div>
+                    <div class="rkPBAllInfo">
+                      <div class="rkPBAllTierRow">
+                        <span class="rkPBAllTier">{{ tierDisplayName(memberStats[modeInfo.key]) }}</span>
+                        <span class="rkPBStatsRow inline-stats">
+                          <span class="rkPBStatDot rkPBStatDot--w"></span><span class="rkW">{{ memberStats.ranked_wins }}W</span>
+                          <span class="rkPBStatSep">/</span>
+                          <span class="rkPBStatDot rkPBStatDot--l"></span><span class="rkL">{{ memberStats.ranked_losses }}L</span>
+                        </span>
+                      </div>
+                      <div class="rkBannerBarTrack rkPBAllBar">
+                        <div class="rkBannerBarFill"
+                          :class="isPlacing ? 'rkBarPlacement' : 'rkBarTier-' + (memberStats.ranked_tier || 'unranked')"
+                          :style="{ width: isPlacing ? (memberStats.placement_games / 5 * 100) + '%' : lpBarPercent(memberStats.ranked_lp, memberStats.ranked_tier) + '%' }"
+                        ></div>
+                      </div>
+                    </div>
+                  </div>
+                  <footer class="rkBracketNote center-text">±1 tier bracket · widens to ±2 after 45s</footer>
+                </div>
+              </Transition>
+            </div><!-- /rkPlacementBoard -->
+          </div><!-- /rkBoardCenter -->
+
+          <!-- Brand pinned to bottom via margin-top:auto on the flex column -->
+          <div class="mnBrand rkBrand">
+            <img :src="mpLogoUrl" class="mnBrandLogo" alt="" />
+            <img :src="mpTitleUrl" class="mnBrandTitle" alt="PENTObattle" />
+          </div>
+        </div>
+
+        <!-- RIGHT: mode buttons — same as Quick Play, no tier pills, full opacity -->
+        <div class="mnRight">
+          <div class="mnSlideWrap">
+            <div class="mnPickerLabel">SELECT RANKED MODE</div>
+            <div class="mnBtns">
+              <button class="mnBtn" @mouseenter="uiHover" @click="uiClick(); startRankedMode('std')">
+                <img :src="standardBtnUrl" class="mnBtnImg" alt="STANDARD" />
+              </button>
+              <button class="mnBtn" @mouseenter="uiHover" @click="uiClick(); startRankedMode('mirror_war')">
+                <img :src="mirrorwarBtnUrl" class="mnBtnImg" alt="MIRROR WAR" />
+              </button>
+              <button class="mnBtn" @mouseenter="uiHover" @click="uiClick(); startRankedMode('blind_draft')">
+                <img :src="blindraftBtnUrl" class="mnBtnImg" alt="BLIND DRAFT" />
+              </button>
             </div>
           </div>
         </div>
+
+        <!-- ── Finding Match Modal ── -->
+        <Teleport to="body">
+          <Transition name="rkModalFade">
+            <div v-if="rankedQueueActive" class="modalOverlay">
+              <div class="modalCard qmCard" :class="rankedQueueActive === 'std' ? 'modeStd' : rankedQueueActive === 'mirror_war' ? 'modeMirror' : 'modeBlind'">
+                <div class="modalStripe" :class="rankedQueueActive === 'std' ? 'modeStd' : rankedQueueActive === 'mirror_war' ? 'modeMirror' : 'modeBlind'" aria-hidden="true"></div>
+                <div class="modalInner">
+                  <div class="modalHead">
+                    <div class="modalIconDot" :class="rankedQueueActive === 'std' ? 'modeStd' : rankedQueueActive === 'mirror_war' ? 'modeMirror' : 'modeBlind'"></div>
+                    <div class="modalTitle2">
+                      {{ rankedQueueActive === 'std' ? 'STANDARD' : rankedQueueActive === 'mirror_war' ? 'MIRROR WAR' : 'BLIND DRAFT' }}
+                    </div>
+                    <div class="findingModeTag">RANKED</div>
+                  </div>
+                  <div class="modalBody">
+                    <p class="modalMsg findingStatus">{{ rankedQueueStatus }}</p>
+                    <p class="modalMsg muted">±1 tier bracket · widens to ±2 after 45s</p>
+                  </div>
+                  <div class="modalActions">
+                    <button class="btn soft" @mouseenter="uiHover" @click="uiClick(); cancelRankedQueue()">CANCEL</button>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </Transition>
+        </Teleport>
+
+        <!-- Login wall overlay -->
+        <div v-if="!loggedIn" class="rkLoginWall">
+          <div class="rkLoginWallMsg">Sign in to play ranked</div>
+          <button class="btn primary" @mouseenter="uiHover" @click="uiClick(); navTo('auth')">SIGN IN</button>
+        </div>
+
       </section>
 
       <!-- =========================
@@ -1975,6 +2138,32 @@
       </Transition>
     </Teleport>
 
+    <!-- ── Global Quick Match Finding Modal ── -->
+    <Teleport to="body">
+      <Transition name="rkModalFade">
+        <div v-if="quickFindingActive" class="modalOverlay">
+          <div class="modalCard qmCard" :class="quickFindingActive === 'std' ? 'modeStd' : quickFindingActive === 'mirror_war' ? 'modeMirror' : 'modeBlind'">
+            <div class="modalStripe" :class="quickFindingActive === 'std' ? 'modeStd' : quickFindingActive === 'mirror_war' ? 'modeMirror' : 'modeBlind'" aria-hidden="true"></div>
+            <div class="modalInner">
+              <div class="modalHead">
+                <div class="modalIconDot" :class="quickFindingActive === 'std' ? 'modeStd' : quickFindingActive === 'mirror_war' ? 'modeMirror' : 'modeBlind'"></div>
+                <div class="modalTitle2">
+                  {{ quickFindingActive === 'std' ? 'STANDARD' : quickFindingActive === 'mirror_war' ? 'MIRROR WAR' : 'BLIND DRAFT' }}
+                </div>
+                <div class="findingModeTag">QUICK PLAY</div>
+              </div>
+              <div class="modalBody">
+                <p class="modalMsg findingStatus">{{ quickFindingStatus }}</p>
+              </div>
+              <div class="modalActions">
+                <button class="btn soft" @mouseenter="uiHover" @click="uiClick(); cancelQuickFinding()">CANCEL</button>
+              </div>
+            </div>
+          </div>
+        </div>
+      </Transition>
+    </Teleport>
+
     </main>
 
     <!-- ── Unified drag ghost: board-cell-sized blocks that follow the cursor.
@@ -2040,7 +2229,7 @@
 
             <!-- Message area (hidden when minimized) -->
             <template v-if="!openChats[0].minimized">
-              <div class="pbChatMessages" :ref="el => { if (el) chatScrollRefs['active'] = el; else delete chatScrollRefs['active'] }">
+              <div class="pbChatMessages" :ref="el => { if (el) chatScrollRefs['active'] = el; else delete chatScrollRefs['active'] }" @scroll="onChatScroll($event.target)">
                 <div v-if="openChats[0].loading" class="pbChatLoading">
                   <span class="pbChatSpinner"></span>
                 </div>
@@ -2055,6 +2244,7 @@
                     :key="msg.id"
                     class="pbChatMsg"
                     :class="msg.isSystem ? 'pbChatMsgSystem' : (msg.from_id === myUserId ? 'pbChatMsgMe' : 'pbChatMsgThem')"
+                    @click="msg.from_id === myUserId && !msg.isSystem ? chatToggleReveal(msgIdx) : null"
                   >
                     <template v-if="msg.isSystem">
                       <div class="pbChatBubbleSystem">{{ msg.content }}</div>
@@ -2073,6 +2263,19 @@
                   </div>
                 </template>
               </div>
+
+              <!-- Back-reading jump arrow -->
+              <Transition name="pbChatArrowFade">
+                <button
+                  v-if="!chatAtBottom && chatNewWhileUp > 0"
+                  class="pbChatScrollArrow"
+                  @click="chatJumpToBottom()"
+                  :aria-label="`${chatNewWhileUp} new message${chatNewWhileUp > 1 ? 's' : ''}`"
+                >
+                  <svg viewBox="0 0 20 20" fill="none"><path d="M10 4v12M4 10l6 6 6-6" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+                  <span class="pbChatScrollArrowBadge">{{ chatNewWhileUp }}</span>
+                </button>
+              </Transition>
 
               <!-- Input -->
               <div class="pbChatInputRow">
@@ -2130,7 +2333,7 @@
 
 <!-- Menu-style bottom bar (menus) -->
 <!-- TETR.IO-style contextual status bar -->
-<footer v-if="showBottomBar" class="tetBottomBar" :class="{ mnBottomBar: ['mode','multiplayer','solo'].includes(screen), vsaiBottomBarBar: screen === 'story', stBottomBar: ['settings','credits'].includes(screen), lbBottomBar: screen === 'lobby' }" :style="screen === 'mode' ? { '--mn-bottombar-img': `url(${menuBottombarUrl})` } : screen === 'multiplayer' ? { '--mn-bottombar-img': `url(${mpBottombarUrl})` } : screen === 'solo' ? { '--mn-bottombar-img': `url(${soloBottombarUrl})` } : screen === 'story' ? { '--vsai-bottombar-img': `url(${vsaiBottombarUrl})` } : screen === 'settings' ? { '--st-bottombar-img': `url(${settingsBottombarUrl})` } : screen === 'credits' ? { '--st-bottombar-img': `url(${creditsBottombarUrl})` } : screen === 'lobby' ? { '--lb-bottombar-img': `url(${lobbyBottombarNewUrl})` } : {}">
+<footer v-if="showBottomBar" class="tetBottomBar" :class="{ mnBottomBar: ['mode','multiplayer','solo','ranked'].includes(screen), vsaiBottomBarBar: screen === 'story', stBottomBar: ['settings','credits'].includes(screen), lbBottomBar: screen === 'lobby' }" :style="screen === 'mode' ? { '--mn-bottombar-img': `url(${menuBottombarUrl})` } : screen === 'multiplayer' ? { '--mn-bottombar-img': `url(${mpBottombarUrl})` } : screen === 'ranked' ? { '--mn-bottombar-img': `url(${mpBottombarUrl})` } : screen === 'solo' ? { '--mn-bottombar-img': `url(${soloBottombarUrl})` } : screen === 'story' ? { '--vsai-bottombar-img': `url(${vsaiBottombarUrl})` } : screen === 'settings' ? { '--st-bottombar-img': `url(${settingsBottombarUrl})` } : screen === 'credits' ? { '--st-bottombar-img': `url(${creditsBottombarUrl})` } : screen === 'lobby' ? { '--lb-bottombar-img': `url(${lobbyBottombarNewUrl})` } : {}">
 
   <!-- LEFT side -->
   <template v-if="['settings','credits','lobby'].includes(screen)">
@@ -2145,7 +2348,7 @@
 
   <!-- RIGHT side -->
   <div class="tetBottomRight">
-    <template v-if="['mode','multiplayer','solo'].includes(screen)">
+    <template v-if="['mode','multiplayer','solo','ranked'].includes(screen)">
       <img :src="menuAuthorUrl" class="mnBottomAuthor" alt="MUMUCHXM" />
     </template>
     <template v-else-if="['settings','credits','lobby'].includes(screen)">
@@ -2589,7 +2792,7 @@
     <button v-else-if="screen === 'mode' && !loggedIn" class="figmaNavBtn figmaBackBtn" @mouseenter="uiHover" @click="uiClick(); navTo('auth')" aria-label="Back">
       <img :src="backBtnUrl" class="figmaNavBtnImg" alt="BACK" />
     </button>
-    <button v-else-if="['multiplayer','solo','lobby','settings','credits'].includes(screen)" class="figmaNavBtn figmaBackBtn" @mouseenter="uiHover" @click="uiClick(); goBack()" aria-label="Back">
+    <button v-else-if="['multiplayer','solo','lobby','settings','credits','ranked'].includes(screen) && !quickFindingActive && !rankedQueueActive" class="figmaNavBtn figmaBackBtn" @mouseenter="uiHover" @click="uiClick(); goBack()" aria-label="Back">
       <img :src="backBtnUrl" class="figmaNavBtnImg" alt="BACK" />
     </button>
   </div>
@@ -2705,7 +2908,7 @@ function _tickPhysics() {
     if (p.x <= 0)           { p.x = 0;           p.vx =  Math.abs(p.vx); }
     if (p.y <= 0)           { p.y = 0;           p.vy =  Math.abs(p.vy); }
     if (p.x + p.svgW >= vw) { p.x = vw - p.svgW; p.vx = -Math.abs(p.vx); }
-    if (p.y + p.svgH >= vh) { p.y = vh - p.svgH; p.vy = -Math.abs(p.vy); }
+    if (p.y + p.svgH >= vh - 38) { p.y = vh - 38 - p.svgH; p.vy = -Math.abs(p.vy); }
   }
 
   // Per-cell shape collision
@@ -3253,6 +3456,9 @@ function copyUid() {
 /* ─── Direct Messages (chat windows) ────────────────────── */
 const openChats       = ref([]);   // [{ friendId, friendName, messages, draft, loading, minimized, unreadCount, sub }]
 const chatScrollRefs  = {};
+const chatAtBottom    = ref(true);   // is user at bottom of chat?
+const chatNewWhileUp  = ref(0);      // unread count while back-reading
+const chatRevealedMsgs = ref(new Set()); // indices revealed by click
 const myUserId        = ref(null); // set after login
 
 const totalUnreadMsgCount = computed(() =>
@@ -3390,7 +3596,10 @@ async function loadChatHistory(chat) {
     if (unread.length > 0) {
       supabase.from('pb_messages').update({ read: true }).in('id', unread).then(() => {});
     }
-    await nextTickScrollChat(chat.friendId);
+    chatAtBottom.value = true;
+    chatNewWhileUp.value = 0;
+    chatRevealedMsgs.value = new Set();
+    await nextTickScrollChat(chat.friendId, true);
   } catch (e) { console.warn('loadChatHistory error', e); }
   finally { chat.loading = false; }
 }
@@ -3641,7 +3850,7 @@ async function sendMessage(chat) {
   // Optimistic push
   const tempMsg = { id: 'tmp_' + Date.now(), from_id: uid, to_id: chat.friendId, content, created_at: new Date().toISOString(), read: false, error: false };
   chat.messages.push(tempMsg);
-  nextTickScrollChat(chat.friendId);
+  nextTickScrollChat(chat.friendId, true);
   try {
     const supabase = sbRealtime;
     const { data, error } = await supabase
@@ -3671,11 +3880,32 @@ async function sendMessage(chat) {
   }
 }
 
-function nextTickScrollChat(friendId) {
+function nextTickScrollChat(friendId, force = false) {
   setTimeout(() => {
     const el = chatScrollRefs['active'] || chatScrollRefs[friendId];
-    if (el) el.scrollTop = el.scrollHeight;
+    if (!el) return;
+    if (force || chatAtBottom.value) {
+      el.scrollTop = el.scrollHeight;
+      chatAtBottom.value = true;
+      chatNewWhileUp.value = 0;
+    } else {
+      // User is back-reading — show the arrow badge instead
+      chatNewWhileUp.value++;
+    }
   }, 30);
+}
+
+function onChatScroll(el) {
+  if (!el) return;
+  const atBottom = el.scrollTop + el.clientHeight >= el.scrollHeight - 60;
+  chatAtBottom.value = atBottom;
+  if (atBottom) chatNewWhileUp.value = 0;
+}
+
+function chatJumpToBottom() {
+  const el = chatScrollRefs['active'];
+  if (el) { el.scrollTop = el.scrollHeight; chatAtBottom.value = true; }
+  chatNewWhileUp.value = 0;
 }
 
 function chatFormatTime(iso) {
@@ -3692,23 +3922,53 @@ function chatFormatTime(iso) {
 function chatMsgStatusText(msg, msgIdx, chat) {
   if (msg.error) return '✕ Error';
   if (msg.id?.startsWith('tmp_')) return 'Sending…';
-  if (msg.read) return 'Seen';
-  // Only show status on the last message I sent
+
   const myMsgs = chat.messages.filter(m => m.from_id === myUserId.value && !m.id?.startsWith('tmp_'));
-  const isLastMine = myMsgs.at(-1)?.id === msg.id;
-  if (!isLastMine) return '';
-  // Delivered = recipient is currently online (they can receive it); Sent = offline
+  const lastMine = myMsgs.at(-1);
+  const isLastMine = lastMine?.id === msg.id;
+
+  // Has the other person sent anything after my last message?
+  const lastMineIdx = chat.messages.findIndex(m => m.id === lastMine?.id);
+  const opponentRepliedAfter = lastMineIdx !== -1 &&
+    chat.messages.slice(lastMineIdx + 1).some(m => m.from_id !== myUserId.value);
+
+  // Manual reveal via click — check by msgIdx
+  const isRevealed = chatRevealedMsgs.value.has(msgIdx);
+
+  // Show nothing by default for non-last or when opponent replied (unless revealed)
+  if (!isLastMine && !isRevealed) return '';
+  if (isLastMine && opponentRepliedAfter && !isRevealed) return '';
+
+  if (msg.read) return 'Seen';
   return onlineUserIds.value?.has(chat.friendId) ? 'Delivered' : 'Sent';
 }
 
 function chatMsgStatusClass(msg, msgIdx, chat) {
   if (msg.error) return 'pbChatStatusError';
   if (msg.id?.startsWith('tmp_')) return 'pbChatStatusSending';
-  if (msg.read) return 'pbChatStatusSeen';
+
   const myMsgs = chat.messages.filter(m => m.from_id === myUserId.value && !m.id?.startsWith('tmp_'));
-  const isLastMine = myMsgs.at(-1)?.id === msg.id;
-  if (!isLastMine) return '';
+  const lastMine = myMsgs.at(-1);
+  const isLastMine = lastMine?.id === msg.id;
+
+  const lastMineIdx = chat.messages.findIndex(m => m.id === lastMine?.id);
+  const opponentRepliedAfter = lastMineIdx !== -1 &&
+    chat.messages.slice(lastMineIdx + 1).some(m => m.from_id !== myUserId.value);
+
+  const isRevealed = chatRevealedMsgs.value.has(msgIdx);
+
+  if (!isLastMine && !isRevealed) return 'pbChatStatusHidden';
+  if (isLastMine && opponentRepliedAfter && !isRevealed) return 'pbChatStatusHidden';
+
+  if (msg.read) return 'pbChatStatusSeen';
   return onlineUserIds.value?.has(chat.friendId) ? 'pbChatStatusDelivered' : 'pbChatStatusSent';
+}
+
+function chatToggleReveal(msgIdx) {
+  const next = new Set(chatRevealedMsgs.value);
+  if (next.has(msgIdx)) next.delete(msgIdx);
+  else next.add(msgIdx);
+  chatRevealedMsgs.value = next;
 }
 
 // Clean up chats on logout
@@ -4806,6 +5066,15 @@ const rankedTier = computed(() => {
   return t.charAt(0).toUpperCase() + t.slice(1);
 });
 
+// Next tier name for the LP bar label
+const rankedNextTier = computed(() => {
+  const tiers = Object.keys(TIER_THRESHOLDS);
+  const idx = tiers.indexOf(memberStats.ranked_tier || "unranked");
+  if (idx === -1 || idx >= tiers.length - 1) return "";
+  const next = tiers[idx + 1];
+  return next.charAt(0).toUpperCase() + next.slice(1);
+});
+
 // Tier thresholds — lower LP bound of each tier.
 // Must mirror pb_lp_to_tier() in the SQL trigger.
 const TIER_THRESHOLDS = {
@@ -4830,6 +5099,23 @@ function lpBarPercent(lp, tier) {
   const ceil = TIER_THRESHOLDS[tiers[idx + 1]];
   return Math.min(100, Math.max(0, Math.round((lp - floor) / (ceil - floor) * 100)));
 }
+
+/** LP earned within the current tier band (e.g. 50 if you're at 750 LP in Gold which starts at 700). */
+const lpInBand = computed(() => {
+  const tier = memberStats.ranked_tier;
+  if (!tier || tier === "unranked") return memberStats.ranked_lp;
+  return Math.max(0, memberStats.ranked_lp - (TIER_THRESHOLDS[tier] ?? 0));
+});
+
+/** Total LP span of the current tier band (e.g. 300 for Gold 700→1000). */
+const lpBandSize = computed(() => {
+  const tier = memberStats.ranked_tier;
+  if (!tier || tier === "unranked") return 100;
+  const tiers = Object.keys(TIER_THRESHOLDS);
+  const idx   = tiers.indexOf(tier);
+  if (idx === -1 || idx >= tiers.length - 1) return null; // Champion — no cap
+  return TIER_THRESHOLDS[tiers[idx + 1]] - TIER_THRESHOLDS[tier];
+});
 
 /** Is this player still in placement (< 5 ranked games)? */
 const isPlacing = computed(() => memberStats.placement_games < 5);
@@ -5345,6 +5631,19 @@ const bottomStatusText = computed(() => {
 const isOnline = computed(() => screen.value === "online");
 // Chat sidebar visibility (online mode only)
 const chatOpen = ref(false);
+// Ranked queue state
+const rankedQueueActive  = ref(null);   // null | 'std' | 'mirror_war' | 'blind_draft'
+const rankedQueueStatus  = ref("Finding opponent… 00:00");
+
+// ── Quick Match Finding Modal State ──
+const quickFindingActive = ref(null);   // null | 'std' | 'mirror_war' | 'blind_draft'
+const quickFindingStatus = ref("Finding opponent… 00:00");
+let _quickFindCancelFn = null;
+function cancelQuickFinding() { if (_quickFindCancelFn) _quickFindCancelFn(); }
+const placementTab       = ref('all'); // 'standard' | 'mirror_war' | 'blind_draft' | 'all'
+let   _rankedCancelFlag  = false;
+let   _rankedHostLobbyId = null;
+let   _rankedUiTimer     = null;
 const myPlayer = ref(null); // 1 | 2 | null
 const onlineSyncing = ref(false);
 
@@ -8815,34 +9114,24 @@ async function startQuickMatchAuto() {
 
   const updateModal = () => {
     const sec = (Date.now() - t0) / 1000;
-    modal.message = `Finding opponent… ${fmt(sec)}`;
+    quickFindingStatus.value = `Finding opponent… ${fmt(sec)}`;
   };
 
   let uiTimer = null;
 
-  showModal({
-    title: "Quick Match",
-    tone: "info",
-    message: "Finding opponent… 00:00",
-    actions: [
-      {
-        label: "CANCEL",
-        tone: "soft",
-        onClick: async () => {
-          cancelled = true;
-          try {
-            if (hostLobbyId) await sbDeleteLobby(hostLobbyId);
-          } catch {}
-          if (uiTimer) window.clearInterval(uiTimer);
-          closeModal();
-          showModal({ title: "Matchmaking", tone: "bad", message: "match making cancelled" });
-        },
-      },
-    ],
-  });
+  quickFindingActive.value = 'std';
+  quickFindingStatus.value = 'Finding opponent… 00:00';
+  _quickFindCancelFn = async () => {
+    cancelled = true;
+    try { if (hostLobbyId) await sbDeleteLobby(hostLobbyId); } catch {}
+    if (uiTimer) window.clearInterval(uiTimer);
+    quickFindingActive.value = null;
+    _quickFindCancelFn = null;
+    showModal({ title: "Matchmaking", tone: "bad", message: "Is Cancelled" });
+  };
 
   uiTimer = window.setInterval(() => {
-    if (!modal.open || modal.title !== "Quick Match") return;
+    if (!quickFindingActive.value) return;
     updateModal();
   }, 250);
 
@@ -8873,7 +9162,7 @@ async function startQuickMatchAuto() {
     // If we're the guest (found someone waiting), run the 10s accept flow first.
     if (role === "guest") {
       if (uiTimer) window.clearInterval(uiTimer);
-      closeModal();
+      quickFindingActive.value = null; _quickFindCancelFn = null;
 
       const ok = await quickMatchAcceptFlow(lobby.id, "guest");
       if (!ok) return;
@@ -8903,7 +9192,7 @@ async function startQuickMatchAuto() {
       const fresh = hostLobbyId ? await sbSelectLobbyById(hostLobbyId) : null;
       if (fresh?.guest_id) {
         if (uiTimer) window.clearInterval(uiTimer);
-        closeModal();
+        quickFindingActive.value = null; _quickFindCancelFn = null;
 
         const ok = await quickMatchAcceptFlow(hostLobbyId, "host");
         if (!ok) return;
@@ -9002,7 +9291,7 @@ async function startQuickMatchAuto() {
                 try { await sbDeleteLobby(hostLobbyId); } catch {}
                 hostLobbyId = null;
                 if (uiTimer) window.clearInterval(uiTimer);
-                closeModal();
+                quickFindingActive.value = null; _quickFindCancelFn = null;
                 const ok = await quickMatchAcceptFlow(joined.id, "guest");
                 if (!ok) return;
                 screen.value = "online";
@@ -9027,7 +9316,7 @@ async function startQuickMatchAuto() {
     try {
       if (hostLobbyId) await sbDeleteLobby(hostLobbyId);
     } catch {}
-    closeModal();
+    quickFindingActive.value = null; _quickFindCancelFn = null;
     showModal({
       title: "No Opponent",
       tone: "bad",
@@ -9036,7 +9325,7 @@ async function startQuickMatchAuto() {
     });
   } catch (e) {
     if (uiTimer) window.clearInterval(uiTimer);
-    closeModal();
+    quickFindingActive.value = null; _quickFindCancelFn = null;
     showModal({ title: "Quick Match Error", tone: "bad", message: String(e?.message || e || "Something went wrong.") });
   }
 }
@@ -9346,25 +9635,19 @@ async function startMirrorWarMode() {
     return `${String(Math.floor(ss/60)).padStart(2,"0")}:${String(ss%60).padStart(2,"0")}`;
   };
 
-  showModal({
-    title: "Mirror War",
-    tone: "info",
-    message: "Finding opponent… 00:00",
-    actions: [{
-      label: "CANCEL",
-      tone: "soft",
-      onClick: async () => {
-        cancelled = true;
-        try { if (hostLobbyId) await sbDeleteLobby(hostLobbyId); } catch {}
-        if (uiTimer) window.clearInterval(uiTimer);
-        closeModal();
-      },
-    }],
-  });
+  quickFindingActive.value = 'mirror_war';
+  quickFindingStatus.value = 'Finding opponent… 00:00';
+  _quickFindCancelFn = async () => {
+    cancelled = true;
+    try { if (hostLobbyId) await sbDeleteLobby(hostLobbyId); } catch {}
+    if (uiTimer) window.clearInterval(uiTimer);
+    quickFindingActive.value = null;
+    _quickFindCancelFn = null;
+  };
 
   uiTimer = window.setInterval(() => {
-    if (!modal.open) return;
-    modal.message = `Finding opponent… ${fmt((Date.now()-t0)/1000)}`;
+    if (!quickFindingActive.value) return;
+    quickFindingStatus.value = `Finding opponent… ${fmt((Date.now()-t0)/1000)}`;
   }, 250);
 
   try {
@@ -9395,7 +9678,7 @@ async function startMirrorWarMode() {
       const joined = await sbJoinLobby(lobby.id);
       if (joined?.id) {
         if (uiTimer) window.clearInterval(uiTimer);
-        closeModal();
+        quickFindingActive.value = null; _quickFindCancelFn = null;
         const ok = await quickMatchAcceptFlow(joined.id, "guest");
         if (!ok) return;
         screen.value = "online";
@@ -9423,7 +9706,7 @@ async function startMirrorWarMode() {
       const fresh = await sbSelectLobbyById(hostLobbyId);
       if (fresh?.guest_id) {
         if (uiTimer) window.clearInterval(uiTimer);
-        closeModal();
+        quickFindingActive.value = null; _quickFindCancelFn = null;
         await sbEnsureQuickMatchAcceptState(hostLobbyId);
         const ok = await quickMatchAcceptFlow(hostLobbyId, "host");
         if (!ok) return;
@@ -9465,7 +9748,7 @@ async function startMirrorWarMode() {
                 try { await sbDeleteLobby(hostLobbyId); } catch {}
                 hostLobbyId = null;
                 if (uiTimer) window.clearInterval(uiTimer);
-                closeModal();
+                quickFindingActive.value = null; _quickFindCancelFn = null;
                 const ok = await quickMatchAcceptFlow(joined.id, "guest");
                 if (!ok) return;
                 screen.value = "online";
@@ -9483,13 +9766,13 @@ async function startMirrorWarMode() {
     if (!cancelled) {
       if (uiTimer) window.clearInterval(uiTimer);
       try { await sbDeleteLobby(hostLobbyId); } catch {}
-      closeModal();
+      quickFindingActive.value = null; _quickFindCancelFn = null;
       showModal({ title: "No Opponent", tone: "bad", message: "No one is playing right now.",
         actions: [{ label: "OK", tone: "primary", onClick: () => (screen.value = "multiplayer") }] });
     }
   } catch (e) {
     if (uiTimer) window.clearInterval(uiTimer);
-    closeModal();
+    quickFindingActive.value = null; _quickFindCancelFn = null;
     showModal({ title: "Mirror War Error", tone: "bad", message: String(e?.message || e || "Something went wrong.") });
   }
 }
@@ -9508,25 +9791,19 @@ async function startBlindDraftMode() {
     return `${String(Math.floor(ss/60)).padStart(2,"0")}:${String(ss%60).padStart(2,"0")}`;
   };
 
-  showModal({
-    title: "Blind Draft",
-    tone: "info",
-    message: "Finding opponent… 00:00",
-    actions: [{
-      label: "CANCEL",
-      tone: "soft",
-      onClick: async () => {
-        cancelled = true;
-        try { if (hostLobbyId) await sbDeleteLobby(hostLobbyId); } catch {}
-        if (uiTimer) window.clearInterval(uiTimer);
-        closeModal();
-      },
-    }],
-  });
+  quickFindingActive.value = 'blind_draft';
+  quickFindingStatus.value = 'Finding opponent… 00:00';
+  _quickFindCancelFn = async () => {
+    cancelled = true;
+    try { if (hostLobbyId) await sbDeleteLobby(hostLobbyId); } catch {}
+    if (uiTimer) window.clearInterval(uiTimer);
+    quickFindingActive.value = null;
+    _quickFindCancelFn = null;
+  };
 
   uiTimer = window.setInterval(() => {
-    if (!modal.open) return;
-    modal.message = `Finding opponent… ${fmt((Date.now()-t0)/1000)}`;
+    if (!quickFindingActive.value) return;
+    quickFindingStatus.value = `Finding opponent… ${fmt((Date.now()-t0)/1000)}`;
   }, 250);
 
   try {
@@ -9557,7 +9834,7 @@ async function startBlindDraftMode() {
       const joined = await sbJoinLobby(lobby.id);
       if (joined?.id) {
         if (uiTimer) window.clearInterval(uiTimer);
-        closeModal();
+        quickFindingActive.value = null; _quickFindCancelFn = null;
         const ok = await quickMatchAcceptFlow(joined.id, "guest");
         if (!ok) return;
         screen.value = "online";
@@ -9585,7 +9862,7 @@ async function startBlindDraftMode() {
       const fresh = await sbSelectLobbyById(hostLobbyId);
       if (fresh?.guest_id) {
         if (uiTimer) window.clearInterval(uiTimer);
-        closeModal();
+        quickFindingActive.value = null; _quickFindCancelFn = null;
         await sbEnsureQuickMatchAcceptState(hostLobbyId);
         const ok = await quickMatchAcceptFlow(hostLobbyId, "host");
         if (!ok) return;
@@ -9627,7 +9904,7 @@ async function startBlindDraftMode() {
                 try { await sbDeleteLobby(hostLobbyId); } catch {}
                 hostLobbyId = null;
                 if (uiTimer) window.clearInterval(uiTimer);
-                closeModal();
+                quickFindingActive.value = null; _quickFindCancelFn = null;
                 const ok = await quickMatchAcceptFlow(joined.id, "guest");
                 if (!ok) return;
                 screen.value = "online";
@@ -9645,21 +9922,269 @@ async function startBlindDraftMode() {
     if (!cancelled) {
       if (uiTimer) window.clearInterval(uiTimer);
       try { await sbDeleteLobby(hostLobbyId); } catch {}
-      closeModal();
+      quickFindingActive.value = null; _quickFindCancelFn = null;
       showModal({ title: "No Opponent", tone: "bad", message: "No one is playing right now.",
         actions: [{ label: "OK", tone: "primary", onClick: () => (screen.value = "multiplayer") }] });
     }
   } catch (e) {
     if (uiTimer) window.clearInterval(uiTimer);
-    closeModal();
+    quickFindingActive.value = null; _quickFindCancelFn = null;
     showModal({ title: "Blind Draft Error", tone: "bad", message: String(e?.message || e || "Something went wrong.") });
   }
 }
 
 
-/* =========================
-   NAV
-========================= */
+/* ─── RANKED MATCHMAKING ─────────────────────────────────────────── */
+
+// Ordered tier list — must match DB/server ordering
+const RANKED_TIER_ORDER = [
+  "unranked", "plastic", "wood", "bronze", "silver",
+  "gold", "platinum", "diamond", "master", "champion",
+];
+
+/**
+ * Return an array of tier strings that are within `spread` tiers of `myTier`.
+ * Unranked players are treated as "plastic" for bracket purposes.
+ */
+function rankedBracket(myTier, spread = 1) {
+  const effective = myTier === "unranked" ? "plastic" : (myTier || "plastic");
+  const idx = RANKED_TIER_ORDER.indexOf(effective);
+  if (idx === -1) return RANKED_TIER_ORDER.slice(1); // fallback: all tiers
+  const lo = Math.max(1, idx - spread); // never go below plastic (idx=1)
+  const hi = Math.min(RANKED_TIER_ORDER.length - 1, idx + spread);
+  return RANKED_TIER_ORDER.slice(lo, hi + 1);
+}
+
+/**
+ * Query ranked lobbies whose `state->meta->tier_bracket` overlaps my allowed tiers.
+ * Because PostgREST can't do JSON-array intersection, we fetch a broader pool
+ * (mode match only) and filter client-side — the list is always small.
+ */
+async function sbRankedQueue(mode) {
+  const me       = await getGuestId();
+  const myTier   = memberStats.ranked_tier || "unranked";
+  const lobbyMode = `ranked_${mode}`; // ranked_std | ranked_mirror_war | ranked_blind_draft
+  const metaKind  =
+      mode === "std"         ? "ranked_standard"
+    : mode === "mirror_war"  ? "ranked_mirror_war"
+    :                          "ranked_blind_draft";
+
+  const q = [
+    "select=id,code,status,is_private,lobby_name,updated_at,host_id,guest_id,state,version",
+    "status=eq.waiting",
+    "is_private=eq.false",
+    "guest_id=is.null",
+    `mode=eq.${encodeURIComponent(lobbyMode)}`,
+    `host_id=neq.${encodeURIComponent(me)}`,
+    "order=updated_at.asc",
+    "limit=12",
+  ].join("&");
+
+  const res = await fetch(sbRestUrl(`pb_lobbies?${q}`), { headers: await sbHeaders() });
+  if (!res.ok) throw new Error(`Ranked queue lookup failed (${res.status})`);
+  const rawList = await res.json();
+  const list = Array.isArray(rawList) ? rawList : [];
+
+  // ── Tier bracket filter (±1 initially; widened later by caller) ──
+  // Determine allowed tiers. The host stored their tier in state.meta.host_tier.
+  // If it's missing (old lobbies), accept all tiers so they don't get stuck.
+  const allowed1 = new Set(rankedBracket(myTier, 1));
+  const allowed2 = new Set(rankedBracket(myTier, 2));
+
+  for (const lobby of list) {
+    if (lobbyPlayerCount(lobby) === 0 || isLobbyExpired(lobby) || lobby?.state?.meta?.players) {
+      cleanupLobbyIfNeeded(lobby, { reason: "rk_stale" });
+      continue;
+    }
+    if (lobby.host_id === me) continue;
+
+    // Tier bracket check
+    const hostTier = lobby?.state?.meta?.host_tier || "plastic";
+    const queuedMs = Date.now() - parseIsoMs(lobby.updated_at ?? "");
+    const spread   = queuedMs > 45_000 ? allowed2 : allowed1;
+    if (!spread.has(hostTier === "unranked" ? "plastic" : hostTier)) continue;
+
+    const joined = await sbJoinLobby(lobby.id);
+    if (joined?.id) return { lobby: joined, role: "guest" };
+  }
+
+  // No match found — create host lobby with our tier embedded
+  const now = Date.now();
+  const created = await sbCreateLobby({
+    isPrivate: false,
+    lobbyName: `__RK_${mode.toUpperCase()}__`,
+    mode: lobbyMode,
+    extraStateMeta: {
+      kind:       metaKind,
+      ranked:     true,
+      host_tier:  myTier,
+      hidden:     true,
+      heartbeat:  { host: now },
+    },
+  });
+  if (!created?.id) throw new Error("Failed to create ranked lobby.");
+  return { lobby: created, role: "host" };
+}
+
+function cancelRankedQueue() {
+  _rankedCancelFlag = true;
+  if (_rankedUiTimer) { window.clearInterval(_rankedUiTimer); _rankedUiTimer = null; }
+  if (_rankedHostLobbyId) {
+    sbDeleteLobby(_rankedHostLobbyId).catch(() => {});
+    _rankedHostLobbyId = null;
+  }
+  rankedQueueActive.value = null;
+  rankedQueueStatus.value = "Finding opponent… 00:00";
+}
+
+async function startRankedMode(mode) {
+  if (!(await ensureSupabaseReadyOrExplain())) return;
+  if (!loggedIn.value) { navTo("auth"); return; }
+  if (rankedQueueActive.value) return;
+
+  const modeKind =
+      mode === "std"         ? "ranked_standard"
+    : mode === "mirror_war"  ? "ranked_mirror_war"
+    :                          "ranked_blind_draft";
+
+  const t0 = Date.now();
+  _rankedCancelFlag  = false;
+  _rankedHostLobbyId = null;
+  rankedQueueActive.value = mode;
+  rankedQueueStatus.value = "Finding opponent… 00:00";
+
+  const fmt = (s) => {
+    const ss = Math.max(0, Math.floor(s));
+    return `${String(Math.floor(ss/60)).padStart(2,"0")}:${String(ss%60).padStart(2,"0")}`;
+  };
+
+  _rankedUiTimer = window.setInterval(() => {
+    if (!rankedQueueActive.value) return;
+    const elapsed = (Date.now() - t0) / 1000;
+    const note = elapsed > 45 ? " (±2 tiers)" : "";
+    rankedQueueStatus.value = `Finding opponent… ${fmt(elapsed)}${note}`;
+  }, 250);
+
+  try {
+    // Small jitter to break simultaneous-click ties
+    await new Promise(r => setTimeout(r, Math.random() * 250));
+    if (_rankedCancelFlag) return;
+
+    // ── Initial scan ──────────────────────────────────────────────────────────
+    let result = await sbRankedQueue(mode);
+    if (_rankedCancelFlag) return;
+
+    if (result.role === "guest") {
+      // Found an existing lobby
+      if (_rankedUiTimer) { window.clearInterval(_rankedUiTimer); _rankedUiTimer = null; }
+      rankedQueueActive.value = null;
+      const ok = await quickMatchAcceptFlow(result.lobby.id, "guest");
+      if (!ok) return;
+      screen.value = "online";
+      startPollingLobby(result.lobby.id, "guest", "ranked");
+      return;
+    }
+
+    // ── Hosting — poll for a guest ───────────────────────────────────────────
+    _rankedHostLobbyId = result.lobby.id;
+    const myLobbyUpdatedAt = result.lobby?.updated_at ?? new Date().toISOString();
+    const waitUntil = Date.now() + 90_000; // 90s total timeout
+    let loopCount = 0;
+
+    while (!_rankedCancelFlag && Date.now() < waitUntil) {
+      loopCount++;
+      const fresh = await sbSelectLobbyById(_rankedHostLobbyId);
+      if (fresh?.guest_id) {
+        if (_rankedUiTimer) { window.clearInterval(_rankedUiTimer); _rankedUiTimer = null; }
+        rankedQueueActive.value = null;
+        await sbEnsureQuickMatchAcceptState(_rankedHostLobbyId);
+        const ok = await quickMatchAcceptFlow(_rankedHostLobbyId, "host");
+        if (!ok) return;
+        screen.value = "online";
+        startPollingLobby(_rankedHostLobbyId, "host", "ranked");
+        _rankedHostLobbyId = null;
+        return;
+      }
+
+      // ── Late-merge: scan for new lobbies every 3 ticks ───────────────────
+      if (loopCount % 3 === 0 && !_rankedCancelFlag) {
+        try {
+          const myTier    = memberStats.ranked_tier || "unranked";
+          const elapsed   = Date.now() - t0;
+          const spread    = elapsed > 45_000 ? 2 : 1;
+          const allowed   = new Set(rankedBracket(myTier, spread));
+          const meId      = await getGuestId();
+          const lobbyMode = `ranked_${mode}`;
+
+          const lmQ = [
+            "select=id,code,status,updated_at,host_id,guest_id,state,version",
+            "status=eq.waiting",
+            "is_private=eq.false",
+            "guest_id=is.null",
+            `mode=eq.${encodeURIComponent(lobbyMode)}`,
+            `host_id=neq.${encodeURIComponent(meId)}`,
+            "order=updated_at.asc",
+            "limit=8",
+          ].join("&");
+          const lmRes = await fetch(sbRestUrl(`pb_lobbies?${lmQ}`), { headers: await sbHeaders() });
+          if (lmRes.ok) {
+            const lmRows = await lmRes.json();
+            const myTs = parseIsoMs(myLobbyUpdatedAt);
+            const others = (Array.isArray(lmRows) ? lmRows : []).filter(l => {
+              if (!l || l.id === _rankedHostLobbyId || l.host_id === meId) return false;
+              if (isLobbyExpired(l) || l?.state?.meta?.players) return false;
+              // Tier bracket check
+              const hostTier = l?.state?.meta?.host_tier || "plastic";
+              if (!allowed.has(hostTier === "unranked" ? "plastic" : hostTier)) return false;
+              const targetTs = parseIsoMs(l.updated_at);
+              if (targetTs < myTs) return true;
+              if (targetTs > myTs) return false;
+              return String(l.id) < String(_rankedHostLobbyId);
+            });
+            if (others.length > 0 && !_rankedCancelFlag) {
+              const target = others[0];
+              const joined = await sbJoinLobby(target.id);
+              if (joined?.id) {
+                try { await sbDeleteLobby(_rankedHostLobbyId); } catch {}
+                _rankedHostLobbyId = null;
+                if (_rankedUiTimer) { window.clearInterval(_rankedUiTimer); _rankedUiTimer = null; }
+                rankedQueueActive.value = null;
+                const ok = await quickMatchAcceptFlow(joined.id, "guest");
+                if (!ok) return;
+                screen.value = "online";
+                startPollingLobby(joined.id, "guest", "ranked");
+                return;
+              }
+            }
+          }
+        } catch { /* keep hosting */ }
+      }
+
+      await new Promise(r => setTimeout(r, 900));
+    }
+
+    // Timed out
+    if (!_rankedCancelFlag) {
+      if (_rankedUiTimer) { window.clearInterval(_rankedUiTimer); _rankedUiTimer = null; }
+      try { if (_rankedHostLobbyId) await sbDeleteLobby(_rankedHostLobbyId); } catch {}
+      _rankedHostLobbyId = null;
+      rankedQueueActive.value = null;
+      showModal({
+        title: "No Opponent Found",
+        tone: "bad",
+        message: "No ranked players in your tier range right now. Try again later.",
+        actions: [{ label: "OK", tone: "primary", onClick: closeModal }],
+      });
+    }
+  } catch (e) {
+    if (_rankedUiTimer) { window.clearInterval(_rankedUiTimer); _rankedUiTimer = null; }
+    if (_rankedHostLobbyId) { try { await sbDeleteLobby(_rankedHostLobbyId); } catch {} _rankedHostLobbyId = null; }
+    rankedQueueActive.value = null;
+    if (!_rankedCancelFlag) {
+      showModal({ title: "Ranked Queue Error", tone: "bad", message: String(e?.message || e || "Something went wrong.") });
+    }
+  }
+}
 
 function confirmInGame({ title, message, yesLabel = "YES", noLabel = "NO", onYes } = {}) {
   if (!isInGame.value) return onYes?.();
@@ -12015,6 +12540,18 @@ onBeforeUnmount(() => {
 .modalCard.modalDanger{
   border-color: rgba(255,64,96,0.18);
   box-shadow: 0 20px 80px rgba(0,0,0,0.65), 0 0 0 1px rgba(255,64,96,0.10) inset, 0 0 32px rgba(255,64,96,0.08);
+}
+.modalCard.modeStd {
+  border-color: rgba(79,200,237,0.35);
+  box-shadow: 0 20px 80px rgba(0,0,0,0.65), 0 0 0 1px rgba(79,200,237,0.10) inset, 0 0 32px rgba(79,200,237,0.10);
+}
+.modalCard.modeMirror {
+  border-color: rgba(238,75,114,0.35);
+  box-shadow: 0 20px 80px rgba(0,0,0,0.65), 0 0 0 1px rgba(238,75,114,0.10) inset, 0 0 32px rgba(238,75,114,0.10);
+}
+.modalCard.modeBlind {
+  border-color: rgba(255,255,255,0.28);
+  box-shadow: 0 20px 80px rgba(0,0,0,0.65), 0 0 0 1px rgba(255,255,255,0.08) inset, 0 0 32px rgba(255,255,255,0.06);
 }
 
 /* Accent stripe at top */
@@ -16608,6 +17145,7 @@ onBeforeUnmount(() => {
   flex-direction: column;
   overflow: hidden;
   pointer-events: all;
+  position: relative;
   box-shadow: 0 -2px 20px rgba(0,0,0,0.6), 0 0 0 1px rgba(255,255,255,0.04);
   transition: height .18s ease;
 }
@@ -16726,6 +17264,39 @@ onBeforeUnmount(() => {
 .pbChatStatusDelivered { color: rgba(80,201,238,0.6); }
 .pbChatStatusSeen      { color: #50C9EE; }
 .pbChatStatusError     { color: #ff4060; font-weight: 700; }
+.pbChatStatusHidden    { display: none; }
+
+/* Clickable my-messages cursor hint */
+.pbChatMsgMe { cursor: pointer; }
+
+/* Back-reading scroll arrow */
+.pbChatScrollArrow {
+  position: absolute;
+  bottom: 54px; left: 50%;
+  transform: translateX(-50%);
+  z-index: 10;
+  width: 34px; height: 34px;
+  border-radius: 50%;
+  background: rgba(20,20,36,0.96);
+  border: 1px solid rgba(80,201,238,0.40);
+  color: rgba(80,201,238,0.95);
+  display: flex; align-items: center; justify-content: center;
+  cursor: pointer;
+  box-shadow: 0 4px 14px rgba(0,0,0,0.55);
+  transition: transform 120ms ease, background 120ms ease;
+}
+.pbChatScrollArrow:hover { background: rgba(40,40,70,0.98); transform: translateX(-50%) scale(1.08); }
+.pbChatScrollArrow svg { width: 16px; height: 16px; }
+.pbChatScrollArrowBadge {
+  position: absolute; top: -5px; right: -5px;
+  min-width: 16px; height: 16px; padding: 0 4px;
+  border-radius: 999px; background: #ff4060;
+  color: #fff; font-size: 9px; font-weight: 900;
+  display: flex; align-items: center; justify-content: center;
+  font-family: 'Orbitron', system-ui, sans-serif;
+}
+.pbChatArrowFade-enter-active, .pbChatArrowFade-leave-active { transition: opacity 160ms ease, transform 160ms ease; }
+.pbChatArrowFade-enter-from, .pbChatArrowFade-leave-to { opacity: 0; transform: translateX(-50%) translateY(6px); }
 
 /* Error bubble tint */
 .pbChatBubbleError { background: rgba(255,64,96,0.18) !important; border: 1px solid rgba(255,64,96,0.35); }
@@ -18132,6 +18703,35 @@ onBeforeUnmount(() => {
   box-shadow: -6px 0 28px rgba(0, 0, 0, 0.25);
 }
 
+/* Ranked maintenance state */
+.mnBtn--maintenance {
+  cursor: not-allowed;
+  position: relative;
+}
+.mnBtn--maintenance:hover {
+  transform: none;
+  filter: none;
+}
+.mnBtn--maintenance:active {
+  transform: none;
+  filter: none;
+}
+.mnBtnMaintenanceBadge {
+  position: absolute;
+  bottom: 6px;
+  left: 10px;
+  font-size: 10px;
+  font-weight: 800;
+  letter-spacing: 0.04em;
+  color: rgba(255, 200, 80, 0.95);
+  background: rgba(0, 0, 0, 0.72);
+  padding: 2px 8px;
+  border-radius: 6px;
+  pointer-events: none;
+  white-space: nowrap;
+  text-shadow: 0 1px 4px rgba(0,0,0,0.8);
+}
+
 /* Text-only variant of mnBtn — no image asset required */
 .mnBtnText {
   background: #16181f;
@@ -18451,14 +19051,19 @@ onBeforeUnmount(() => {
   position: fixed;
   left: 0; right: 0; bottom: 0;
   height: 38px;
-  z-index: 25;
+  z-index: 3;
   display: flex;
   align-items: center;
   justify-content: space-between;
   padding: 0 16px;
-  background: rgba(4,4,10,0.88);
-  border-top: 1px solid rgba(255,255,255,0.07);
-  backdrop-filter: blur(10px);
+  background:
+    linear-gradient(0deg, rgba(12,12,20,0.72), rgba(10,10,16,0.46));
+  border-top: 1px solid rgba(255,255,255,0.10);
+  backdrop-filter: blur(12px);
+  box-shadow:
+    0 -10px 40px rgba(0,0,0,0.45),
+    0 0 0 1px rgba(0,229,255,0.06) inset,
+    0 0 0 1px rgba(255,43,214,0.05);
 }
 .tetBottomText{
   font-size: 11px;
@@ -19595,4 +20200,294 @@ onBeforeUnmount(() => {
   from { opacity: 0; transform: translateY(20px) scale(0.92); }
   to   { opacity: 1; transform: translateY(0) scale(1); }
 }
-</style>
+
+/* ═══════════════════════════════════════════════════════════════════
+   RANKED SCREEN  (mnMenu layout — Quick Play style)
+═══════════════════════════════════════════════════════════════════ */
+
+/* Left column: banner centered vertically, brand at bottom */
+/* (layout overridden below in the main rkLeft block) */
+
+/* ── Big centered stat banner ── */
+.rkBanner {
+  flex: 1 1 auto;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: clamp(12px, 1.6vh, 20px);
+  padding-right: clamp(20px, 2.5vw, 40px);
+  max-width: clamp(280px, 38vw, 520px);
+}
+
+.rkBannerHead {
+  display: flex;
+  align-items: center;
+  gap: clamp(14px, 1.6vw, 22px);
+}
+
+.rkBannerBadge {
+  width: clamp(60px, 6.5vw, 90px);
+  height: clamp(60px, 6.5vw, 90px);
+  border-radius: 18px;
+  display: flex; align-items: center; justify-content: center;
+  font-size: clamp(24px, 2.8vw, 38px); font-weight: 900;
+  flex-shrink: 0; border-width: 2px; border-style: solid;
+}
+
+.rkBannerInfo { flex: 1 1 auto; min-width: 0; }
+.rkBannerTier {
+  font-family: 'Orbitron', sans-serif;
+  font-size: clamp(20px, 2.2vw, 32px); font-weight: 900;
+  letter-spacing: 0.06em; color: rgba(255,255,255,0.95);
+  line-height: 1.1;
+}
+.rkBannerLp {
+  font-size: clamp(11px, 1vw, 15px); color: rgba(255,255,255,0.40);
+  margin-top: 5px; font-variant-numeric: tabular-nums; font-weight: 600;
+}
+
+.rkBannerWL {
+  display: flex; align-items: center; gap: 3px;
+  font-size: clamp(14px, 1.4vw, 20px); font-weight: 800; flex-shrink: 0;
+}
+.rkW   { color: rgba(0,220,130,0.90); }
+.rkL   { color: rgba(255,80,80,0.85); }
+.rkWlSep { color: rgba(255,255,255,0.20); margin: 0 2px; }
+
+/* Progress bar — more substantial */
+.rkBannerBarWrap { display: flex; flex-direction: column; gap: 7px; }
+.rkBannerBarTrack {
+  height: 10px;
+  border-radius: 999px;
+  background: rgba(255,255,255,0.07);
+  border: 1px solid rgba(255,255,255,0.10);
+  overflow: hidden;
+}
+.rkBannerBarFill { height: 100%; border-radius: 999px; transition: width 600ms cubic-bezier(.22,1,.36,1); }
+.rkBarPlacement     { background: rgba(255,255,255,0.40); }
+.rkBarTier-plastic  { background: #7b8cbf; }
+.rkBarTier-wood     { background: #b8864a; }
+.rkBarTier-bronze   { background: #d4824a; }
+.rkBarTier-silver   { background: #b8c4d8; }
+.rkBarTier-gold     { background: #f0c830; }
+.rkBarTier-platinum { background: #38d8c8; }
+.rkBarTier-diamond  { background: #80b8ff; }
+.rkBarTier-master   { background: #d080ff; }
+.rkBarTier-champion { background: linear-gradient(90deg,#ffd200,#ff8c00); }
+.rkBarTier-unranked { background: rgba(255,255,255,0.20); }
+.rkBannerBarLabels { display: flex; justify-content: space-between; font-size: clamp(9px, 0.8vw, 12px); color: rgba(255,255,255,0.28); font-weight: 700; }
+
+/* Streak / shield pills */
+.rkPills { display: flex; flex-wrap: wrap; gap: 8px; }
+.rkPill  { font-size: clamp(10px, 0.9vw, 13px); font-weight: 800; padding: 4px 12px; border-radius: 999px; border: 1px solid; }
+.rkPillStreak { background: rgba(255,140,0,0.15); border-color: rgba(255,140,0,0.30); color: rgba(255,190,80,0.95); }
+.rkPillShield { background: rgba(80,160,255,0.12); border-color: rgba(80,160,255,0.28); color: rgba(130,200,255,0.95); }
+
+/* Bracket note — larger, lighter for accessibility */
+.rkBracketNote {
+  font-size: clamp(10px, 0.82vw, 12px);
+  color: rgba(255,255,255,0.38);
+  letter-spacing: 0.05em;
+  font-weight: 500;
+}
+
+/* ── Mode entry wrapper (wraps mnBtn + footer pill) ── */
+.rkModeEntry {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  transition: opacity 0.18s ease;
+}
+.rkEntry--dimmed {
+  opacity: 0.28;
+  pointer-events: none;
+}
+
+/* Queue overlay — absolute inside mnBtn (position:relative) */
+.mnBtn { position: relative; }
+.rkImgOverlay {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  justify-content: center;
+  gap: 4px;
+  padding: 0 clamp(16px, 2vw, 28px);
+  background: linear-gradient(90deg, rgba(6,8,20,0.88) 0%, rgba(6,8,20,0.50) 70%, transparent 100%);
+  border-radius: 6px 0 0 6px;
+  pointer-events: none;
+}
+.rkOverlayDot {
+  width: 9px; height: 9px; border-radius: 50%;
+  background: rgba(99,210,255,0.92);
+  animation: rkDotPulse 1.1s ease-in-out infinite;
+}
+@keyframes rkDotPulse { 0%,100%{opacity:1;transform:scale(1)} 50%{opacity:0.25;transform:scale(0.6)} }
+.rkOverlayStatus {
+  font-family: 'Orbitron', sans-serif;
+  font-size: clamp(11px, 1.1vw, 15px); font-weight: 900; letter-spacing: 0.06em;
+  color: rgba(160,220,255,0.95); font-variant-numeric: tabular-nums;
+}
+.rkOverlayCancel {
+  font-family: 'Orbitron', sans-serif;
+  font-size: clamp(8px, 0.75vw, 10px); font-weight: 800; letter-spacing: 0.12em;
+  color: rgba(255,100,100,0.80);
+}
+
+/* Tier pill below each button */
+.rkModeFooter { padding-left: 4px; }
+.rkModeTierPill {
+  display: inline-block; font-size: clamp(8px, 0.72vw, 10px); font-weight: 900;
+  letter-spacing: 0.08em; padding: 3px 10px; border-radius: 999px; border: 1px solid;
+}
+
+/* Login wall */
+.rkLoginWall {
+  position: absolute; inset: 0; z-index: 10;
+  display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 16px;
+  background: rgba(5,5,8,0.90); backdrop-filter: blur(10px);
+}
+.rkLoginWallMsg { font-size: clamp(14px,1.3vw,18px); font-weight: 800; color: rgba(255,255,255,0.70); letter-spacing: 0.05em; }
+
+/* ══════════════════════════════════════════════════════════════
+   RANKED LEFT COLUMN — board centered, brand at bottom
+══════════════════════════════════════════════════════════════ */
+
+/* Override mnLeft so we control layout ourselves */
+.rkLeft {
+  display: flex !important;
+  flex-direction: column !important;
+  justify-content: flex-start !important;
+  padding-top: clamp(32px, 6vh, 72px) !important;
+  padding-bottom: clamp(20px, 4vh, 52px);
+}
+
+/* Takes all available vertical space; centers the board inside it */
+.rkBoardCenter {
+  flex: 1 1 auto;
+  min-height: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0 clamp(20px, 2.5vw, 40px);
+}
+
+/* Brand sits naturally at the bottom after rkBoardCenter consumes all space */
+.rkBrand {
+  flex-shrink: 0;
+}
+
+/* ── Placement Board card — fully opaque ── */
+.rkPlacementBoard {
+  opacity: 1;
+  position: relative;
+  z-index: 10;
+  background: #0c0d14;
+  border: 1px solid rgba(255,255,255,0.13);
+  border-radius: 18px;
+  padding: clamp(18px, 2.2vh, 28px) clamp(18px, 2vw, 28px);
+  box-shadow: 0 12px 60px rgba(0,0,0,0.80), inset 0 1px 0 rgba(255,255,255,0.07);
+  width: clamp(280px, 34vw, 480px);
+  align-self: center;
+}
+
+/* Core Panel */
+.glass-panel {
+  background: rgba(20, 22, 28, 0.75);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 16px;
+  padding: clamp(16px, 2vw, 24px);
+  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.4), inset 0 1px 0 rgba(255, 255, 255, 0.1);
+}
+.text-muted { color: rgba(255,255,255,0.4); }
+.center-text { text-align: center; }
+
+/* Tabs */
+.rkTabs { display: flex; margin-bottom: clamp(16px, 2vh, 24px); border-bottom: 1px solid rgba(255,255,255,0.08); }
+.rkTab { flex: 1; font-family: 'Orbitron', sans-serif; font-size: clamp(9px, 0.75vw, 11px); font-weight: 800; letter-spacing: 0.12em; color: rgba(255,255,255,0.3); background: transparent; border: none; border-bottom: 2px solid transparent; margin-bottom: -1px; padding: 0 4px clamp(10px, 1.2vh, 14px); cursor: pointer; transition: all 0.3s cubic-bezier(0.25, 0.8, 0.25, 1); white-space: nowrap; }
+.rkTab:hover { color: rgba(255,255,255,0.8); background: linear-gradient(to top, rgba(255,255,255,0.03), transparent); }
+.rkTab.active { color: #fff; border-bottom: 2px solid #64dcff; text-shadow: 0 0 16px rgba(100,220,255,0.5); }
+
+/* Mode Subtitle */
+.rkPBModeTitle { display: flex; align-items: baseline; gap: 8px; margin-bottom: 16px; }
+.rkPBModeName { font-family: 'Orbitron', sans-serif; font-size: clamp(12px, 1.1vw, 15px); font-weight: 900; letter-spacing: 0.1em; }
+.rkPBModeName--standard    { color: #38b8f5; text-shadow: 0 0 10px rgba(56,184,245,0.3); }
+.rkPBModeName--mirror_war  { color: #f55484; text-shadow: 0 0 10px rgba(245,84,132,0.3); }
+.rkPBModeName--blind_draft { color: #e8e8e8; }
+.rkPBModeLabel { font-family: 'Orbitron', sans-serif; font-size: clamp(9px, 0.7vw, 11px); font-weight: 700; letter-spacing: 0.14em; color: rgba(255,255,255,0.3); }
+
+/* Badge & Info */
+.rkPBHead { display: flex; align-items: center; gap: 20px; margin-bottom: 20px; }
+.rkBannerBadge { width: clamp(52px, 5.5vw, 72px); height: clamp(52px, 5.5vw, 72px); border-radius: 14px; display: flex; align-items: center; justify-content: center; font-size: clamp(20px, 2.2vw, 30px); font-weight: 900; flex-shrink: 0; border-width: 2px; border-style: solid; }
+.glow-badge { background: rgba(255,255,255,0.05); border-color: rgba(255,255,255,0.12) !important; box-shadow: inset 0 0 20px rgba(0,0,0,0.5); }
+.rkBannerInfo { flex: 1 1 auto; min-width: 0; }
+.rkBannerTier { font-size: clamp(18px, 1.5vw, 24px); font-weight: 800; font-family: 'Orbitron', sans-serif; margin: 0 0 4px 0; letter-spacing: 0.05em; color: rgba(255,255,255,0.95); }
+.rkBannerLp { font-size: clamp(11px, 0.9vw, 13px); margin: 0; font-weight: 500; }
+
+/* Progress Bar */
+.rkBannerBarWrap { display: flex; flex-direction: column; gap: 8px; }
+.rkBannerBarTrack { height: 8px; border-radius: 999px; background: rgba(0,0,0,0.4); border: 1px solid rgba(255,255,255,0.1); overflow: hidden; box-shadow: inset 0 1px 3px rgba(0,0,0,0.5); }
+.rkBannerBarFill { height: 100%; border-radius: 999px; transition: width 0.8s cubic-bezier(0.22, 1, 0.36, 1); }
+.rkBannerBarLabels { display: flex; justify-content: space-between; font-size: clamp(10px, 0.8vw, 12px); font-weight: 600; text-transform: uppercase; letter-spacing: 0.05em; }
+
+/* Stats Row */
+.rkPBStatsRow { display: inline-flex; align-items: center; gap: 8px; margin-top: 16px; padding: 10px 16px; background: rgba(0,0,0,0.2); border: 1px solid rgba(255,255,255,0.05); border-radius: 8px; }
+.rkPBStatsRow.inline-stats { margin-top: 0; padding: 4px 8px; background: transparent; border: none; }
+.rkPBStatItem { display: flex; align-items: center; gap: 6px; font-size: clamp(13px, 1.1vw, 15px); font-weight: 800; font-variant-numeric: tabular-nums; }
+.rkPBStatDot { width: 8px; height: 8px; border-radius: 50%; box-shadow: 0 0 8px currentColor; flex-shrink: 0; }
+.rkPBStatDot--w { background: #10b981; color: #10b981; }
+.rkPBStatDot--l { background: #ef4444; color: #ef4444; }
+.rkPBStatSep { color: rgba(255,255,255,0.2); font-weight: 300; }
+
+/* Bracket Note */
+.rkBracketNote { font-size: clamp(11px, 0.85vw, 13px); color: rgba(255,255,255,0.4); letter-spacing: 0.05em; margin-top: 20px; border-top: 1px solid rgba(255,255,255,0.05); padding-top: 12px; }
+
+/* ALL View */
+.rkPBAll { display: flex; flex-direction: column; gap: 0; }
+.rkPBAllRow { display: flex; align-items: center; gap: 16px; padding: 14px 0; border-bottom: 1px solid rgba(255,255,255,0.05); transition: background 0.2s; }
+.rkPBAllRow:hover { background: rgba(255,255,255,0.02); border-radius: 8px; padding-left: 8px; padding-right: 8px; margin: 0 -8px; }
+.rkPBAllRow:last-of-type { border-bottom: none; }
+.rkPBAllMode { font-family: 'Orbitron', sans-serif; font-size: clamp(8px, 0.65vw, 10px); font-weight: 900; letter-spacing: 0.1em; width: 85px; flex-shrink: 0; }
+.rkPBAllBadge { width: 40px; height: 40px; border-radius: 8px; display: flex; align-items: center; justify-content: center; font-size: 16px; font-weight: 900; background: rgba(255,255,255,0.05); border: 1px solid rgba(255,255,255,0.1); }
+.rkPBAllInfo { flex: 1 1 auto; min-width: 0; }
+.rkPBAllTierRow { display: flex; align-items: center; justify-content: space-between; margin-bottom: 7px; }
+.rkPBAllTier { font-family: 'Orbitron', sans-serif; font-size: clamp(9px, 0.8vw, 12px); font-weight: 800; color: rgba(255,255,255,0.85); }
+.rkPBAllBar { height: 7px !important; }
+
+/* Fade transition between tabs */
+.fade-enter-active, .fade-leave-active { transition: opacity 0.18s ease; }
+.fade-enter-from, .fade-leave-to { opacity: 0; }
+
+/* ══════════════════════════════════════════════════════════════
+   FINDING MATCH MODAL
+══════════════════════════════════════════════════════════════ */
+/* ── Finding Match mode-color variants (reuses .modalStripe / .modalIconDot) ── */
+.modalStripe.modeStd    { background: linear-gradient(90deg, rgba(79,200,237,0.9), rgba(79,200,237,0.4)); }
+.modalStripe.modeMirror { background: linear-gradient(90deg, rgba(238,75,114,0.9), rgba(238,75,114,0.4)); }
+.modalStripe.modeBlind  { background: linear-gradient(90deg, rgba(255,255,255,0.8), rgba(255,255,255,0.2)); }
+.modalIconDot.modeStd    { background: rgba(79,200,237,0.9);   box-shadow: 0 0 10px rgba(79,200,237,0.5); }
+.modalIconDot.modeMirror { background: rgba(238,75,114,0.9);   box-shadow: 0 0 10px rgba(238,75,114,0.5); }
+.modalIconDot.modeBlind  { background: rgba(255,255,255,0.90); box-shadow: 0 0 10px rgba(255,255,255,0.4); }
+.findingModeTag {
+  font-family: 'Orbitron', sans-serif;
+  font-size: 10px; font-weight: 700;
+  letter-spacing: 0.12em;
+  color: rgba(255,255,255,0.30);
+  margin-left: 4px;
+  align-self: center;
+}
+.findingStatus {
+  font-family: 'Orbitron', sans-serif;
+  font-size: 13px !important;
+}
+
+/* Modal transition */
+.rkModalFade-enter-active { animation: rkModalIn 0.28s cubic-bezier(0.34,1.56,0.64,1) both; }
+.rkModalFade-leave-active { animation: rkModalIn 0.18s ease reverse both; }
+@keyframes rkModalIn {
+  from { opacity: 0; transform: scale(0.92); }
+  to   { opacity: 1; transform: scale(1); }
+}</style>
